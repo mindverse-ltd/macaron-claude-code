@@ -16,6 +16,7 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  ConfigResponse,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -26,6 +27,7 @@ export async function getJSON<T>(url: string): Promise<T> {
 
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
+  config: () => getJSON<ConfigResponse>('/api/config'),
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),

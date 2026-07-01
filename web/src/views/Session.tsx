@@ -6,6 +6,7 @@ import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
 import { extractPartialCode } from '../lib/partialJson';
+import { useMacaronConfig } from '../lib/configStore';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -361,6 +362,8 @@ export function Session() {
   // -1 = no usage signal yet (Macaron path or pre-first-delta). Indicator
   // falls back to a len/4 estimate when this is < 0.
   const [outputTokens, setOutputTokens] = useState<number>(-1);
+  const macaronCfg = useMacaronConfig();
+  const macaronConfigured = macaronCfg?.configured ?? true;
   const [input, setInput] = useState('');
   const [shown, setShown] = useState(PAGE_SIZE);
   const [model, setModel] = useState<ModelKey>('claude-opus-4-7');
@@ -762,7 +765,14 @@ export function Session() {
             disabled={sending}
             title="Model"
           >
-            {MODEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {MODEL_OPTIONS.map((o) => {
+              const disabled = o.value === 'macaron-0.6' && !macaronConfigured;
+              return (
+                <option key={o.value} value={o.value} disabled={disabled}>
+                  {o.label}{disabled ? ' (not configured)' : ''}
+                </option>
+              );
+            })}
           </select>
           <select
             className="tool-select"

@@ -4,6 +4,8 @@ import {
   MACARON_API_KEY,
   MACARON_MODEL,
   GENUI_SYSTEM_PROMPT_URL,
+  isMacaronConfigured,
+  MACARON_CONFIG_HINT,
 } from '../config.js';
 
 type Body = { prompt?: string; useTool?: boolean };
@@ -60,6 +62,11 @@ export async function registerGenuiRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: Body }>('/api/genui', async (req, reply) => {
     const userPrompt = String(req.body?.prompt || '').trim();
     if (!userPrompt) return reply.status(400).send({ error: 'prompt required' });
+    if (!isMacaronConfigured()) {
+      return reply
+        .status(503)
+        .send({ error: `Macaron API not configured. ${MACARON_CONFIG_HINT}` });
+    }
     const useTool = req.body?.useTool !== false;
 
     // Pipe upstream SSE bytes through unchanged — the OpenAI-compatible stream

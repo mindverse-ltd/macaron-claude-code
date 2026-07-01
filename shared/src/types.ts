@@ -51,4 +51,6 @@ export type SessionDetail = {
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
-export type ConfigResponse = { macaron: { base: string; model: string } };
+export type ConfigResponse = {
+  macaron: { base: string; model: string; configured: boolean };
+};

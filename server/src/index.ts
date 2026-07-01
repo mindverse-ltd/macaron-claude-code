@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { HOST, PORT, WEB_DIST } from './config.js';
+import { HOST, PORT, WEB_DIST, isMacaronConfigured } from './config.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
 // for complex UIs can take 30-120s, so raise the ceiling to 5 min.
@@ -50,6 +50,11 @@ if (existsSync(WEB_DIST)) {
 try {
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
+  if (!isMacaronConfigured()) {
+    app.log.warn(
+      'MACARON_API_BASE / MACARON_API_KEY not set — Claude features work; GenUI Builder and Macaron-0.6 model will return 503 until configured.',
+    );
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

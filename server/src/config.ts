@@ -4,19 +4,16 @@ import path from 'node:path';
 export const PORT = parseInt(process.env.MACARON_PORT || '7878', 10);
 export const HOST = process.env.MACARON_HOST || '127.0.0.1';
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
-    throw new Error(
-      `Missing required env var ${name}. See .env.example — export it in your shell or a local .env before starting the server.`,
-    );
-  }
-  return v;
-}
-
-export const MACARON_API_BASE = requiredEnv('MACARON_API_BASE');
-export const MACARON_API_KEY = requiredEnv('MACARON_API_KEY');
+// Macaron API is optional — the Claude Code path (default experience) works
+// without it. GenUI Builder and the Macaron-0.6 chat model need these set;
+// each endpoint checks at call time and returns a helpful 503 if missing.
+export const MACARON_API_BASE = process.env.MACARON_API_BASE || '';
+export const MACARON_API_KEY = process.env.MACARON_API_KEY || '';
 export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
+export const isMacaronConfigured = (): boolean =>
+  Boolean(MACARON_API_BASE) && Boolean(MACARON_API_KEY);
+export const MACARON_CONFIG_HINT =
+  'Set MACARON_API_BASE and MACARON_API_KEY (see .env.example). WebUI settings panel coming soon.';
 
 export const GENUI_SYSTEM_PROMPT_URL = 'https://genui.macaron.im/api/system-prompt';
 

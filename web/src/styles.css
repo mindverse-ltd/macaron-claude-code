@@ -643,6 +643,24 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-expand:hover { color: var(--accent); }
 
+.cfg-banner {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  background: rgba(238, 92, 42, 0.08);
+  border: 1px solid rgba(238, 92, 42, 0.35);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.cfg-banner code {
+  background: rgba(0,0,0,0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 /* ---------- thinking indicator (claude-cli 1:1 clone) ----------
    Colors mirror the shipped CLI theme: `claude: rgb(215,119,87)` (light
    theme) — a warm coral for star + verb + tail. Meta items (elapsed, tokens,

@@ -9,7 +9,14 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { CLAUDE_PROJECTS, MACARON_API_BASE, MACARON_API_KEY, MACARON_MODEL } from '../config.js';
+import {
+  CLAUDE_PROJECTS,
+  MACARON_API_BASE,
+  MACARON_API_KEY,
+  MACARON_MODEL,
+  isMacaronConfigured,
+  MACARON_CONFIG_HINT,
+} from '../config.js';
 import type { AttachedImage } from './claude-runner.js';
 import type { SessionStreamEvent } from '@macaron/shared';
 
@@ -68,6 +75,12 @@ export async function runMacaronChat(
   args: Args,
   send: (ev: SessionStreamEvent) => void,
 ): Promise<void> {
+  if (!isMacaronConfigured()) {
+    send({ type: 'error', error: `Macaron API not configured. ${MACARON_CONFIG_HINT}` });
+    send({ type: 'done', exitCode: 1 });
+    return;
+  }
+
   const filePath = path.join(CLAUDE_PROJECTS, args.project, `${args.sid}.jsonl`);
 
   if (args.images.length > 0) {
