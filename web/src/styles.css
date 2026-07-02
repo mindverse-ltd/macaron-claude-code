@@ -1092,18 +1092,80 @@ textarea:focus, select:focus, input:focus {
   gap: 8px;
 }
 .session-input-spacer { flex: 1; }
-.session-input .primary { padding: 8px 18px; border-radius: 8px; }
-.tool-select {
-  height: 30px;
+
+/* Chip-style picker used for provider & permission-mode selectors on the
+   input toolbar. A native <select> sits invisibly on top of the pill so we
+   get OS-native menus for free but keep our own visual chrome. */
+.provider-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 10px;
   border: 1px solid var(--border);
+  border-radius: 999px;
   background: var(--bg);
   color: var(--text);
-  border-radius: 6px;
-  font-size: 12px;
-  padding: 0 8px;
   cursor: pointer;
+  font-size: 12.5px;
+  line-height: 1;
+  max-width: 190px;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
-.tool-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.provider-chip:hover:not(.disabled) {
+  border-color: var(--text-2);
+  background: var(--surface-2);
+}
+.provider-chip.disabled { opacity: 0.5; cursor: not-allowed; }
+.provider-chip-icon { color: var(--muted); flex: 0 0 auto; }
+.provider-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+}
+.provider-chip-caret { color: var(--muted); flex: 0 0 auto; opacity: 0.7; }
+.provider-chip-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+  border: 0;
+  appearance: none;
+}
+.provider-chip-select:disabled { cursor: not-allowed; }
+
+/* Compact circular Send button. Icon-only when idle; small dot animation
+   while sending. */
+.session-input .send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.session-input .send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.send-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: send-pulse 1s ease-in-out infinite;
+}
+@keyframes send-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
 
 .img-chips {
   display: flex;

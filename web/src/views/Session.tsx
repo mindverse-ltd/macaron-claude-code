@@ -15,6 +15,7 @@ import {
   easeTowards,
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
+import { ProviderPicker } from '../components/ProviderPicker';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -30,6 +31,43 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
   { value: 'bypassPermissions', label: 'Bypass all' },
 ];
 type AttachedImage = { id: string; name: string; mimeType: string; dataUrl: string };
+
+// Chip-styled permission-mode picker for the input toolbar. Native <select>
+// sits invisibly on top of the pill so the OS-native menu handles keyboard
+// nav + accessibility for free.
+function PermissionChip({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: PermissionMode;
+  onChange: (v: PermissionMode) => void;
+  disabled: boolean;
+}) {
+  const active = PERMISSION_OPTIONS.find((o) => o.value === value);
+  return (
+    <div className={`provider-chip${disabled ? ' disabled' : ''}`} title={`Permission · ${active?.label ?? value}`}>
+      <svg className="provider-chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+      <span className="provider-chip-label">{active?.label ?? value}</span>
+      <svg className="provider-chip-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+      <select
+        className="provider-chip-select"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as PermissionMode)}
+        aria-label="Permission mode"
+      >
+        {PERMISSION_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -770,6 +808,12 @@ export function Session() {
           }}
           onKeyDown={onKey}
         />
+        {/*
+          Claude-web-style toolbar. Attach on the far left. Model (provider)
+          and permission chips grouped on the right next to Send. Each chip
+          is a small pill button with icon + label + caret; a real <select>
+          sits on top of it (opacity:0) to get native picker behaviour.
+        */}
         <div className="session-input-tools">
           <input
             ref={fileInputRef}
@@ -793,22 +837,27 @@ export function Session() {
               <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
-          <select
-            className="tool-select"
-            value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
-            disabled={sending}
-            title="Permission mode"
-          >
-            {PERMISSION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
           <div className="session-input-spacer" />
+          <PermissionChip
+            value={permissionMode}
+            onChange={setPermissionMode}
+            disabled={sending}
+          />
+          <ProviderPicker />
           <button
-            className="primary"
+            className="primary send-btn"
             type="submit"
             disabled={sending || (!input.trim() && images.length === 0)}
+            aria-label="Send"
           >
-            {sending ? '…' : 'Send'}
+            {sending ? (
+              <span className="send-dot" />
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5" />
+                <path d="m5 12 7-7 7 7" />
+              </svg>
+            )}
           </button>
         </div>
       </form>
