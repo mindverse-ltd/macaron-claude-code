@@ -80,6 +80,10 @@ export const macaronMcpServer = createSdkMcpServer({
           ],
         };
       },
+      // Keep render_ui visible in the first prompt even when Claude defers MCP
+      // tools behind tool search. The server-level alwaysLoad covers any
+      // future Macaron tools; this keeps the core bridge explicit.
+      { alwaysLoad: true },
     ),
   ],
 });
