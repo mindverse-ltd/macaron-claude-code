@@ -82,9 +82,11 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
   const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
   // Confirm which provider a call is actually hitting — useful when
   // debugging "is Macaron really being used" questions.
-  const routedBase = opts.envOverrides?.ANTHROPIC_BASE_URL || '(inherited from process.env)';
+  const e = opts.envOverrides;
+  const routedBase = e?.ANTHROPIC_BASE_URL || '(inherited from process.env)';
+  const cfgDir = e?.CLAUDE_CONFIG_DIR || '(user default ~/.claude)';
   console.log(
-    `[claude-runner] starting  model=${opts.model ?? '(sdk default)'}  base=${routedBase}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}`,
+    `[claude-runner] starting  model=${opts.model ?? '(sdk default)'}  base=${routedBase}  CLAUDE_CONFIG_DIR=${cfgDir}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}`,
   );
   try {
     const stream = query({

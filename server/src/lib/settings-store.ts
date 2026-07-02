@@ -8,8 +8,9 @@
 // Cache is warmed at startup so getActiveProviderEnv() is synchronous —
 // hot-path request handlers can call it without awaiting disk I/O.
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, mkdirSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { HOME, MACARON_API_BASE, MACARON_API_KEY } from '../config.js';
 
@@ -249,6 +250,23 @@ export async function setActiveProvider(id: string): Promise<boolean> {
 
 // ---------- Active provider → SDK env override -------------------------
 
+// Isolated CLAUDE_CONFIG_DIR for subprocesses run against a custom provider.
+// Claude Code CLI reads its OAuth session from disk on startup, which would
+// otherwise beat any ANTHROPIC_AUTH_TOKEN we set in the subprocess env. By
+// pointing CLAUDE_CONFIG_DIR at an empty dir we own, the subprocess finds
+// no OAuth session and falls through to env-based auth against Macaron.
+// User's ~/.claude/ is completely untouched — terminal `claude` sessions
+// keep using their normal login.
+const ISOLATED_CONFIG_DIR = path.join(os.tmpdir(), 'macaron-plugin-isolated-claude');
+let isolatedDirReady = false;
+function ensureIsolatedDir(): string {
+  if (!isolatedDirReady) {
+    if (!existsSync(ISOLATED_CONFIG_DIR)) mkdirSync(ISOLATED_CONFIG_DIR, { recursive: true });
+    isolatedDirReady = true;
+  }
+  return ISOLATED_CONFIG_DIR;
+}
+
 // Consumed synchronously by request handlers. Requires the cache to be
 // warmed (warmSettingsCache() at startup handles that).
 export function getActiveProviderEnv(): {
@@ -261,13 +279,22 @@ export function getActiveProviderEnv(): {
   }
   const p = s.customProviders.find((x) => x.id === s.activeProviderId);
   if (!p) return { model: DEFAULT_ANTHROPIC_MODEL, env: null };
+  const isolatedDir = ensureIsolatedDir();
   return {
     model: p.model || DEFAULT_ANTHROPIC_MODEL,
     env: {
       ...process.env as Record<string, string>,
+      // Isolate from user's OAuth session — this is the whole point.
+      CLAUDE_CONFIG_DIR: isolatedDir,
+      // Just in case a stale token is being passed through anyway.
+      CLAUDE_CODE_OAUTH_TOKEN: '',
+      // Route to the custom provider.
       ANTHROPIC_BASE_URL: p.endpoint,
       ANTHROPIC_AUTH_TOKEN: p.apiKey,
       ANTHROPIC_API_KEY: p.apiKey,
+      // Force the model — some CLI code paths read ANTHROPIC_MODEL for
+      // env-based selection.
+      ANTHROPIC_MODEL: p.model || DEFAULT_ANTHROPIC_MODEL,
     },
   };
 }
