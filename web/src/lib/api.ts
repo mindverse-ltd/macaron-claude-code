@@ -8,7 +8,6 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
-  ConfigResponse,
 } from '@macaron/shared';
 
 import type {
@@ -16,7 +15,6 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
-  ConfigResponse,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -25,30 +23,63 @@ export async function getJSON<T>(url: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export type Provider = 'anthropic' | 'macaron';
-export type PublicSettings = {
-  provider: Provider;
-  providers: {
-    macaron: { base: string; model: string; configured: boolean };
-  };
+export type PublicBuiltinProvider = {
+  id: 'anthropic';
+  name: string;
+  description: string;
 };
+export type PublicCustomProvider = {
+  id: string;
+  name: string;
+  endpoint: string;
+  model: string;
+  configured: boolean;
+};
+export type PublicSettings = {
+  activeProviderId: string;
+  builtins: PublicBuiltinProvider[];
+  customProviders: PublicCustomProvider[];
+};
+
+export type ProviderInput = {
+  name: string;
+  endpoint: string;
+  model: string;
+  apiKey?: string;
+};
+
+async function req<T>(url: string, init: RequestInit): Promise<T> {
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return r.json() as Promise<T>;
+}
 
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
-  config: () => getJSON<ConfigResponse>('/api/config'),
   settings: () => getJSON<PublicSettings>('/api/settings'),
-  saveSettings: async (patch: {
-    provider?: Provider;
-    providers?: { macaron?: { apiKey?: string } };
-  }): Promise<PublicSettings> => {
-    const r = await fetch('/api/settings', {
+
+  addProvider: (input: ProviderInput) =>
+    req<{ id: string; settings: PublicSettings }>('/api/settings/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateProvider: (id: string, patch: Partial<ProviderInput>) =>
+    req<PublicSettings>(`/api/settings/providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
-    });
-    if (!r.ok) throw new Error(`http ${r.status}: ${await r.text()}`);
-    return r.json() as Promise<PublicSettings>;
-  },
+    }),
+  deleteProvider: (id: string) =>
+    req<PublicSettings>(`/api/settings/providers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  setActiveProvider: (providerId: string) =>
+    req<PublicSettings>('/api/settings/active', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId }),
+    }),
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),

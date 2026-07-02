@@ -11,7 +11,7 @@ import {
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
-import { getProviderEnv } from '../lib/settings-store.js';
+import { getActiveProviderEnv } from '../lib/settings-store.js';
 
 type Params = { project: string };
 type NewSessionBody = {
@@ -53,10 +53,9 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       if (!text && images.length === 0) {
         return reply.status(400).send({ error: 'text or images required' });
       }
-      // Provider is a global setting; the SDK talks to the configured backend
-      // (default Anthropic or Macaron's Anthropic-compatible endpoint) via env
-      // overrides. The `model` field in body is ignored for now.
-      const { model, env: providerEnv } = getProviderEnv();
+      // Active provider (from Settings) picks the SDK's backing endpoint.
+      // The `model` body field is currently ignored — provider is global.
+      const { model, env: providerEnv } = getActiveProviderEnv();
 
       // Derive cwd from any existing session in this project, else decode the
       // project name (which mirrors claude-cli's encoding).

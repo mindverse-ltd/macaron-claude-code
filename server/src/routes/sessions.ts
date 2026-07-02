@@ -5,7 +5,7 @@ import { deleteSession, readSessionMessages, readSessionSummary } from '../lib/s
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveGet } from '../lib/live-registry.js';
 import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
-import { getProviderEnv } from '../lib/settings-store.js';
+import { getActiveProviderEnv } from '../lib/settings-store.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -89,10 +89,10 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         try { sseSend(reply, payload); } catch { clientGone = true; }
       };
 
-      // Provider switch: Settings.provider decides whether Claude Code SDK
-      // talks to the default Anthropic endpoint or Macaron's /v1/messages.
-      // Same tools, same jsonl, same everything — just a different backing LLM.
-      const { model: providerModel, env: providerEnv } = getProviderEnv();
+      // The Settings-selected active provider determines which
+      // Anthropic-compatible endpoint the SDK talks to (default = ambient
+      // Claude login). Same tools, same jsonl, same everything.
+      const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
       void model; // eslint: kept in body for future per-message override
 
       (async () => {

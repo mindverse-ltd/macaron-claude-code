@@ -653,13 +653,20 @@ textarea:focus, select:focus, input:focus {
   background: var(--surface);
 }
 .settings-section h2.sec-title { margin-top: 0; }
-.settings-providers {
+.settings-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.settings-row-head h2.sec-title { margin: 0; }
+
+.prov-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;
 }
-.settings-provider-card {
+.prov-card {
   display: flex;
   gap: 12px;
   align-items: flex-start;
@@ -667,15 +674,60 @@ textarea:focus, select:focus, input:focus {
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.settings-provider-card.active {
+.prov-card:hover { border-color: var(--text-2); }
+.prov-card.active {
   border-color: var(--accent);
   background: rgba(238, 92, 42, 0.04);
 }
-.settings-provider-card input[type='radio'] { margin-top: 3px; }
-.settings-provider-label { font-weight: 600; }
-.settings-provider-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.prov-card input[type='radio'] { margin-top: 5px; flex: 0 0 auto; }
+.prov-card-body { flex: 1; min-width: 0; }
+.prov-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.prov-name { font-weight: 600; }
+.prov-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--muted);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.prov-tag.ok { color: #3a7; background: rgba(76, 175, 80, 0.12); }
+.prov-tag.bad { color: #c65; background: rgba(198, 92, 82, 0.12); }
+.prov-card-sub {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prov-card-sub code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: transparent;
+  padding: 0;
+}
+.prov-model { margin-left: 6px; }
+.prov-card-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.prov-card-actions .ghost.small.danger { color: var(--bad); }
+.prov-card-actions .ghost.small.danger:hover { background: rgba(198, 92, 82, 0.08); }
+
+.prov-editor {
+  border-color: var(--accent);
+  background: rgba(238, 92, 42, 0.03);
+}
 .settings-field {
   display: flex;
   flex-direction: column;

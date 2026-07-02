@@ -1,35 +1,74 @@
 import type { FastifyInstance } from 'fastify';
 import {
   readPublicSettings,
-  writeSettings,
-  type Provider,
+  addProvider,
+  updateProvider,
+  deleteProvider,
+  setActiveProvider,
 } from '../lib/settings-store.js';
 
-type PutBody = {
-  provider?: Provider;
-  providers?: {
-    macaron?: {
-      apiKey?: string;
-    };
-  };
-};
+type AddBody = { name?: string; endpoint?: string; model?: string; apiKey?: string };
+type UpdateBody = { name?: string; endpoint?: string; model?: string; apiKey?: string };
+type ActiveBody = { providerId?: string };
 
 export async function registerSettingsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/settings', async () => await readPublicSettings());
 
-  app.put<{ Body: PutBody }>('/api/settings', async (req, reply) => {
+  app.post<{ Body: AddBody }>('/api/settings/providers', async (req, reply) => {
+    const b = req.body || {};
+    const name = String(b.name || '').trim();
+    const endpoint = String(b.endpoint || '').trim();
+    const model = String(b.model || '').trim();
+    const apiKey = String(b.apiKey || '');
+    if (!name) return reply.status(400).send({ error: 'name required' });
+    if (!endpoint) return reply.status(400).send({ error: 'endpoint required' });
+    if (!model) return reply.status(400).send({ error: 'model required' });
     try {
-      const body = req.body || {};
-      const next: Parameters<typeof writeSettings>[0] = {};
-      if (body.provider === 'anthropic' || body.provider === 'macaron') {
-        next.provider = body.provider;
+      const created = await addProvider({ name, endpoint, model, apiKey });
+      return { id: created.id, settings: await readPublicSettings() };
+    } catch (e) {
+      return reply.status(500).send({ error: (e as Error).message });
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: UpdateBody }>(
+    '/api/settings/providers/:id',
+    async (req, reply) => {
+      const b = req.body || {};
+      const patch: UpdateBody = {};
+      if (typeof b.name === 'string') patch.name = b.name;
+      if (typeof b.endpoint === 'string') patch.endpoint = b.endpoint;
+      if (typeof b.model === 'string') patch.model = b.model;
+      if (typeof b.apiKey === 'string') patch.apiKey = b.apiKey;
+      try {
+        const updated = await updateProvider(req.params.id, patch);
+        if (!updated) return reply.status(404).send({ error: 'provider not found' });
+        return await readPublicSettings();
+      } catch (e) {
+        return reply.status(500).send({ error: (e as Error).message });
       }
-      if (body.providers?.macaron?.apiKey !== undefined) {
-        next.providers = {
-          macaron: { apiKey: String(body.providers.macaron.apiKey) },
-        };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/settings/providers/:id',
+    async (req, reply) => {
+      try {
+        const ok = await deleteProvider(req.params.id);
+        if (!ok) return reply.status(404).send({ error: 'provider not found' });
+        return await readPublicSettings();
+      } catch (e) {
+        return reply.status(500).send({ error: (e as Error).message });
       }
-      await writeSettings(next);
+    },
+  );
+
+  app.put<{ Body: ActiveBody }>('/api/settings/active', async (req, reply) => {
+    const id = String(req.body?.providerId || '');
+    if (!id) return reply.status(400).send({ error: 'providerId required' });
+    try {
+      const ok = await setActiveProvider(id);
+      if (!ok) return reply.status(404).send({ error: 'provider not found' });
       return await readPublicSettings();
     } catch (e) {
       return reply.status(500).send({ error: (e as Error).message });
