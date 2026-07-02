@@ -2,9 +2,9 @@
 
 A Claude Code plugin that opens a local **WebUI** giving you three things you can't get from the CLI alone:
 
-1. **GenUI Builder** — stream Macaron-generated TSX with live code pane (thinking-tokens shown separately).
-2. **Model switcher** — send the same prompt to Claude, Codex, or **Macaron-0.6** without leaving the page.
-3. **Visual `/resume`** — browse Claude Code & Codex session history with previews; one click copies the `--resume` command.
+1. **Visual `/resume`** — browse Claude Code workspaces & sessions with previews; one click copies the `--resume` command.
+2. **Live chat** — continue any session (or start a new one) in the browser; streams thinking, tool calls and GenUI previews via the Claude Agent SDK.
+3. **Provider switcher** — run sessions against your ambient Claude Code login or any Anthropic-compatible endpoint (Macaron, OpenRouter, LiteLLM, …).
 
 The plugin bundles the official **`genui-builder` skill** so any Claude Code instance that has it loaded can also produce GenUI TSX from the command line.
 
@@ -16,14 +16,14 @@ Drop the folder into Claude Code's local marketplace, or load it directly:
 
 ```bash
 # from anywhere
-claude plugin install /Users/linfan/mindverse/macaron-plugin
+claude plugin install /path/to/macaron-claude-code
 ```
 
-Or register the directory as a personal marketplace and install by name:
+Or register the parent directory as a personal marketplace and install by name:
 
 ```bash
-claude plugin marketplace add /Users/linfan/mindverse
-claude plugin install macaron@mindverse
+claude plugin marketplace add /path/to/parent-dir
+claude plugin install macaron@<marketplace>
 ```
 
 Verify:
@@ -41,19 +41,20 @@ Inside any Claude Code session:
 /macaron
 ```
 
-The slash command starts the local server (`node server/server.mjs`, port `7878` by default) and opens `http://localhost:7878` in your browser. Pass a custom port with `/macaron 8080`.
+The slash command starts the local server (`node server/dist/index.js`, port `7878` by default) and opens `http://localhost:7878` in your browser. Pass a custom port with `/macaron 8080`.
 
-### Tabs
+### Views
 
-| Tab          | What it does |
-| ------------ | ------------ |
-| **GenUI**    | POST `/api/genui` → streams `chat/completions` from Macaron with the live GenUI system prompt. TSX grows in the code pane as tokens arrive; reasoning tokens are surfaced in the status line. |
-| **Chat**     | POST `/api/chat` with a model id. `macaron-*` hits the API directly; `claude` and `codex` spawn the local CLI and pipe stdout back as SSE. |
-| **Sessions** | Reads `~/.claude/projects/**/*.jsonl` and `~/.codex/sessions/**/rollout-*.jsonl`, previews the first user message, copies the right `--resume` command for either CLI. |
+| View          | What it does |
+| ------------- | ------------ |
+| **Dashboard** | All workspaces from `~/.claude/projects/**/*.jsonl`, sorted by last activity. |
+| **Workspace** | Sessions of one project with previews; start a new session from here. |
+| **Session**   | Full transcript (thinking, tool calls, live GenUI TSX previews) + follow-up messages streamed over SSE. |
+| **Settings**  | Manage Anthropic-compatible providers and pick the active one (stored in `~/.claude/macaron-config.json`). |
 
 ## Configure
 
-The demo ships with a Macaron API key embedded. Override via env vars before launching:
+Copy `.env.example` to `.env` (git-ignored) before launching:
 
 ```bash
 export MACARON_API_BASE="https://your-endpoint/v1"
@@ -69,14 +70,13 @@ export MACARON_PORT=7878
 .claude-plugin/plugin.json        plugin manifest
 commands/macaron.md               /macaron slash command
 skills/genui-builder/             bundled skill (used by Claude Code directly)
-start.sh                          boots the server in background, opens browser
-server/server.mjs                 zero-dep Node HTTP + SSE server
-server/public/{index.html,app.js,styles.css}   WebUI
+start.sh                          one-time npm install + build, boots server in background
+shared/                           domain types + SSE protocol (server ↔ web)
+server/                           Fastify API, Claude Agent SDK runner, provider relay
+web/                              Vite + React UI
 ```
 
 ## Notes
 
-- Built and tested against **Node 22**. No npm deps.
+- Built and tested against **Node 22**.
 - Claude Code stores project directories as `~/.claude/projects/-<encoded-path>`; hyphens in the original folder name are ambiguous (we display the best-guess decoded path).
-- The "Build & open" button in the GenUI tab is wired but not implemented — drop in `bunx @genui/cli build` when you want to render the preview in-page.
-- Codex SSE streaming uses `codex exec` subprocess; for richer streaming swap in the Codex MCP server.
