@@ -682,7 +682,11 @@ export function Session() {
       */}
       <div className="thread tui" ref={threadRef}>
         {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistant.length} outputTokens={outputTokens} />}
-        {sending && liveAssistant && <ItemView it={{ id: 'live-a', kind: 'live-assistant', text: liveAssistant }} />}
+        {/* Render whenever there's text — not just while sending. Since we no
+            longer reload the jsonl on `done`, this line has to survive until
+            either the next send() (which rolls it into completedTurns) or a
+            manual page refresh (which loads canonical data). */}
+        {liveAssistant && <ItemView it={{ id: 'live-a', kind: 'live-assistant', text: liveAssistant }} />}
         {[...liveTools].reverse().map((t) => <ItemView key={t.id} it={t} />)}
         {liveUser && <ItemView it={{ id: 'live-u', kind: 'live-user', text: liveUser }} />}
         {[...completedTurns].reverse().map((it) => (
@@ -703,7 +707,19 @@ export function Session() {
         {isNew && !liveUser && !sending && (
           <div className="placeholder">Start a new session — set permissions below and send your first message.</div>
         )}
-        {!isNew && !data && !error && !polling && <div className="muted">Loading…</div>}
+        {/* Only show "Loading…" if we truly have nothing to render — hide it
+            when live buffers or completed turns already show content, since
+            the canonical jsonl may just be a beat behind the CLI. */}
+        {!isNew &&
+          !data &&
+          !error &&
+          !polling &&
+          !liveUser &&
+          !liveAssistant &&
+          liveTools.length === 0 &&
+          completedTurns.length === 0 && (
+            <div className="muted">Loading…</div>
+          )}
         {error && <div className="ti-error">error: {error}</div>}
       </div>
 
