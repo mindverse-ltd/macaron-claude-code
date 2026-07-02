@@ -5,7 +5,7 @@ import { deleteSession, readSessionMessages, readSessionSummary } from '../lib/s
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveGet } from '../lib/live-registry.js';
 import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
-import { runMacaronChat } from '../lib/macaron-chat.js';
+import { getProviderEnv } from '../lib/settings-store.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -89,15 +89,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         try { sseSend(reply, payload); } catch { clientGone = true; }
       };
 
-      if (model === 'macaron-0.6') {
-        runMacaronChat({ project, sid, text, images }, safeSend)
-          .catch((e: unknown) => safeSend({ type: 'error', error: (e as Error).message }))
-          .finally(() => { if (!clientGone) sseDone(reply); });
-        return;
-      }
+      // Provider switch: Settings.provider decides whether Claude Code SDK
+      // talks to the default Anthropic endpoint or Macaron's /v1/messages.
+      // Same tools, same jsonl, same everything — just a different backing LLM.
+      const { model: providerModel, env: providerEnv } = getProviderEnv();
+      void model; // eslint: kept in body for future per-message override
 
       (async () => {
-        for await (const ev of runClaude({ prompt: text, cwd, resume: sid, model, permissionMode, images })) {
+        for await (const ev of runClaude({ prompt: text, cwd, resume: sid, model: providerModel, permissionMode, images, envOverrides: providerEnv })) {
           if (ev.kind === 'delta') safeSend({ type: 'delta', text: ev.text });
           else if (ev.kind === 'tool_use') {
             safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });

@@ -6,7 +6,6 @@ import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
 import { extractPartialCode } from '../lib/partialJson';
-import { useMacaronConfig } from '../lib/configStore';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -24,19 +23,12 @@ const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWit
 const PAGE_SIZE = 80;
 
 type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-type ModelKey = 'claude-opus-4-7' | 'macaron-0.6';
-
 const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
   { value: 'default', label: 'Default (ask)' },
   { value: 'acceptEdits', label: 'Accept edits' },
   { value: 'plan', label: 'Plan mode' },
   { value: 'bypassPermissions', label: 'Bypass all' },
 ];
-const MODEL_OPTIONS: Array<{ value: ModelKey; label: string }> = [
-  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-  { value: 'macaron-0.6', label: 'Macaron 0.6' },
-];
-
 type AttachedImage = { id: string; name: string; mimeType: string; dataUrl: string };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -362,11 +354,8 @@ export function Session() {
   // -1 = no usage signal yet (Macaron path or pre-first-delta). Indicator
   // falls back to a len/4 estimate when this is < 0.
   const [outputTokens, setOutputTokens] = useState<number>(-1);
-  const macaronCfg = useMacaronConfig();
-  const macaronConfigured = macaronCfg?.configured ?? true;
   const [input, setInput] = useState('');
   const [shown, setShown] = useState(PAGE_SIZE);
-  const [model, setModel] = useState<ModelKey>('claude-opus-4-7');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -507,7 +496,6 @@ export function Session() {
         try {
           const newSid = await startNewSession(project, {
             text,
-            model,
             permissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
           });
@@ -527,7 +515,6 @@ export function Session() {
         `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/message`,
         {
           text,
-          model,
           permissionMode,
           images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
         },
@@ -611,7 +598,7 @@ export function Session() {
         },
       );
     },
-    [project, sid, input, sending, load, images, model, permissionMode, isNew, navigate, toast],
+    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast],
   );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -682,7 +669,7 @@ export function Session() {
         )}
         {data && total === 0 && !polling && !liveUser && <div className="placeholder">No messages yet.</div>}
         {isNew && !liveUser && !sending && (
-          <div className="placeholder">Start a new session — choose model & permissions below, then send.</div>
+          <div className="placeholder">Start a new session — set permissions below and send your first message.</div>
         )}
         {!isNew && !data && !error && !polling && <div className="muted">Loading…</div>}
         {error && <div className="ti-error">error: {error}</div>}
@@ -719,7 +706,7 @@ export function Session() {
         )}
         <textarea
           rows={2}
-          placeholder={model === 'macaron-0.6' ? 'Ask Macaron…' : 'Reply to Claude…'}
+          placeholder="Reply to Claude…"
           value={input}
           disabled={sending}
           onChange={(e) => setInput(e.target.value)}
@@ -760,26 +747,10 @@ export function Session() {
           </button>
           <select
             className="tool-select"
-            value={model}
-            onChange={(e) => setModel(e.target.value as ModelKey)}
-            disabled={sending}
-            title="Model"
-          >
-            {MODEL_OPTIONS.map((o) => {
-              const disabled = o.value === 'macaron-0.6' && !macaronConfigured;
-              return (
-                <option key={o.value} value={o.value} disabled={disabled}>
-                  {o.label}{disabled ? ' (not configured)' : ''}
-                </option>
-              );
-            })}
-          </select>
-          <select
-            className="tool-select"
             value={permissionMode}
             onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
-            disabled={sending || model !== 'claude-opus-4-7'}
-            title={model === 'claude-opus-4-7' ? 'Permission mode' : 'Permission mode (Claude only)'}
+            disabled={sending}
+            title="Permission mode"
           >
             {PERMISSION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>

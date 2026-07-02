@@ -11,6 +11,7 @@ import {
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
+import { getProviderEnv } from '../lib/settings-store.js';
 
 type Params = { project: string };
 type NewSessionBody = {
@@ -48,16 +49,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const project = req.params.project;
       const text = String(req.body?.text || '').trim();
       const images = Array.isArray(req.body?.images) ? req.body!.images! : [];
-      const model = req.body?.model || 'claude-opus-4-7';
       const permissionMode = req.body?.permissionMode || 'default';
       if (!text && images.length === 0) {
         return reply.status(400).send({ error: 'text or images required' });
       }
-      if (model === 'macaron-0.6') {
-        // New sessions require a Claude session id (jsonl exists). Macaron has no
-        // such concept — point the user to start with Claude first, then switch.
-        return reply.status(400).send({ error: 'macaron-0.6 needs an existing session — start with Claude, then switch models inside the session.' });
-      }
+      // Provider is a global setting; the SDK talks to the configured backend
+      // (default Anthropic or Macaron's Anthropic-compatible endpoint) via env
+      // overrides. The `model` field in body is ignored for now.
+      const { model, env: providerEnv } = getProviderEnv();
 
       // Derive cwd from any existing session in this project, else decode the
       // project name (which mirrors claude-cli's encoding).
@@ -90,7 +89,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // Don't pass abortController — we want the SDK to keep running even if
       // the client navigates away. The live registry handles the post-nav
       // subscription.
-      const stream = runClaude({ prompt: text, cwd, model, permissionMode, images });
+      const stream = runClaude({ prompt: text, cwd, model, permissionMode, images, envOverrides: providerEnv });
 
       let clientGone = false;
       reply.raw.on('close', () => {

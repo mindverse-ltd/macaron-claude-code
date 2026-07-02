@@ -33,9 +33,9 @@ export function Sidebar() {
           <span>Dashboard</span>
           <small>workspaces &amp; sessions</small>
         </NavLink>
-        <NavLink to="/genui" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-          <span>GenUI Builder</span>
-          <small>Macaron-0.6</small>
+        <NavLink to="/settings" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
+          <span>Settings</span>
+          <small>provider &amp; API key</small>
         </NavLink>
       </nav>
 

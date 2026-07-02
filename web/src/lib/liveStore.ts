@@ -70,7 +70,6 @@ export function clearLive(sid: string): void {
 
 export type NewSessionOptions = {
   text: string;
-  model?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   images?: Array<{ mimeType: string; dataUrl: string }>;
 };
@@ -90,7 +89,6 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        model: opts.model,
         permissionMode: opts.permissionMode,
         images: opts.images,
       }),

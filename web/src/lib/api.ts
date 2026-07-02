@@ -25,9 +25,30 @@ export async function getJSON<T>(url: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export type Provider = 'anthropic' | 'macaron';
+export type PublicSettings = {
+  provider: Provider;
+  providers: {
+    macaron: { base: string; model: string; configured: boolean };
+  };
+};
+
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
   config: () => getJSON<ConfigResponse>('/api/config'),
+  settings: () => getJSON<PublicSettings>('/api/settings'),
+  saveSettings: async (patch: {
+    provider?: Provider;
+    providers?: { macaron?: { apiKey?: string } };
+  }): Promise<PublicSettings> => {
+    const r = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) throw new Error(`http ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<PublicSettings>;
+  },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),

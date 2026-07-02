@@ -29,7 +29,7 @@ import { App } from './App';
 import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
 import { Session } from './views/Session';
-import { GenUI } from './views/GenUI';
+import { Settings } from './views/Settings';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import './styles.css';
@@ -71,7 +71,7 @@ const router = createHashRouter([
     element: <App />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'genui', element: <GenUI /> },
+      { path: 'settings', element: <Settings /> },
       { path: 'w/:project', element: <Workspace /> },
       { path: 'w/:project/new', element: <Session /> },
       { path: 'w/:project/s/:sid', element: <Session /> },

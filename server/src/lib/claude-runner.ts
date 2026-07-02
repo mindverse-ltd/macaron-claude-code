@@ -37,6 +37,13 @@ export type RunOptions = {
   permissionMode?: PermissionMode;
   model?: string;
   images?: AttachedImage[];
+  /**
+   * Env vars to pass to the Claude Code SDK subprocess. Setting
+   * ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN here reroutes the SDK to a
+   * different Anthropic-compatible endpoint (e.g. Macaron). When null, the
+   * subprocess inherits process.env unchanged (default Anthropic path).
+   */
+  envOverrides?: Record<string, string> | null;
 };
 
 function buildPromptInput(opts: RunOptions): string | AsyncIterable<SDKUserMessage> {
@@ -90,6 +97,9 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
         // bypass permissions globally because the session still needs the
         // default gating for Bash/Edit/Write etc.
         allowedTools: ['mcp__macaron__render_ui'],
+        // Provider switch: when envOverrides is set (Macaron backend),
+        // hand the SDK subprocess a custom env with ANTHROPIC_BASE_URL etc.
+        ...(opts.envOverrides ? { env: opts.envOverrides } : {}),
       },
     });
     for await (const m of stream as AsyncIterable<SDKMessage>) {
