@@ -1,6 +1,5 @@
 {
   "name": "macaron",
-  "version": "0.1.0",
   "description": "Macaron WebUI for Claude Code — streaming GenUI builder, model switcher (Claude / Codex / Macaron), and visual session manager.",
   "author": {
     "name": "Mindverse",
