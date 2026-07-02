@@ -1029,7 +1029,9 @@ textarea:focus, select:focus, input:focus {
 .md h1 { font-size: 18px; }
 .md h2 { font-size: 16px; }
 .md h3 { font-size: 14.5px; }
-.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+/* restore list markers cleared by @unocss/reset's `ul,ol{list-style:none}` */
+.md ul { margin: 0 0 10px; padding-left: 22px; list-style: disc; }
+.md ol { margin: 0 0 10px; padding-left: 22px; list-style: decimal; }
 .md li { margin: 2px 0; }
 .md li > p { margin: 0; }
 .md strong { font-weight: 600; color: var(--text); }

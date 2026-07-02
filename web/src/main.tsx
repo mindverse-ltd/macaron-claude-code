@@ -19,6 +19,11 @@ import * as Motion from 'motion/react';
 // CSS variables that source.tsx + components/ui depend on
 import './macaron-vendor/base.css';
 
+// $macaron/ui primitives assume a Tailwind element reset (button/input/list normalize);
+// without it native <button> UA borders leak through the GenUI preview (e.g. Tabs triggers).
+// Imported before styles.css so the app's hand-written paper theme wins on conflicts.
+import '@unocss/reset/tailwind.css';
+
 // UnoCSS runtime — generates utility classes from DOM (matches macaron's uno.config.ts)
 import initUnocssRuntime from '@unocss/runtime';
 import presetWind3 from '@unocss/preset-wind3';
