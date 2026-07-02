@@ -354,6 +354,14 @@ export function Session() {
   // -1 = no usage signal yet (Macaron path or pre-first-delta). Indicator
   // falls back to a len/4 estimate when this is < 0.
   const [outputTokens, setOutputTokens] = useState<number>(-1);
+  // Completed turns held in-memory between refreshes. We used to re-fetch the
+  // jsonl after each `done` event to promote live buffers into canonical
+  // data.messages, but the CLI flushes the jsonl asynchronously — sometimes
+  // the file is still stale when we load, and users see the just-streamed
+  // reply vanish. Instead: freeze the live buffers into this list on the
+  // NEXT send (or on unmount), and let a full page refresh be the only
+  // trigger that pulls the canonical data back.
+  const [completedTurns, setCompletedTurns] = useState<Item[]>([]);
   const [input, setInput] = useState('');
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
@@ -389,6 +397,10 @@ export function Session() {
       const d = await api.session(project, sid);
       setData(d);
       setShown(PAGE_SIZE);
+      // A successful load means the jsonl is now canonical; drop any
+      // in-memory completedTurns that were carrying the tail across a stale
+      // "done" event.
+      setCompletedTurns([]);
     } catch (e) {
       if (!opts?.silent) setError((e as Error).message);
     }
@@ -438,14 +450,13 @@ export function Session() {
       if (s.done) {
         applyState(s);
         unsub();
-        load({ silent: true }).then(() => {
-          setLiveUser('');
-          setLiveAssistant('');
-          setLiveTools([]);
-          setPolling(false);
-          setSending(false);
-          clearLive(sid);
-        });
+        // Don't reload from jsonl here — CLI flushes asynchronously and the
+        // file is often still stale, which would erase the just-streamed
+        // reply. The live buffers we already have in memory are the truth
+        // for this turn; they roll into completedTurns on the next send.
+        setPolling(false);
+        setSending(false);
+        clearLive(sid);
         return;
       }
       if (!rafScheduled) {
@@ -476,6 +487,22 @@ export function Session() {
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
 
+  // Snapshot the current live buffers (from the last completed turn) into
+  // completedTurns, then reset live state for the next turn. Called just
+  // before we start streaming a new message so users don't lose the
+  // previous turn's assistant reply/tools when they type another prompt.
+  const rollLiveIntoHistory = useCallback(() => {
+    const frozen: Item[] = [];
+    if (liveUser) frozen.push({ id: `hist-u-${Date.now()}`, kind: 'user', text: liveUser });
+    frozen.push(...liveTools);
+    if (liveAssistant) frozen.push({ id: `hist-a-${Date.now()}`, kind: 'assistant', text: liveAssistant });
+    if (frozen.length) setCompletedTurns((cur) => [...cur, ...frozen]);
+    setLiveUser('');
+    setLiveAssistant('');
+    setLiveTools([]);
+    setOutputTokens(-1);
+  }, [liveUser, liveAssistant, liveTools]);
+
   const send = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
@@ -484,6 +511,10 @@ export function Session() {
       const sentImages = images;
       setInput('');
       setImages([]);
+      // Roll the *previous* turn's live buffers into history before we
+      // clobber them with this turn's user text — otherwise typing a second
+      // message erases the first reply until the next page refresh.
+      rollLiveIntoHistory();
       setSending(true);
       setLiveUser(text || (sentImages.length ? `(${sentImages.length} image${sentImages.length > 1 ? 's' : ''})` : ''));
       setLiveAssistant('');
@@ -585,15 +616,13 @@ export function Session() {
           onError: (err) => {
             setLiveAssistant((cur) => cur + `\n[error] ${err}`);
           },
-          onDone: async () => {
-            // Load jsonl first, THEN clear the live buffers — eliminates the
-            // brief blank gap where neither live nor loaded items are mounted
-            // (which caused the GenUI card to flash/re-render).
-            await load();
+          onDone: () => {
+            // Don't re-read the jsonl here — the CLI writes it asynchronously
+            // and it's often still stale at this point, which made the
+            // just-streamed reply flicker or vanish. Keep the live buffers
+            // visible; the next send() rolls them into `completedTurns`,
+            // and a page refresh reloads the canonical jsonl.
             setSending(false);
-            setLiveUser('');
-            setLiveAssistant('');
-            setLiveTools([]);
           },
         },
       );
@@ -656,6 +685,9 @@ export function Session() {
         {sending && liveAssistant && <ItemView it={{ id: 'live-a', kind: 'live-assistant', text: liveAssistant }} />}
         {[...liveTools].reverse().map((t) => <ItemView key={t.id} it={t} />)}
         {liveUser && <ItemView it={{ id: 'live-u', kind: 'live-user', text: liveUser }} />}
+        {[...completedTurns].reverse().map((it) => (
+          <ItemView key={it.id} it={it} />
+        ))}
         {[...tail].reverse().map((it) => (
           <ItemView key={it.id} it={it} />
         ))}
