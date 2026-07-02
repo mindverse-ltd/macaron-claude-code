@@ -1102,14 +1102,17 @@ textarea:focus, select:focus, input:focus {
   align-items: center;
   gap: 6px;
   height: 32px;
-  padding: 0 10px 0 10px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
   font-size: 12.5px;
-  line-height: 1;
+  /* Was `line-height: 1` — too tight, clipped the descenders of "p"/"y"/"g"
+     inside the overflow:hidden label span. 1.4 gives room for descenders
+     without changing the pill height. */
+  line-height: 1.4;
   max-width: 190px;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
