@@ -27,6 +27,7 @@ export default defineConfig({
       'partial-react/render-context',
       'partial-tsx',
       '@esm.sh/tsx',
+      'react-dom/server',
     ],
     esbuildOptions: {
       loader: { '.ts': 'tsx', '.tsx': 'tsx' },
