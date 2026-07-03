@@ -529,16 +529,52 @@ textarea:focus, select:focus, input:focus {
   font-size: 12px;
 }
 
+/* ---------- session header (cwd + elapsed) ---------- */
+.ti-session-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 2px 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+.ti-session-cwd { color: var(--text-2); }
+.ti-session-elapsed { color: var(--muted); opacity: 0.85; }
+
 /* user prompt — chevron */
 .ti-user {
+  position: relative;
   display: flex;
   gap: 10px;
-  padding: 12px 12px 12px 0;
   margin-top: 14px;
   background: var(--surface-2);
   border-radius: 8px;
   padding: 10px 14px;
   border: 1px solid var(--border);
+}
+.ti-user-rewind {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ti-user:hover .ti-user-rewind { opacity: 1; }
+.ti-user-rewind:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: rgba(192, 82, 74, 0.06);
 }
 .ti-user:first-child { margin-top: 0; }
 .ti-chev {
@@ -595,7 +631,7 @@ textarea:focus, select:focus, input:focus {
   white-space: pre-wrap;
 }
 
-/* tool call entry */
+/* tool call entry — original inline ● + └ layout */
 .ti-tool {
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -656,6 +692,79 @@ textarea:focus, select:focus, input:focus {
   font-size: 12px;
 }
 .ti-expand:hover { color: var(--accent); }
+
+/* ---------- todo card ---------- */
+.ti-todo {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.ti-todo-stats {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.ti-todo-stats strong { color: var(--text); }
+.ti-todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ti-todo-li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ti-todo-icon {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.ti-todo-text { min-width: 0; }
+.ti-todo-completed .ti-todo-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.ti-todo-completed .ti-todo-icon { color: var(--good); }
+.ti-todo-in_progress .ti-todo-icon { color: var(--accent); font-weight: 700; }
+.ti-todo-in_progress .ti-todo-text { color: var(--text); font-weight: 500; }
+.ti-todo-pending .ti-todo-icon { color: var(--muted-2); }
+.ti-todo-pending .ti-todo-text { color: var(--text-2); }
+
+/* ---------- system event (※ recap / resume) ---------- */
+.ti-sysevent {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 4px 2px;
+}
+.ti-sysevent-mark {
+  color: var(--muted-2);
+  font-style: normal;
+  margin-right: 6px;
+}
+.ti-sysevent-label {
+  color: var(--text-2);
+  font-weight: 600;
+  font-style: normal;
+}
+.ti-sysevent-toggle {
+  display: inline;
+  padding: 0 0 0 4px;
+  font-size: 12px;
+}
 
 /* ---------- Settings page ---------- */
 .settings-view header p { color: var(--muted); margin-top: 4px; }
@@ -1193,6 +1302,100 @@ textarea:focus, select:focus, input:focus {
   opacity: 0.35;
   cursor: not-allowed;
 }
+/* ---------- inline permission gate (pending only) ---------- */
+.ti-perm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border: 1px solid var(--warn);
+  background: rgba(184, 138, 58, 0.06);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.ti-perm-icon { font-size: 12px; flex-shrink: 0; }
+.ti-perm-title { color: var(--text); flex-shrink: 0; }
+.ti-perm-title strong { color: var(--text); font-weight: 600; }
+.ti-perm-args {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 11.5px;
+}
+.ti-perm-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.ti-perm-actions .primary.small,
+.ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
+
+/* ---------- session actions dropdown ---------- */
+.actions-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.actions-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: max-content;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(61, 57, 41, 0.12);
+  padding: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: actions-menu-in 0.12s ease;
+}
+@keyframes actions-menu-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.actions-menu-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  transition: background 0.1s ease;
+  white-space: nowrap;
+}
+.actions-menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.actions-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.actions-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.actions-menu-label { font-size: 13.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.actions-menu-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+
+.session-input .send-btn.stop-btn {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.session-input .send-btn.stop-btn:hover:not(:disabled) {
+  background: #a94a42;
+  border-color: #a94a42;
+}
 .send-dot {
   width: 8px;
   height: 8px;
@@ -1203,6 +1406,134 @@ textarea:focus, select:focus, input:focus {
 @keyframes send-pulse {
   0%, 100% { opacity: 0.4; transform: scale(0.9); }
   50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ---------- CLI-style status bar (under the input) ----------
+   Tight mono grid — hierarchy comes from color + weight, not spacing. Rows
+   share a single left column so ● ✓ ▸ ▸▸ etc. always line up. */
+.status-bar {
+  margin-top: 8px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.status-sep { color: var(--muted-2); user-select: none; opacity: 0.55; padding: 0 2px; }
+.status-project {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+/* Row 1 — identity (biggest / boldest) */
+.status-identity { font-size: 12.5px; }
+.status-bar .status-identity .provider-chip-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Row 2 — context bar */
+.status-context { gap: 6px; }
+.status-context-label { color: var(--text-2); font-weight: 500; }
+.status-context-pct { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.status-context-tokens { color: var(--muted); font-size: 11.5px; }
+.status-bar-track {
+  position: relative;
+  width: 140px;
+  height: 10px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.status-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+.status-bar-track.tone-context .status-bar-fill { background: linear-gradient(90deg, #7fb26b, #a8d179); }
+.status-bar-track.tone-usage   .status-bar-fill { background: linear-gradient(90deg, #6d99c8, #9dc0e0); }
+.status-bar-track.tone-weekly  .status-bar-fill { background: linear-gradient(90deg, #b88a3a, #d4b070); }
+
+/* Row 3 — env (dimmer) */
+.status-env { color: var(--muted); font-size: 11.5px; }
+
+/* Row 4 — tools (dimmer, checkmark accent) */
+.status-tools { gap: 6px; }
+.status-tool {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.status-tool-check { color: var(--good); font-weight: 700; }
+.status-tool-name { color: var(--text-2); font-weight: 500; }
+.status-tool-count { color: var(--muted); }
+.status-tool .status-sep { padding-left: 6px; }
+
+/* Row 5 — todo */
+.status-todo { gap: 5px; }
+.status-todo-arrow { color: var(--accent); font-weight: 700; }
+.status-todo-text {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.status-todo-progress { color: var(--muted); flex-shrink: 0; font-size: 11.5px; }
+
+/* Row 6 — permission */
+.status-perm { gap: 6px; }
+.status-perm-arrow { color: var(--accent); font-weight: 700; }
+.status-perm-hint { color: var(--muted); font-size: 11px; opacity: 0.75; }
+
+/* Slim chips (no pill, no bg) — inline text + caret; click still opens
+   the native picker via the invisible <select>. */
+.status-bar .provider-chip {
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  font-size: inherit;
+  color: var(--text-2);
+  gap: 4px;
+  max-width: none;
+  line-height: inherit;
+}
+.status-bar .provider-chip:hover:not(.disabled) {
+  background: transparent;
+  color: var(--accent);
+  border: none;
+}
+.status-bar .provider-chip-icon { display: none; }
+.status-bar .provider-chip-label {
+  max-width: 220px;
+  font-weight: 500;
+}
+.status-bar .provider-chip-caret {
+  width: 8px;
+  height: 8px;
+  opacity: 0.55;
 }
 
 .img-chips {

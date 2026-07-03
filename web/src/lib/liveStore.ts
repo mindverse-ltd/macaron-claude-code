@@ -9,7 +9,12 @@
 
 import { extractPartialCode } from './partialJson';
 
-export type LiveTool =
+// A single item on the timeline. Text chunks and tool calls are stored in
+// one ordered list so the UI renders them in the exact interleaved order
+// they arrive (Claude often emits `text → tool → text → tool → text`, and
+// separating them makes the render look re-ordered).
+export type LiveTurnItem =
+  | { kind: 'text'; id: string; text: string }
   | { kind: 'tool'; id: string; name: string; input: unknown; result?: string }
   | {
       kind: 'genui';
@@ -18,15 +23,24 @@ export type LiveTool =
       code: string;
       status: 'pending' | 'ready' | 'error';
       error?: string;
+    }
+  | {
+      kind: 'permission';
+      id: string;
+      permissionId: string;
+      toolName: string;
+      input: unknown;
+      status: 'pending' | 'allow' | 'deny';
     };
 
 export type LiveState = {
   cwd: string;
   userText: string;
-  assistantBuf: string;
-  // In-flight tool calls for this turn, in arrival order. Mirrors what the
-  // Session view shows in resume-flow live mode.
-  tools: LiveTool[];
+  // Single ordered timeline. On each `delta`, we either append to the
+  // last text item (if the previous entry was text) or push a new text
+  // item; tool events push their own entries; text entries never merge
+  // across a tool boundary. This preserves Claude's original ordering.
+  timeline: LiveTurnItem[];
   // Authoritative cumulative output_tokens from Anthropic's message_delta
   // usage events. -1 = no signal received yet (indicator falls back to a
   // len/4 estimate). Reset to -1 at the start of each new turn.
@@ -34,6 +48,16 @@ export type LiveState = {
   done: boolean;
   error?: string;
 };
+
+let liveTextIdSeq = 0;
+function appendText(items: LiveTurnItem[], text: string): void {
+  const last = items[items.length - 1];
+  if (last && last.kind === 'text') {
+    last.text += text;
+    return;
+  }
+  items.push({ kind: 'text', id: `live-t-${++liveTextIdSeq}`, text });
+}
 
 const states = new Map<string, LiveState>();
 const watchers = new Map<string, Set<(s: LiveState) => void>>();
@@ -127,8 +151,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                   states.set(sid, {
                     cwd: p.cwd || '',
                     userText: text,
-                    assistantBuf: '',
-                    tools: [],
+                    timeline: [],
                     outputTokens: -1,
                     done: false,
                   });
@@ -141,16 +164,16 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
               } else if (sid && p.type === 'delta') {
                 const s = states.get(sid);
                 if (s) {
-                  s.assistantBuf += p.text;
+                  appendText(s.timeline, p.text);
                   notify(sid);
                 }
               } else if (sid && p.type === 'tool_use') {
                 const s = states.get(sid);
                 if (s) {
                   if (p.name === 'mcp__macaron__render_ui') {
-                    s.tools.push({ kind: 'genui', id: `live-${p.id}`, toolUseId: p.id, code: '', status: 'pending' });
+                    s.timeline.push({ kind: 'genui', id: `live-${p.id}`, toolUseId: p.id, code: '', status: 'pending' });
                   } else {
-                    s.tools.push({ kind: 'tool', id: `live-${p.id}`, name: p.name, input: p.input });
+                    s.timeline.push({ kind: 'tool', id: `live-${p.id}`, name: p.name, input: p.input });
                   }
                   notify(sid);
                 }
@@ -159,7 +182,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                 if (s && p.name === 'mcp__macaron__render_ui') {
                   const partial = extractPartialCode(p.accumulated);
                   if (partial) {
-                    const t = s.tools.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
+                    const t = s.timeline.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
                     if (t && t.kind === 'genui' && partial.length > t.code.length) {
                       t.code = partial;
                       notify(sid);
@@ -172,7 +195,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                   try {
                     const obj = JSON.parse(p.final_json);
                     if (typeof obj?.code === 'string') {
-                      const t = s.tools.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
+                      const t = s.timeline.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
                       if (t && t.kind === 'genui') { t.code = obj.code; t.status = 'ready'; }
                       notify(sid);
                     }
@@ -181,7 +204,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
               } else if (sid && p.type === 'tool_result') {
                 const s = states.get(sid);
                 if (s) {
-                  const t = s.tools.find((x) =>
+                  const t = s.timeline.find((x) =>
                     (x.kind === 'genui' && x.toolUseId === p.tool_use_id) ||
                     (x.kind === 'tool' && x.id === `live-${p.tool_use_id}`),
                   );
@@ -195,6 +218,30 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                         t.status = 'ready';
                       }
                     }
+                    notify(sid);
+                  }
+                }
+              } else if (sid && p.type === 'permission_request') {
+                const s = states.get(sid);
+                if (s) {
+                  s.timeline.push({
+                    kind: 'permission',
+                    id: `perm-${p.id}`,
+                    permissionId: p.id,
+                    toolName: p.toolName,
+                    input: p.input,
+                    status: 'pending',
+                  });
+                  notify(sid);
+                }
+              } else if (sid && p.type === 'permission_resolved') {
+                const s = states.get(sid);
+                if (s) {
+                  const t = s.timeline.find(
+                    (x) => x.kind === 'permission' && x.permissionId === p.id,
+                  );
+                  if (t && t.kind === 'permission') {
+                    t.status = p.decision;
                     notify(sid);
                   }
                 }

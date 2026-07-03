@@ -32,14 +32,29 @@ export type Block =
   // Base64-encoded image attached to a user message. Preserved in jsonl by
   // the CLI; the WebUI renders it inline where it appears in the block order,
   // so pastes/attachments interleaved with text stay in position.
-  | { kind: 'image'; mimeType: string; data: string };
+  | { kind: 'image'; mimeType: string; data: string }
+  // Emitted by the server when it recognises a CLI-generated meta entry such
+  // as a `summary` line (post-`/compact` recap) or a "Continue from…" resume
+  // marker. Rendered as a dim `※` line by the WebUI, matching CLI.
+  | { kind: 'system_event'; eventType: 'summary' | 'compact' | 'resume' | 'meta'; text: string };
 
 export type Message = {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   blocks: Block[];
   model?: string;
   timestamp?: string;
   uuid?: string;
+};
+
+// Token usage snapshot taken from the last assistant message's `usage`
+// field in the jsonl. Cache tokens count toward the context window too, so
+// the WebUI sums them for its Context bar.
+export type UsageSnapshot = {
+  inputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  model?: string;
 };
 
 export type SessionDetail = {
@@ -50,6 +65,11 @@ export type SessionDetail = {
   messages: Message[];
   truncated?: boolean;
   totalBytes?: number;
+  latestUsage?: UsageSnapshot;
+  // Environment counters for the status bar. Both are best-effort: MCPs
+  // read from ~/.claude/settings.json; CLAUDE.md walks known locations.
+  claudeMdCount?: number;
+  mcpCount?: number;
 };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };

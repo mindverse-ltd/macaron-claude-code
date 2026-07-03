@@ -80,6 +80,8 @@ export type SessionStreamHandlers = {
   onToolInputDelta?: (t: { id: string; name: string; partial_json: string; accumulated: string }) => void;
   onToolInputDone?: (t: { id: string; name: string; final_json: string }) => void;
   onToolResult?: (t: { tool_use_id: string; text: string; isError: boolean }) => void;
+  onPermissionRequest?: (p: { id: string; toolName: string; input: unknown }) => void;
+  onPermissionResolved?: (p: { id: string; decision: 'allow' | 'deny' }) => void;
   onUsage?: (u: { outputTokens: number; thinkingTokens?: number }) => void;
   onError?: (msg: string) => void;
   onDone?: () => void;
@@ -136,6 +138,8 @@ export async function streamSession(
         else if (p.type === 'tool_input_delta') h.onToolInputDelta?.(p);
         else if (p.type === 'tool_input_done') h.onToolInputDone?.(p);
         else if (p.type === 'tool_result') h.onToolResult?.(p);
+        else if (p.type === 'permission_request') h.onPermissionRequest?.(p);
+        else if (p.type === 'permission_resolved') h.onPermissionResolved?.(p);
         else if (p.type === 'usage') h.onUsage?.(p);
         else if (p.type === 'error') h.onError?.(p.error);
         else if (p.type === 'warn') console.warn('[claude]', p.text);
