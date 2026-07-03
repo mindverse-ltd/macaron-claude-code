@@ -17,12 +17,13 @@ jobs:
         with:
           node-version: '22'
       # Install with bun, not `npm ci`: npm's optional-deps bug (npm/cli#4828)
-      # skips the platform-native rollup binary when the committed lockfile was
-      # generated on another OS, which crashes `vite build` in Linux CI. bun
-      # resolves optionalDependencies per-platform, and also runs the server
-      # bundle below. The published artifact still runs on plain Node.
+      # pins the committed lockfile to its generating OS, so `npm ci` on Linux
+      # skips the platform-native rollup binary and crashes `vite build`. bun's
+      # lockfile records every platform's optionalDependencies, so CI resolves
+      # the Linux rollup correctly. bun also runs the server bundle below; the
+      # published artifact still runs on plain Node.
       - uses: oven-sh/setup-bun@v2
-      - run: bun install
+      - run: bun install --frozen-lockfile
       # prepack builds shared → bundles server → builds web, so the tarball
       # ships prebuilt server/dist + web/dist and runs without Vite at runtime.
       - run: npm run prepack
