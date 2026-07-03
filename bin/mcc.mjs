@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // mcc — Macaron Claude Code WebUI launcher. Starts the prebuilt server and
-// serves the bundled web UI. The server bundle inlines the @macaron/shared
-// workspace pkg; npm deps stay external, so the tarball stays tiny and
-// `npx mcc` runs on a clean box with only Node — no clone, no build step.
+// serves the bundled web UI. The server bundle (bun build --packages=external)
+// leaves every npm dep external; @macaron/shared is types-only, so its
+// `import type` usages erase at compile time and it never reaches the bundler.
+// Keep it types-only: --packages=external would externalize any runtime code it
+// gains into a bare import the published tarball can't resolve.
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 
 function printHelp() {
@@ -29,14 +28,14 @@ Environment:
 }
 
 async function printVersion() {
-  const pkg = JSON.parse(await readFile(resolve(here, '..', 'package.json'), 'utf8'));
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   console.log(pkg.version);
 }
 
 const readValue = (i, flag) => {
   const v = args[i + 1];
-  // Reject only a missing or flag-like next token — an empty string is a
-  // valid (if useless) value, matching the `--flag=` inline form.
+  // Reject only a missing or flag-like next token; an empty value passes here
+  // (matching `--flag=`) and, for --port, is caught by the range check below.
   if (v === undefined || v.startsWith('-')) throw new Error(`${flag} requires a value`);
   return v;
 };
@@ -59,8 +58,9 @@ try {
     throw new Error(`Unknown option: ${a}`);
   }
 
-  if (process.env.MACARON_PORT && (!/^\d+$/.test(process.env.MACARON_PORT) || +process.env.MACARON_PORT < 1 || +process.env.MACARON_PORT > 65535)) {
-    throw new Error(`Invalid port: ${process.env.MACARON_PORT}`);
+  const port = process.env.MACARON_PORT;
+  if (port !== undefined && (!/^\d+$/.test(port) || +port < 1 || +port > 65535)) {
+    throw new Error(`Invalid port: ${port}`);
   }
 } catch (e) {
   console.error(`mcc: ${e.message}`);
