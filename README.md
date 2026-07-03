@@ -10,6 +10,20 @@ The plugin bundles the official **`genui-builder` skill** so any Claude Code ins
 
 ---
 
+## Run via npx
+
+No clone, no build — just Node 22+:
+
+```bash
+npx mcc                       # → http://localhost:7878
+npx mcc --port 8080
+MACARON_API_KEY=sk-… npx mcc
+```
+
+The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run. Pre-release builds publish to [pkg.pr.new](https://pkg.pr.new) per push — `npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code@<pr>`.
+
+---
+
 ## Install
 
 Drop the folder into Claude Code's local marketplace, or load it directly:

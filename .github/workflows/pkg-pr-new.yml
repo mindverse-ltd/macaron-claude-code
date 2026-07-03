@@ -1,0 +1,27 @@
+name: pkg.pr.new
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # bun build bundles the server (inlining the @macaron/shared workspace
+      # pkg, externalizing npm-installable deps). setup-bun is only for the
+      # build step; the published artifact runs on plain Node.
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      # prepack builds shared → bundles server → builds web, so the tarball
+      # ships prebuilt server/dist + web/dist and runs without Vite at runtime.
+      - run: npm run prepack
+      - run: bunx pkg-pr-new publish
