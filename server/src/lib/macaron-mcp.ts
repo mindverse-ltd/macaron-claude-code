@@ -2,10 +2,10 @@
 // custom tools via MCP — there's no raw-tool API — so we wrap a `render_ui`
 // tool whose `code` field carries a Claude-authored TSX module. The server
 // streams the tool_input_delta back to the WebUI as it's typed (see
-// claude-runner.ts), and the handler itself just acknowledges so the SDK
-// closes the tool call. We do NOT call any external "generator" model — the
-// Claude in this session writes the TSX directly using $macaron/ui, taught
-// via the tool description below.
+// claude-runner.ts), and the handler runs TS diagnostics over the final TSX,
+// feeding { ok, diagnostics? } back as the tool_result so bad renders self-correct.
+// We do NOT call any external "generator" model — the Claude in this session
+// writes the TSX directly using $macaron/ui, taught via the tool description below.
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
