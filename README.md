@@ -12,15 +12,17 @@ The plugin bundles the official **`genui-builder` skill** so any Claude Code ins
 
 ## Run via npx
 
-No clone, no build — just Node 22+:
+No clone, no build — just Node 22+. Pre-release builds publish to [pkg.pr.new](https://pkg.pr.new) on every push, so run the latest PR build straight from its URL:
 
 ```bash
-npx mcc                       # → http://localhost:7878
-npx mcc --port 8080
-MACARON_API_KEY=sk-… npx mcc
+npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@8            # → http://localhost:7878
+npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@8 --port 8080
+MACARON_API_KEY=sk-… npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@8
 ```
 
-The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run. Pre-release builds publish to [pkg.pr.new](https://pkg.pr.new) per push — `npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code@<pr>`.
+The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
+
+`bunx` can't run a tarball URL directly — install first, then invoke: `bun add https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@8 && bunx mcc`.
 
 ---
 
