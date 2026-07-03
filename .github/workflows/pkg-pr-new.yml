@@ -27,4 +27,7 @@ jobs:
       # prepack builds shared → bundles server → builds web, so the tarball
       # ships prebuilt server/dist + web/dist and runs without Vite at runtime.
       - run: npm run prepack
-      - run: bunx pkg-pr-new publish
+      # `bun run`, not `bunx`: pkg.pr.new warns against dlx-style runners in CI
+      # (they fetch an unpinned build each run). pkg-pr-new is a devDependency, so
+      # this executes the lockfile-pinned binary from node_modules/.bin.
+      - run: bun run pkg-pr-new publish

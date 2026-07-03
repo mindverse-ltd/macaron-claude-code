@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
+    "pkg-pr-new": "^0.0.75",
     "typescript": "^5.7.0"
   }
 }
