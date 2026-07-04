@@ -22,16 +22,19 @@ MACARON_API_KEY=sk-… npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/
 
 The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
 
-`bunx` can't run a tarball URL directly — install first, then invoke: `bun add https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main && bunx mcc`.
+`bunx` can't run a bare tarball URL, but the `name@url` form works: `bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main`.
 
 ---
 
 ## Install
 
-The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`), so install straight from GitHub — in a Claude Code session:
+The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`), so install straight from GitHub — in a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
 /plugin marketplace add mindverse-ltd/macaron-claude-code
+```
+
+```
 /plugin install macaron@macaron
 ```
 
