@@ -2,8 +2,10 @@
 // {sessionId, deltas, events, done}. Replaces the previous child_process.spawn
 // approach — same UX, no CLI stdout parsing, typed events, no IPC buffering.
 
+import { randomUUID } from 'node:crypto';
 import { query, type SDKMessage, type PermissionMode, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { macaronMcpServer } from './macaron-mcp.js';
+import { registerPending } from './permission-registry.js';
 
 export type AttachedImage = { mimeType: string; dataUrl: string };
 
@@ -25,6 +27,11 @@ export type RunnerEvent =
   // digests (estimated tokens burned during silent extended thinking).
   | { kind: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { kind: 'message'; subtype: string }
+  // Fired when the SDK's canUseTool asks whether to run a tool. The client
+  // must POST /permission-decision with { id, decision } — canUseTool is
+  // parked on a Promise until that arrives.
+  | { kind: 'permission_request'; id: string; toolName: string; input: unknown }
+  | { kind: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
   | { kind: 'error'; error: string }
   | { kind: 'done'; exitCode: number };
 
@@ -75,152 +82,185 @@ function buildPromptInput(opts: RunOptions): string | AsyncIterable<SDKUserMessa
 }
 
 export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> {
-  let sessionEmitted = false;
+  // Queue-based generator: both the SDK's async iterator loop and the
+  // canUseTool callback push here. canUseTool needs to *both* emit a
+  // permission_request event AND await a client decision — a plain
+  // `yield` inside a callback context can't do that, so we drain a shared
+  // queue from the outer generator.
+  const queue: RunnerEvent[] = [];
+  const waiters: Array<(v: IteratorResult<RunnerEvent>) => void> = [];
+  let ended = false;
+  const push = (ev: RunnerEvent) => {
+    const w = waiters.shift();
+    if (w) w({ value: ev, done: false });
+    else queue.push(ev);
+  };
+  const finish = () => {
+    ended = true;
+    while (waiters.length) waiters.shift()!({ value: undefined as unknown as RunnerEvent, done: true });
+  };
+  const next = (): Promise<IteratorResult<RunnerEvent>> => {
+    if (queue.length) return Promise.resolve({ value: queue.shift()!, done: false });
+    if (ended) return Promise.resolve({ value: undefined as unknown as RunnerEvent, done: true });
+    return new Promise((res) => waiters.push(res));
+  };
+
   // Per-content-block context for streaming tool input. The SDK fires
   // content_block_start/delta/stop with an `index`; we use that to pair
   // input_json_delta chunks with the originating tool_use's id+name.
   const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
-  // Confirm which provider a call is actually hitting — useful when
-  // debugging "is Macaron really being used" questions.
+
   const e = opts.envOverrides;
   const routedBase = e?.ANTHROPIC_BASE_URL || '(inherited from process.env)';
   const cfgDir = e?.CLAUDE_CONFIG_DIR || '(user default ~/.claude)';
   console.log(
     `[claude-runner] starting  model=${opts.model ?? '(sdk default)'}  base=${routedBase}  CLAUDE_CONFIG_DIR=${cfgDir}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}`,
   );
-  try {
-    const stream = query({
-      prompt: buildPromptInput(opts),
-      options: {
-        cwd: opts.cwd,
-        resume: opts.resume,
-        model: opts.model,
-        permissionMode: opts.permissionMode,
-        includePartialMessages: true,
-        abortController: opts.abortController,
-        // Inject the Macaron GenUI bridge so Claude can call `render_ui` to
-        // produce inline TSX previews in the chat.
-        mcpServers: { macaron: macaronMcpServer },
-        // Auto-allow render_ui — we *want* Claude to call it freely. Don't
-        // bypass permissions globally because the session still needs the
-        // default gating for Bash/Edit/Write etc.
-        allowedTools: ['mcp__macaron__render_ui'],
-        // Provider switch: when envOverrides is set (Macaron backend),
-        // hand the SDK subprocess a custom env with ANTHROPIC_BASE_URL etc.
-        ...(opts.envOverrides ? { env: opts.envOverrides } : {}),
-      },
-    });
-    for await (const m of stream as AsyncIterable<SDKMessage>) {
-      // Emit sessionId on the very first message that carries one (typically
-      // the system/init frame).
-      if (!sessionEmitted && 'session_id' in m && m.session_id) {
-        sessionEmitted = true;
-        yield { kind: 'session', sessionId: m.session_id };
-      }
-      // Token-level deltas live inside stream_event / content_block_delta.
-      if (m.type === 'stream_event') {
-        const ev = m.event;
-        // Anthropic streams cumulative output_tokens inside `message_delta`
-        // events during the turn — perfect for a live badge, avoids the
-        // len/4 English heuristic (which underestimates ~2.5x for Chinese).
-        if (ev.type === 'message_delta') {
-          const usage = (ev as unknown as { usage?: { output_tokens?: number } }).usage;
-          if (usage && typeof usage.output_tokens === 'number') {
-            yield { kind: 'usage', outputTokens: usage.output_tokens };
-          }
+
+  // Launch the SDK stream in the background. Both success and error paths
+  // eventually push a `done` and call `finish()` so the outer drain loop
+  // can exit cleanly.
+  void (async () => {
+    let sessionEmitted = false;
+    try {
+      const stream = query({
+        prompt: buildPromptInput(opts),
+        options: {
+          cwd: opts.cwd,
+          resume: opts.resume,
+          model: opts.model,
+          permissionMode: opts.permissionMode,
+          includePartialMessages: true,
+          abortController: opts.abortController,
+          mcpServers: { macaron: macaronMcpServer },
+          allowedTools: ['mcp__macaron__render_ui'],
+          // canUseTool: pause the SDK, ask the client, resume once decided.
+          // A promise is registered under a random id; the client's POST to
+          // /permission-decision looks the id up and resolves it.
+          canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+            const id = randomUUID();
+            const decision = await new Promise<
+              { decision: 'allow' } | { decision: 'deny'; reason?: string }
+            >((resolve) => {
+              registerPending(id, resolve);
+              push({ kind: 'permission_request', id, toolName, input });
+            });
+            if (decision.decision === 'allow') {
+              push({ kind: 'permission_resolved', id, decision: 'allow' });
+              return { behavior: 'allow', updatedInput: input };
+            }
+            push({ kind: 'permission_resolved', id, decision: 'deny' });
+            return { behavior: 'deny', message: decision.reason || 'denied by user', interrupt: false };
+          },
+          ...(opts.envOverrides ? { env: opts.envOverrides } : {}),
+        },
+      });
+      for await (const m of stream as AsyncIterable<SDKMessage>) {
+        if (!sessionEmitted && 'session_id' in m && m.session_id) {
+          sessionEmitted = true;
+          push({ kind: 'session', sessionId: m.session_id });
         }
-        if (ev.type === 'content_block_start') {
-          // Track tool_use blocks by their content-block index so subsequent
-          // input_json_delta events can be routed back to the right tool.
-          // Yield tool_use NOW (not on the later assistant message) so the
-          // client can create the placeholder before tool_input_delta arrives.
-          const cb = ev.content_block as {
-            type?: string; id?: string; name?: string; input?: unknown;
-          };
-          if (cb?.type === 'tool_use' && cb.id && cb.name) {
-            toolBlocks.set(ev.index, { id: cb.id, name: cb.name, json: '' });
-            yield { kind: 'tool_use', id: cb.id, name: cb.name, input: cb.input ?? {} };
-          }
-        } else if (ev.type === 'content_block_delta') {
-          const d = ev.delta as { type?: string; text?: string; partial_json?: string };
-          if (d?.type === 'text_delta' && d.text) {
-            yield { kind: 'delta', text: d.text };
-          } else if (d?.type === 'input_json_delta' && typeof d.partial_json === 'string') {
-            const tb = toolBlocks.get(ev.index);
-            if (tb) {
-              tb.json += d.partial_json;
-              yield {
-                kind: 'tool_input_delta',
-                id: tb.id,
-                name: tb.name,
-                partial_json: d.partial_json,
-                accumulated: tb.json,
-              };
+        if (m.type === 'stream_event') {
+          const ev = m.event;
+          if (ev.type === 'message_delta') {
+            const usage = (ev as unknown as { usage?: { output_tokens?: number } }).usage;
+            if (usage && typeof usage.output_tokens === 'number') {
+              push({ kind: 'usage', outputTokens: usage.output_tokens });
             }
           }
-        } else if (ev.type === 'content_block_stop') {
-          const tb = toolBlocks.get(ev.index);
-          if (tb) {
-            yield { kind: 'tool_input_done', id: tb.id, name: tb.name, final_json: tb.json };
-            toolBlocks.delete(ev.index);
+          if (ev.type === 'content_block_start') {
+            const cb = ev.content_block as {
+              type?: string; id?: string; name?: string; input?: unknown;
+            };
+            if (cb?.type === 'tool_use' && cb.id && cb.name) {
+              toolBlocks.set(ev.index, { id: cb.id, name: cb.name, json: '' });
+              push({ kind: 'tool_use', id: cb.id, name: cb.name, input: cb.input ?? {} });
+            }
+          } else if (ev.type === 'content_block_delta') {
+            const d = ev.delta as { type?: string; text?: string; partial_json?: string };
+            if (d?.type === 'text_delta' && d.text) {
+              push({ kind: 'delta', text: d.text });
+            } else if (d?.type === 'input_json_delta' && typeof d.partial_json === 'string') {
+              const tb = toolBlocks.get(ev.index);
+              if (tb) {
+                tb.json += d.partial_json;
+                push({
+                  kind: 'tool_input_delta',
+                  id: tb.id,
+                  name: tb.name,
+                  partial_json: d.partial_json,
+                  accumulated: tb.json,
+                });
+              }
+            }
+          } else if (ev.type === 'content_block_stop') {
+            const tb = toolBlocks.get(ev.index);
+            if (tb) {
+              push({ kind: 'tool_input_done', id: tb.id, name: tb.name, final_json: tb.json });
+              toolBlocks.delete(ev.index);
+            }
           }
-        }
-      } else if (m.type === 'user') {
-        // tool_result blocks come back as user messages in the SDK protocol.
-        const blocks = ((m.message as { content?: unknown })?.content || []) as Array<{
-          type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean;
-        }>;
-        for (const b of blocks) {
-          if (b.type === 'tool_result' && b.tool_use_id) {
-            const c = b.content;
-            const text =
-              typeof c === 'string'
-                ? c
-                : Array.isArray(c)
-                  ? c.map((x: { text?: string }) => x.text || '').join('')
-                  : '';
-            yield { kind: 'tool_result', tool_use_id: b.tool_use_id, text, isError: Boolean(b.is_error) };
+        } else if (m.type === 'user') {
+          const blocks = ((m.message as { content?: unknown })?.content || []) as Array<{
+            type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean;
+          }>;
+          for (const b of blocks) {
+            if (b.type === 'tool_result' && b.tool_use_id) {
+              const c = b.content;
+              const text =
+                typeof c === 'string'
+                  ? c
+                  : Array.isArray(c)
+                    ? c.map((x: { text?: string }) => x.text || '').join('')
+                    : '';
+              push({ kind: 'tool_result', tool_use_id: b.tool_use_id, text, isError: Boolean(b.is_error) });
+            }
           }
-        }
-      } else if (m.type === 'system') {
-        // The SDK emits `thinking_tokens` frames during silent extended-thinking
-        // phases so consumers can show progress even before any text streams.
-        if (m.subtype === 'thinking_tokens') {
-          const est = (m as unknown as { estimated_tokens?: number }).estimated_tokens;
-          if (typeof est === 'number') {
-            yield { kind: 'usage', outputTokens: 0, thinkingTokens: est };
+        } else if (m.type === 'system') {
+          if (m.subtype === 'thinking_tokens') {
+            const est = (m as unknown as { estimated_tokens?: number }).estimated_tokens;
+            if (typeof est === 'number') {
+              push({ kind: 'usage', outputTokens: 0, thinkingTokens: est });
+            }
           }
+          push({ kind: 'message', subtype: m.subtype || 'system' });
+        } else if (m.type === 'result') {
+          if (m.is_error) {
+            const r = m as unknown as {
+              subtype?: string;
+              stop_reason?: string;
+              api_error_status?: number | null;
+              errors?: string[];
+              result?: string;
+            };
+            const detail =
+              (r.errors && r.errors.length ? r.errors.join(' | ') : '') ||
+              r.result ||
+              [r.subtype, r.stop_reason, r.api_error_status ? `http ${r.api_error_status}` : '']
+                .filter(Boolean)
+                .join(' · ') ||
+              'unknown SDK error';
+            console.log('[claude-runner] SDK error result:', JSON.stringify(r, null, 2));
+            push({ kind: 'error', error: detail });
+          }
+          push({ kind: 'done', exitCode: m.is_error ? 1 : 0 });
+          finish();
+          return;
         }
-        yield { kind: 'message', subtype: m.subtype || 'system' };
-      } else if (m.type === 'result') {
-        if (m.is_error) {
-          const r = m as unknown as {
-            subtype?: string;
-            stop_reason?: string;
-            api_error_status?: number | null;
-            errors?: string[];
-            result?: string;
-          };
-          const detail =
-            (r.errors && r.errors.length ? r.errors.join(' | ') : '') ||
-            r.result ||
-            [r.subtype, r.stop_reason, r.api_error_status ? `http ${r.api_error_status}` : '']
-              .filter(Boolean)
-              .join(' · ') ||
-            'unknown SDK error';
-          console.log('[claude-runner] SDK error result:', JSON.stringify(r, null, 2));
-          yield { kind: 'error', error: detail };
-        }
-        yield {
-          kind: 'done',
-          exitCode: m.is_error ? 1 : 0,
-        };
-        return;
       }
+      push({ kind: 'done', exitCode: 0 });
+    } catch (err) {
+      push({ kind: 'error', error: (err as Error).message });
+      push({ kind: 'done', exitCode: -1 });
+    } finally {
+      finish();
     }
-    yield { kind: 'done', exitCode: 0 };
-  } catch (e) {
-    yield { kind: 'error', error: (e as Error).message };
-    yield { kind: 'done', exitCode: -1 };
+  })();
+
+  while (true) {
+    const r = await next();
+    if (r.done) return;
+    yield r.value;
   }
 }
+

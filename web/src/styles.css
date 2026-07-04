@@ -36,7 +36,7 @@
 html, body, #root { height: 100%; margin: 0; }
 #root {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 260px 1fr;
 }
 body {
   font-family: var(--font-sans);
@@ -506,6 +506,16 @@ textarea:focus, select:focus, input:focus {
   overflow-anchor: none;
 }
 .thread > * { flex: 0 0 auto; }
+/* When the thread is still loading (or hitting an empty/new-session
+   placeholder) the only child ends up glued to the visual bottom because
+   `column-reverse` packs from that edge. Center the lone indicator so the
+   empty state feels intentional rather than a stray corner label. */
+.thread:has(> .muted:only-child),
+.thread:has(> .placeholder:only-child) {
+  justify-content: center;
+  align-items: center;
+}
+.thread > .muted, .thread > .placeholder { text-align: center; }
 .thread.tui {
   gap: 6px;
   font-size: 13px;
@@ -529,16 +539,52 @@ textarea:focus, select:focus, input:focus {
   font-size: 12px;
 }
 
+/* ---------- session header (cwd + elapsed) ---------- */
+.ti-session-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 2px 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+.ti-session-cwd { color: var(--text-2); }
+.ti-session-elapsed { color: var(--muted); opacity: 0.85; }
+
 /* user prompt — chevron */
 .ti-user {
+  position: relative;
   display: flex;
   gap: 10px;
-  padding: 12px 12px 12px 0;
   margin-top: 14px;
   background: var(--surface-2);
   border-radius: 8px;
   padding: 10px 14px;
   border: 1px solid var(--border);
+}
+.ti-user-rewind {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ti-user:hover .ti-user-rewind { opacity: 1; }
+.ti-user-rewind:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: rgba(192, 82, 74, 0.06);
 }
 .ti-user:first-child { margin-top: 0; }
 .ti-chev {
@@ -595,7 +641,7 @@ textarea:focus, select:focus, input:focus {
   white-space: pre-wrap;
 }
 
-/* tool call entry */
+/* tool call entry — original inline ● + └ layout */
 .ti-tool {
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -656,6 +702,79 @@ textarea:focus, select:focus, input:focus {
   font-size: 12px;
 }
 .ti-expand:hover { color: var(--accent); }
+
+/* ---------- todo card ---------- */
+.ti-todo {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.ti-todo-stats {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.ti-todo-stats strong { color: var(--text); }
+.ti-todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ti-todo-li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ti-todo-icon {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.ti-todo-text { min-width: 0; }
+.ti-todo-completed .ti-todo-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.ti-todo-completed .ti-todo-icon { color: var(--good); }
+.ti-todo-in_progress .ti-todo-icon { color: var(--accent); font-weight: 700; }
+.ti-todo-in_progress .ti-todo-text { color: var(--text); font-weight: 500; }
+.ti-todo-pending .ti-todo-icon { color: var(--muted-2); }
+.ti-todo-pending .ti-todo-text { color: var(--text-2); }
+
+/* ---------- system event (※ recap / resume) ---------- */
+.ti-sysevent {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 4px 2px;
+}
+.ti-sysevent-mark {
+  color: var(--muted-2);
+  font-style: normal;
+  margin-right: 6px;
+}
+.ti-sysevent-label {
+  color: var(--text-2);
+  font-weight: 600;
+  font-style: normal;
+}
+.ti-sysevent-toggle {
+  display: inline;
+  padding: 0 0 0 4px;
+  font-size: 12px;
+}
 
 /* ---------- Settings page ---------- */
 .settings-view header p { color: var(--muted); margin-top: 4px; }
@@ -1097,6 +1216,40 @@ textarea:focus, select:focus, input:focus {
 }
 .md th { background: var(--surface-2); font-weight: 600; }
 
+/* Always-mounted wrapper around <form> + <StatusBar>. Uses the
+   `grid-template-rows: 0fr → 1fr` trick so the height animates to the
+   content's *actual* size, not to a fixed max-height guess. Previously
+   `max-height: 0 → 640px` made the expand feel snappy-then-empty because
+   most of the transition was interpolating past the real content height.
+   Grid rows give the browser something to interpolate that stays in sync
+   with the DOM's natural size — silky both ways. */
+.session-input-area {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    margin 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  opacity: 1;
+  transform: translateY(0);
+  flex-shrink: 0;
+  will-change: grid-template-rows, opacity, transform;
+}
+.session-input-area > .session-input-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.session-input-area.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  margin-top: 0;
+}
+
 .session-input {
   display: flex;
   flex-direction: column;
@@ -1195,6 +1348,394 @@ textarea:focus, select:focus, input:focus {
   opacity: 0.35;
   cursor: not-allowed;
 }
+/* ---------- multi-tile canvas ---------- */
+.ws-canvas-v2 {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  padding: 16px 20px;
+  gap: 12px;
+}
+.ws-canvas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.ws-canvas-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.ws-canvas-name {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+}
+.ws-canvas-meta { font-size: 12px; color: var(--muted); }
+.ws-canvas-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ws-canvas-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.ws-canvas-empty p { margin: 0; }
+.ws-canvas-empty code {
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.ws-new-input {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.ws-new-input textarea {
+  flex: 1;
+  min-height: 60px;
+  font-family: inherit;
+  font-size: 13.5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+
+/* 12-col grid with row cells sized to a fixed unit — tile geometry is
+   colSpan / rowSpan integers stored in localStorage. Grid gap is 12px;
+   both spans + gap combine into the pixel dimensions consumers see. */
+.ws-canvas-grid-v2 {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+  /* grid-template-columns + grid-auto-rows are set inline from constants
+     in Workspace.tsx so JS resize math stays in sync with layout. */
+}
+
+.ws-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  /* Silky transitions on layout state — dnd-kit provides the reorder
+     transform/transition inline; these cover the resize + focus paths. */
+  transition:
+    border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+.ws-tile.focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 6px 22px rgba(61, 57, 41, 0.06);
+}
+.ws-tile.dragging {
+  box-shadow: 0 12px 30px rgba(61, 57, 41, 0.18);
+  cursor: grabbing;
+}
+
+.ws-tile-grip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: grab;
+  flex-shrink: 0;
+  touch-action: none; /* let dnd-kit own the pointer during drag */
+  user-select: none;
+}
+.ws-tile-grip:active { cursor: grabbing; }
+
+/* SE-corner resize handle. Visible as a subtle diagonal notch; hover
+   makes it pop so the affordance is obvious. */
+.ws-tile-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0%,
+      transparent 45%,
+      var(--muted-2) 45%,
+      var(--muted-2) 55%,
+      transparent 55%,
+      transparent 70%,
+      var(--muted-2) 70%,
+      var(--muted-2) 80%,
+      transparent 80%
+    );
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 3;
+}
+.ws-tile:hover .ws-tile-resize { opacity: 0.7; }
+.ws-tile-resize:hover { opacity: 1; }
+.ws-tile-grip-dots {
+  color: var(--muted-2);
+  user-select: none;
+  letter-spacing: -2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ws-tile:hover .ws-tile-grip-dots { opacity: 1; }
+.ws-tile-grip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+/* Grip-bar action buttons — copy / refresh / × all live in the same
+   fixed-size box so they align on both axes regardless of whether their
+   content is a 13px SVG or a text glyph. Hover reveals them so the tile
+   stays clean while idle. */
+.ws-tile-action,
+.ws-tile-x {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+  flex-shrink: 0;
+}
+.ws-tile-action svg,
+.ws-tile-x svg { display: block; }
+.ws-tile-x {
+  font-size: 15px;
+  font-family: var(--font-mono);
+}
+.ws-tile:hover .ws-tile-action,
+.ws-tile:hover .ws-tile-x { opacity: 1; }
+.ws-tile-action:hover { color: var(--accent); background: var(--surface); }
+.ws-tile-x:hover { color: var(--bad); background: rgba(192, 82, 74, 0.08); }
+.ws-tile-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* Session inside a tile should fill the tile, not the whole viewport.
+   The chain of `min-width: 0` + `overflow: hidden` prevents children with
+   long unbroken content (code blocks, mono text) from stretching the
+   flex/grid parent past its intended cell width. */
+.ws-tile-body .session-view {
+  height: auto;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  /* .view base sets max-width: 1080px + margin: 0 auto which centers a
+     narrower box in wide tiles — visible while loading before the thread
+     has any wide content pushing it to stretch. Force full width here. */
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 4px 10px;
+  overflow: hidden;
+}
+/* Drop the thread's frame inside a tile — the tile already has its own
+   border. Reduce padding + kill background/radius so chat content lives
+   flush against the tile edges and shows more per screen. */
+.ws-tile-body .thread {
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 4px 8px;
+}
+.ws-tile-body .session-input {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  gap: 4px;
+}
+.ws-tile-body .session-input textarea {
+  min-height: 40px;
+  padding: 4px 4px;
+  font-size: 13px;
+}
+.ws-tile-body .session-input-tools { gap: 6px; }
+.ws-tile-body .status-bar {
+  margin-top: 4px;
+  padding: 4px 2px 0;
+  font-size: 11px;
+  gap: 1px;
+}
+.ws-tile-body .status-identity { font-size: 11.5px; }
+.ws-tile-body .status-context { gap: 4px; }
+.ws-tile-body .status-bar-track { width: 110px; height: 8px; }
+/* Belt-and-braces: force long unbroken tokens (URLs, base64, no-space
+   Chinese/English mixes) inside a tile's thread to wrap rather than
+   overflow horizontally. Applies to text/code/markdown alike. */
+.ws-tile-body .thread .ti-text,
+.ws-tile-body .thread .ti-text *,
+.ws-tile-body .thread .ti-user-text,
+.ws-tile-body .thread .ti-sysevent,
+.ws-tile-body .thread .ti-tool-body,
+.ws-tile-body .thread .ti-tool-body pre,
+.ws-tile-body .thread pre,
+.ws-tile-body .thread code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+/* Sidebar pin button — hover reveals +/✓ next to each session row. */
+.sb-sess-pin {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease, background 0.1s ease;
+}
+.sb-sess:hover .sb-sess-pin { opacity: 1; }
+.sb-sess-pin.pinned { opacity: 1; color: var(--accent); }
+.sb-sess-pin:hover { color: var(--accent); background: var(--surface); }
+.sb-sess.pinned { background: var(--accent-soft); }
+
+/* ---------- inline permission gate (pending only) ---------- */
+.ti-perm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border: 1px solid var(--warn);
+  background: rgba(184, 138, 58, 0.06);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.ti-perm-icon { font-size: 12px; flex-shrink: 0; }
+.ti-perm-title { color: var(--text); flex-shrink: 0; }
+.ti-perm-title strong { color: var(--text); font-weight: 600; }
+.ti-perm-args {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 11.5px;
+}
+.ti-perm-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.ti-perm-actions .primary.small,
+.ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
+
+/* ---------- session actions dropdown ---------- */
+.actions-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.actions-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: max-content;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(61, 57, 41, 0.12);
+  padding: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: actions-menu-in 0.12s ease;
+}
+@keyframes actions-menu-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.actions-menu-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  transition: background 0.1s ease;
+  white-space: nowrap;
+}
+.actions-menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.actions-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.actions-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.actions-menu-label { font-size: 13.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.actions-menu-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+
+.session-input .send-btn.stop-btn {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.session-input .send-btn.stop-btn:hover:not(:disabled) {
+  background: #a94a42;
+  border-color: #a94a42;
+}
 .send-dot {
   width: 8px;
   height: 8px;
@@ -1205,6 +1746,134 @@ textarea:focus, select:focus, input:focus {
 @keyframes send-pulse {
   0%, 100% { opacity: 0.4; transform: scale(0.9); }
   50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ---------- CLI-style status bar (under the input) ----------
+   Tight mono grid — hierarchy comes from color + weight, not spacing. Rows
+   share a single left column so ● ✓ ▸ ▸▸ etc. always line up. */
+.status-bar {
+  margin-top: 8px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.status-sep { color: var(--muted-2); user-select: none; opacity: 0.55; padding: 0 2px; }
+.status-project {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+/* Row 1 — identity (biggest / boldest) */
+.status-identity { font-size: 12.5px; }
+.status-bar .status-identity .provider-chip-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Row 2 — context bar */
+.status-context { gap: 6px; }
+.status-context-label { color: var(--text-2); font-weight: 500; }
+.status-context-pct { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.status-context-tokens { color: var(--muted); font-size: 11.5px; }
+.status-bar-track {
+  position: relative;
+  width: 140px;
+  height: 10px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.status-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+.status-bar-track.tone-context .status-bar-fill { background: linear-gradient(90deg, #7fb26b, #a8d179); }
+.status-bar-track.tone-usage   .status-bar-fill { background: linear-gradient(90deg, #6d99c8, #9dc0e0); }
+.status-bar-track.tone-weekly  .status-bar-fill { background: linear-gradient(90deg, #b88a3a, #d4b070); }
+
+/* Row 3 — env (dimmer) */
+.status-env { color: var(--muted); font-size: 11.5px; }
+
+/* Row 4 — tools (dimmer, checkmark accent) */
+.status-tools { gap: 6px; }
+.status-tool {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.status-tool-check { color: var(--good); font-weight: 700; }
+.status-tool-name { color: var(--text-2); font-weight: 500; }
+.status-tool-count { color: var(--muted); }
+.status-tool .status-sep { padding-left: 6px; }
+
+/* Row 5 — todo */
+.status-todo { gap: 5px; }
+.status-todo-arrow { color: var(--accent); font-weight: 700; }
+.status-todo-text {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.status-todo-progress { color: var(--muted); flex-shrink: 0; font-size: 11.5px; }
+
+/* Row 6 — permission */
+.status-perm { gap: 6px; }
+.status-perm-arrow { color: var(--accent); font-weight: 700; }
+.status-perm-hint { color: var(--muted); font-size: 11px; opacity: 0.75; }
+
+/* Slim chips (no pill, no bg) — inline text + caret; click still opens
+   the native picker via the invisible <select>. */
+.status-bar .provider-chip {
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  font-size: inherit;
+  color: var(--text-2);
+  gap: 4px;
+  max-width: none;
+  line-height: inherit;
+}
+.status-bar .provider-chip:hover:not(.disabled) {
+  background: transparent;
+  color: var(--accent);
+  border: none;
+}
+.status-bar .provider-chip-icon { display: none; }
+.status-bar .provider-chip-label {
+  max-width: 220px;
+  font-weight: 500;
+}
+.status-bar .provider-chip-caret {
+  width: 8px;
+  height: 8px;
+  opacity: 0.55;
 }
 
 .img-chips {
@@ -1487,3 +2156,451 @@ textarea:focus, select:focus, input:focus {
   border: 2px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
+
+/* ========== NEW SIDEBAR V2 ========== */
+.sidebar-v2 {
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.sb-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 16px 12px;
+  text-decoration: none;
+  color: inherit;
+}
+.sb-logo { width: 28px; height: 28px; display: block; flex-shrink: 0; }
+.sb-brand-name {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+.sb-brand-sub { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.sb-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 6px;
+}
+.sb-label span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted-2);
+  letter-spacing: 1px;
+}
+.sb-ws-list {
+  display: flex;
+  flex-direction: column;
+}
+.sb-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: background 0.1s;
+}
+.sb-ws.active > .sb-ws-head,
+.sb-ws-head:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.sb-arrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.sb-ws-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-spacer { flex: 1; min-width: 4px; }
+.sb-dots {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  letter-spacing: 1px;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.sb-ws-head:hover .sb-dots { opacity: 1; }
+.sb-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.sb-badge-running { background: var(--accent); }
+.sb-ws-sessions {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+.sb-sess {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px 7px 32px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-decoration: none;
+  overflow: hidden;
+  transition: background 0.1s;
+}
+.sb-sess:hover { background: var(--surface-3); }
+.sb-sess.active { background: var(--surface); color: var(--text); }
+.sb-sess.empty { color: var(--muted-2); font-style: italic; padding-left: 32px; }
+.sb-sess-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sb-sess-dot-completed { background: var(--good); }
+.sb-sess-dot-running { background: var(--accent); }
+.sb-sess-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-spacer-grow { flex: 1; }
+.sb-settings-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.sb-settings-link:hover { color: var(--text-2); }
+.sb-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.sb-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.sb-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.sb-status-ok::before { background: var(--good); }
+.sb-status-bad::before { background: var(--bad); }
+.sb-status-connecting::before { background: var(--warn); }
+.sb-empty {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+/* ========== CONTEXT MENU ========== */
+.ctx-menu {
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(61, 57, 41, 0.08);
+  animation: ctx-in 0.12s ease-out;
+}
+@keyframes ctx-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+}
+.ctx-item:hover { background: var(--surface-2); }
+.ctx-item.danger { color: var(--bad); }
+.ctx-item.danger:hover { background: rgba(192, 82, 74, 0.06); }
+.ctx-icon { font-size: 12px; color: var(--muted); width: 16px; text-align: center; flex-shrink: 0; }
+.ctx-item.danger .ctx-icon { color: var(--bad); }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ========== WORKSPACE CANVAS ========== */
+.ws-canvas {
+  display: flex;
+  height: 100vh;
+  padding: 6px;
+  gap: 6px;
+  overflow: hidden;
+}
+.ws-focused {
+  flex: 1.5;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid var(--accent);
+  background: var(--surface);
+}
+.ws-focused > .view.session-view {
+  border-radius: 0;
+}
+.ws-no-focus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted-2);
+  font-size: 14px;
+}
+.ws-unfocused {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.ws-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+.ws-new-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 500px;
+}
+.ws-new-input textarea {
+  min-height: 80px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--surface);
+  resize: vertical;
+  outline: none;
+}
+.ws-new-input textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ========== SESSION CARD (unfocused) ========== */
+.sc-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.sc-card:hover { border-color: var(--border-strong); }
+.sc-focused { border: 2px solid var(--accent); cursor: default; }
+.sc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sc-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sc-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.sc-branch {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.sc-msgs {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.sc-thread {
+  flex: 1;
+  overflow: hidden;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.sc-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.sc-tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  flex-shrink: 0;
+}
+.sc-tool-name { font-weight: 600; }
+.sc-user-row {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.sc-user-chevron {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.sc-user-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-assist-row {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.sc-loading { font-size: 12px; color: var(--muted-2); }
+.sc-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.sc-status-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.sc-status-running { background: rgba(201, 100, 66, 0.04); }
+.sc-status-running .sc-status-label { color: var(--accent); }
+.sc-status-awaiting { background: rgba(184, 138, 58, 0.04); }
+.sc-status-awaiting .sc-status-label { color: var(--warn); }
+.sc-status-completed .sc-status-label { color: var(--good); }
+.sc-status-hint { color: var(--muted-2); }
+
+/* ========== DASHBOARD V2 ========== */
+.wk-sessions-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.wk-sess-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.wk-sess-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.wk-sess-dot-completed { background: var(--good); }
+.wk-sess-dot-running { background: var(--accent); }
+.wk-sess-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.wk-sess-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.wk-sess-more {
+  font-size: 12px;
+  color: var(--muted-2);
+  padding-top: 2px;
+}
+.wk-open {
+  font-size: 13px;
+  color: var(--accent);
+  margin-top: 10px;
+}
+.wk-running {
+  color: var(--accent);
+  font-weight: 500;
+}

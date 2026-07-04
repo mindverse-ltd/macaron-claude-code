@@ -95,6 +95,34 @@ export const api = {
     );
     if (!r.ok) throw new Error(`http ${r.status}`);
   },
+  permissionDecision: (id: string, decision: 'allow' | 'deny', reason?: string) =>
+    req<{ ok: boolean }>('/api/permission-decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, decision, reason }),
+    }),
+  stopSession: (project: string, sid: string) =>
+    req<{ ok: boolean; running: boolean }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/stop`,
+      { method: 'POST' },
+    ),
+  rewindSession: (project: string, sid: string, uuid: string) =>
+    req<{ ok: true; dropped: number; backupPath: string }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/rewind`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid }),
+      },
+    ),
+  compactSession: (project: string, sid: string) =>
+    req<{ ok: true; summary: string; backupPath: string; kept: number }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/compact`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    ),
 };
 
 export function basename(p: string): string {
