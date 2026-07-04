@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { HOST, PORT, WEB_DIST } from './config.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { checkGenUI } from './lib/genui-check.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
 // for complex UIs can take 30-120s, so raise the ceiling to 5 min.
@@ -54,6 +55,12 @@ try {
   await warmSettingsCache();
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
+  // Pre-warm the render_ui TS check: the first diagnose pays full program construction. Do it now,
+  // at boot, instead of mid-turn while an SSE stream is live. The `import "$macaron/ui"` is what
+  // makes this warm the expensive half — it pulls source.tsx and its whole vendored tree into the
+  // snapshot cache; without an import TS lazily skips them and the first real render_ui still pays
+  // ~300ms. checkGenUI never throws (it degrades to an ack on failure), so this can't crash boot.
+  setImmediate(() => checkGenUI('import "$macaron/ui";\nexport default function App() { return null }'));
 } catch (err) {
   app.log.error(err);
   process.exit(1);

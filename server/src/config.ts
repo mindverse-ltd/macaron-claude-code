@@ -14,13 +14,9 @@ export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
 
-// Web assets (Vite build output). When running in dev (vite dev server on :5173
-// with proxy), this directory may not exist — @fastify/static handles that.
-// src/config.ts → ../../web/dist  (and after build: dist/config.js → ../../web/dist)
-export const WEB_DIST = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
-  '..',
-  '..',
-  'web',
-  'dist',
-);
+// Web root (repo's web/ dir). Same hop from compiled location in both dev (tsx src/) and prod (node dist/).
+// src/config.ts → ../../web  (and after build: dist/config.js → ../../web)
+export const WEB_ROOT = path.resolve(import.meta.dirname, '..', '..', 'web');
+
+// Web assets (Vite build output). When running in dev (vite dev server on :5173 with proxy), this directory may not exist — @fastify/static handles that.
+export const WEB_DIST = path.join(WEB_ROOT, 'dist');
