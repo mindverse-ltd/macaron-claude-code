@@ -24,10 +24,10 @@ jobs:
       # published artifact still runs on plain Node.
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      # prepack builds shared → bundles server → builds web, so the tarball
-      # ships prebuilt server/dist + web/dist and runs without Vite at runtime.
-      - run: npm run prepack
       # `bun run`, not `bunx`: pkg.pr.new warns against dlx-style runners in CI
       # (they fetch an unpinned build each run). pkg-pr-new is a devDependency, so
-      # this executes the lockfile-pinned binary from node_modules/.bin.
+      # this executes the lockfile-pinned binary from node_modules/.bin. publish
+      # runs `npm pack`, which fires the root `prepack` hook (build shared →
+      # bundle server → build web), so the tarball ships prebuilt server/dist +
+      # web/dist and runs without Vite at runtime — no separate build step needed.
       - run: bun run pkg-pr-new publish
