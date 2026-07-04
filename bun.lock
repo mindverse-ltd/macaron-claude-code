@@ -8,12 +8,12 @@
         "@anthropic-ai/claude-agent-sdk": "^0.3.196",
         "@fastify/static": "^8.0.0",
         "fastify": "^5.2.0",
+        "typescript": "^5.7.0",
         "zod": "^4.4.3",
       },
       "devDependencies": {
         "concurrently": "^9.1.0",
         "pkg-pr-new": "^0.0.75",
-        "typescript": "^5.7.0",
       },
     },
     "server": {
@@ -24,12 +24,12 @@
         "@fastify/static": "^8.0.0",
         "@macaron/shared": "*",
         "fastify": "^5.2.0",
+        "typescript": "^5.7.0",
         "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/node": "^22.10.0",
         "tsx": "^4.19.0",
-        "typescript": "^5.7.0",
       },
     },
     "shared": {
@@ -59,6 +59,8 @@
         "@radix-ui/react-slot": "^1.3.0",
         "@radix-ui/react-switch": "^1.3.1",
         "@radix-ui/react-tabs": "^1.1.15",
+        "@types/react": "^19.1.0",
+        "@types/react-dom": "^19.1.0",
         "@unocss/preset-wind3": "^66.7.3",
         "@unocss/reset": "^66.7.4",
         "@unocss/runtime": "^66.7.3",
@@ -82,8 +84,6 @@
         "unocss-preset-animations": "^1.3.0",
       },
       "devDependencies": {
-        "@types/react": "^19.1.0",
-        "@types/react-dom": "^19.1.0",
         "@vitejs/plugin-react": "^4.3.4",
         "typescript": "^5.7.0",
         "vite": "^6.0.5",

@@ -20,7 +20,7 @@ npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main --port 8080
 MACARON_API_KEY=sk-… npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main
 ```
 
-The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
+The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `typescript`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
 
 `bunx` can't run a bare tarball URL, but the `name@url` form works: `bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main`.
 
@@ -28,10 +28,10 @@ The tarball ships the prebuilt web UI + a bundled server; only the npm-installab
 
 ## Install
 
-The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`), so install straight from GitHub — in a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
+The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`). Use the full https URL — the `owner/repo` shorthand clones over SSH, which fails without a GitHub SSH key. In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
-/plugin marketplace add mindverse-ltd/macaron-claude-code
+/plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
 ```
 
 ```
@@ -41,7 +41,7 @@ The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json
 or from the shell:
 
 ```bash
-claude plugin marketplace add mindverse-ltd/macaron-claude-code
+claude plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
 claude plugin install macaron@macaron
 ```
 
