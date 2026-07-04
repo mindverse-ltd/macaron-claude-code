@@ -33,10 +33,10 @@ import { unoTheme, unoShortcuts, unoRules } from './macaron-vendor/lib/standalon
 import { App } from './App';
 import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
-import { Session } from './views/Session';
 import { Settings } from './views/Settings';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
+import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
 import './styles.css';
 
 // Boot UnoCSS runtime: scans the DOM for utility classes and injects CSS as
@@ -78,8 +78,7 @@ const router = createHashRouter([
       { index: true, element: <Dashboard /> },
       { path: 'settings', element: <Settings /> },
       { path: 'w/:project', element: <Workspace /> },
-      { path: 'w/:project/new', element: <Session /> },
-      { path: 'w/:project/s/:sid', element: <Session /> },
+      { path: 'w/:project/s/:sid', element: <Workspace /> },
     ],
   },
 ]);
@@ -93,3 +92,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ToastProvider>
   </React.StrictMode>,
 );
+
+// Warm up the GenUI renderer runtime (TSX wasm + compiler) on idle so the
+// first render_ui call doesn't pay the ~400-500ms init cost inside the
+// streaming render loop. requestIdleCallback keeps it off the critical path
+// of the initial paint; if the browser is busy, the warm-up defers until a
+// quiet moment, but still completes well before the user sends a prompt.
+if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+  window.requestIdleCallback(() => void preloadRendererRuntime().catch(() => { /* warm-up is best-effort */ }), { timeout: 2000 });
+} else {
+  void preloadRendererRuntime().catch(() => { /* warm-up is best-effort */ });
+}

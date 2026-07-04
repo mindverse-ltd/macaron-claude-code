@@ -291,6 +291,21 @@ function ensureIsolatedDir(): string {
 
 // Consumed synchronously by request handlers. Requires the cache to be
 // warmed (warmSettingsCache() at startup handles that).
+// Direct-call variant for server-side operations that need to hit the
+// active provider's endpoint themselves (e.g. /compact — where we don't
+// want to spawn the whole SDK subprocess just to summarize). Returns null
+// when the active provider is `system`, since that path relies on the
+// user's ambient Claude auth we don't have server-side.
+export function getActiveProviderRaw():
+  | { id: string; name: string; endpoint: string; model: string; apiKey: string }
+  | null {
+  const s = cache ?? makeDefaults();
+  if (s.activeProviderId === SYSTEM_PROVIDER_ID) return null;
+  const p = s.customProviders.find((x) => x.id === s.activeProviderId);
+  if (!p) return null;
+  return { id: p.id, name: p.name, endpoint: p.endpoint, model: p.model, apiKey: p.apiKey };
+}
+
 export function getActiveProviderEnv(): {
   model: string | undefined;
   env: Record<string, string> | null;

@@ -56,11 +56,6 @@ const patchRecoverableGenUIErrors = () => {
   genUIConsolePatched = true;
 };
 
-const preloadRendererRuntime = () =>
-  (rendererWarmupPromise ??= (async () => {
-    await createTsxCompiler().compile("export default function App() { return null; }", { importMap: { imports: { react: "/src/lib/react.ts", "react/jsx-runtime": "/src/lib/react-jsx-runtime.ts" } } });
-  })());
-
 const getRendererModule = async () => {
   patchRecoverableGenUIErrors();
   return { GenUIRenderer };
@@ -100,6 +95,35 @@ const BASE_IMPORTS: Record<string, string> = (() => {
     'motion/react': origin + '/genui-shim/motion.mjs',
   };
 })();
+
+// Exported so the host app can warm up the TSX wasm + compiler at boot,
+// before the first render_ui call. Without this, the first GenUI frame
+// pays the full wasm init cost (~400-500ms) inside the streaming render
+// loop, which blocks the first visible content.
+export const preloadRendererRuntime = () =>
+  (rendererWarmupPromise ??= (async () => {
+    // Use the same BASE_IMPORTS the live renderer uses, so the warm-up
+    // compile is representative of a real frame (the previous hardcoded
+    // "/src/lib/react.ts" paths only exist in the macaron-genui-demo dev
+    // tree and would 404 in our production build, leaving the warm-up
+    // to fail silently).
+    await createTsxCompiler().compile("export default function App() { return null; }", { importMap: { imports: BASE_IMPORTS } });
+    // Prefetch the genui-shim modules so the first real `import(blob URL)`
+    // doesn't stall on a network round-trip for each shim. The shims are
+    // tiny (<5KB each) but the browser fetches them serially through the
+    // import map, which adds ~50-150ms to the first frame.
+    if (typeof window !== 'undefined') {
+      for (const url of Object.values(BASE_IMPORTS)) {
+        // link rel=modulepreload warms the network cache and the module
+        // graph; the browser deduplicates against later `import()` calls.
+        const link = document.createElement('link');
+        link.rel = 'modulepreload';
+        link.href = url;
+        link.crossOrigin = 'anonymous';
+        document.head.appendChild(link);
+      }
+    }
+  })());
 
 const loadRendererImportMap = async (code: string, extraEntries?: Record<string, string>) => {
   // base local map → caller-supplied entries → esm.sh fallback for unknown bare specifiers

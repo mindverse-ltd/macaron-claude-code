@@ -15,7 +15,9 @@ import {
   easeTowards,
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
-import { ProviderPicker } from '../components/ProviderPicker';
+import { useConfirm } from '../components/Confirm';
+import { StatusBar, type PermissionMode } from '../components/StatusBar';
+import { loadHistory, pushHistory } from '../lib/history';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -23,51 +25,7 @@ const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWit
 
 const PAGE_SIZE = 80;
 
-type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
-  { value: 'default', label: 'Default (ask)' },
-  { value: 'acceptEdits', label: 'Accept edits' },
-  { value: 'plan', label: 'Plan mode' },
-  { value: 'bypassPermissions', label: 'Bypass all' },
-];
 type AttachedImage = { id: string; name: string; mimeType: string; dataUrl: string };
-
-// Chip-styled permission-mode picker for the input toolbar. Native <select>
-// sits invisibly on top of the pill so the OS-native menu handles keyboard
-// nav + accessibility for free.
-function PermissionChip({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: PermissionMode;
-  onChange: (v: PermissionMode) => void;
-  disabled: boolean;
-}) {
-  const active = PERMISSION_OPTIONS.find((o) => o.value === value);
-  return (
-    <div className={`provider-chip${disabled ? ' disabled' : ''}`} title={`Permission · ${active?.label ?? value}`}>
-      <svg className="provider-chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg>
-      <span className="provider-chip-label">{active?.label ?? value}</span>
-      <svg className="provider-chip-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-      <select
-        className="provider-chip-select"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as PermissionMode)}
-        aria-label="Permission mode"
-      >
-        {PERMISSION_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -81,16 +39,32 @@ export type MsgPart =
   | { kind: 'text'; text: string }
   | { kind: 'image'; mimeType: string; data: string };
 
+export type TodoEntry = {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+};
+
 type Item =
-  | { id: string; kind: 'user'; parts: MsgPart[] }
+  // uuid is the jsonl `uuid` of the source user message — used as the
+  // rewind cutoff (drop this line and everything after).
+  | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
   | { id: string; kind: 'tool'; name: string; input: unknown; result?: string }
+  | { id: string; kind: 'todo'; todos: TodoEntry[] }
+  | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
   // Assistant-side inline image (rare — only when the model emits one).
   | { id: string; kind: 'assistant-image'; mimeType: string; data: string }
   | { id: string; kind: 'live-user'; parts: MsgPart[] }
-  | { id: string; kind: 'live-assistant'; text: string };
+  | { id: string; kind: 'live-assistant'; text: string }
+  // Pending / resolved permission gate. Rendered as an inline card with
+  // Allow/Deny buttons while `status === 'pending'`.
+  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; status: 'pending' | 'allow' | 'deny' };
+
+const TODO_WRITE_NAMES = new Set(['TodoWrite', 'todo_write']);
+const isTodoWriteTool = (name: string) => TODO_WRITE_NAMES.has(name);
 
 function isNoisyUserText(t: string): boolean {
   if (!t) return true;
@@ -104,8 +78,24 @@ function flatten(messages: Message[]): Item[] {
   const out: Item[] = [];
   let i = 0;
   let lastTool: Extract<Item, { kind: 'tool' }> | null = null;
+  // TodoWrite fires repeatedly with the full task list each time. Only the
+  // latest snapshot is meaningful, so we track its slot in `out` and splice
+  // out the previous one when a new one arrives — this mirrors the CLI which
+  // shows a single up-to-date todo card and status-bar summary.
+  let latestTodoIdx = -1;
   for (const mi in messages) {
     const m = messages[mi]!;
+    // System-role messages carry synthetic events (recap after /compact,
+    // resume markers). Render each block as its own inline `※` item.
+    if (m.role === 'system') {
+      for (const b of m.blocks) {
+        if (b.kind === 'system_event') {
+          out.push({ id: `sys${i++}`, kind: 'system_event', eventType: b.eventType, text: b.text });
+        }
+      }
+      lastTool = null;
+      continue;
+    }
     // Collect any text + image blocks the user sent in this message into a
     // SINGLE user Item so they render inside one card in original order
     // (the CLI stores them interleaved; splitting them into separate cards
@@ -116,7 +106,7 @@ function flatten(messages: Message[]): Item[] {
         if (b.kind === 'text' && !isNoisyUserText(b.text)) parts.push({ kind: 'text', text: b.text });
         else if (b.kind === 'image') parts.push({ kind: 'image', mimeType: b.mimeType, data: b.data });
       }
-      if (parts.length) out.push({ id: `u${i++}-msg${mi}`, kind: 'user', parts });
+      if (parts.length) out.push({ id: `u${i++}-msg${mi}`, kind: 'user', parts, uuid: m.uuid });
     }
     // Non-user blocks (assistant text/thinking/tool_*) still emit one Item
     // per block so their per-block visuals (tool cards, thinking boxes, code
@@ -133,7 +123,21 @@ function flatten(messages: Message[]): Item[] {
         out.push({ id: `img${i++}`, kind: 'assistant-image', mimeType: b.mimeType, data: b.data });
         lastTool = null;
       } else if (b.kind === 'tool_use') {
-        if (isRenderUITool(b.name)) {
+        if (isTodoWriteTool(b.name)) {
+          const input = (b.input || {}) as { todos?: TodoEntry[] };
+          const todos = Array.isArray(input?.todos) ? input.todos : [];
+          // Drop the previous todo card — a fresh TodoWrite always replaces
+          // it (CLI shows only the latest state).
+          if (latestTodoIdx >= 0) {
+            out.splice(latestTodoIdx, 1);
+            latestTodoIdx = -1;
+          }
+          latestTodoIdx = out.length;
+          out.push({ id: `todo${i++}`, kind: 'todo', todos });
+          // TodoWrite's tool_result is just an ACK — don't chain it to
+          // anything real.
+          lastTool = null;
+        } else if (isRenderUITool(b.name)) {
           // Claude writes the TSX directly into the tool_use input.code field;
           // jsonl persists it. We use that as the rendered code immediately.
           const input = (b.input || {}) as { code?: string; prompt?: string };
@@ -210,10 +214,136 @@ function toolHeader(name: string, input: any): string {
 
 // ---- Items ----------------------------------------------------------------
 
+// Dim italic header at the top of the thread (visually the top because the
+// thread renders column-reverse, so it must be the LAST DOM child of .thread).
+function SessionHeader({ cwd, startedAt }: { cwd: string; startedAt: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+  const shownCwd = cwd ? cwd.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~') : '';
+  const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
+  const elapsed = startedAt ? formatElapsed(elapsedMs) : '';
+  return (
+    <div className="ti-session-head">
+      <span className="ti-session-cwd">{shownCwd || '(unknown cwd)'}</span>
+      {elapsed && <span className="ti-session-elapsed">({elapsed})</span>}
+    </div>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+// ---- Todo card ------------------------------------------------------------
+
+const TODO_STATUS_ORDER: Record<TodoEntry['status'], number> = {
+  in_progress: 0,
+  pending: 1,
+  completed: 2,
+};
+
+function TodoItem({ todos }: { todos: TodoEntry[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const total = todos.length;
+  const done = todos.filter((t) => t.status === 'completed').length;
+  const inProg = todos.filter((t) => t.status === 'in_progress').length;
+  const open = todos.filter((t) => t.status === 'pending').length;
+
+  const sorted = [...todos].sort(
+    (a, b) => TODO_STATUS_ORDER[a.status] - TODO_STATUS_ORDER[b.status],
+  );
+  // Show all non-completed, plus up to first 3 completed. Overflow rolls
+  // into a "… +N completed" footer.
+  const shown: TodoEntry[] = [];
+  let completedShown = 0;
+  const COMPLETED_LIMIT = expanded ? Infinity : 3;
+  for (const t of sorted) {
+    if (t.status === 'completed') {
+      if (completedShown < COMPLETED_LIMIT) {
+        shown.push(t);
+        completedShown++;
+      }
+    } else {
+      shown.push(t);
+    }
+  }
+  const hiddenCompleted = Math.max(0, done - completedShown);
+
+  return (
+    <div className="ti-todo">
+      <div className="ti-todo-stats">
+        <strong>{total} tasks</strong> ({done} done, {inProg} in progress, {open} open)
+      </div>
+      <ul className="ti-todo-list">
+        {shown.map((t, idx) => {
+          const label =
+            t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content;
+          return (
+            <li key={idx} className={`ti-todo-li ti-todo-${t.status}`}>
+              <span className="ti-todo-icon">
+                {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▪' : '☐'}
+              </span>
+              <span className="ti-todo-text">{label}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {hiddenCompleted > 0 && (
+        <button className="ti-expand" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? '↑ collapse' : `… +${hiddenCompleted} completed`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---- System event ---------------------------------------------------------
+
+function SystemEventItem({ eventType, text }: { eventType: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  const label =
+    eventType === 'summary'
+      ? 'recap'
+      : eventType === 'resume'
+        ? 'resume'
+        : eventType === 'compact'
+          ? 'compact'
+          : eventType;
+  const isLong = text.length > 200;
+  const shown = open || !isLong ? text : text.slice(0, 200) + '…';
+  return (
+    <div className="ti-sysevent">
+      <span className="ti-sysevent-mark">※</span>
+      <span className="ti-sysevent-label">{label}:</span> {shown}
+      {isLong && (
+        <button className="ti-expand ti-sysevent-toggle" onClick={() => setOpen((v) => !v)}>
+          {open ? ' ↑ collapse' : ' expand'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // One user message = one visual card, no matter how many text or image
 // blocks it holds. The "❯" chevron sits at top-left; parts stack in
 // original order so pasted "image → text → image" reads naturally.
-function UserItem({ parts }: { parts: MsgPart[] }) {
+function UserItem({
+  parts,
+  onRewind,
+}: {
+  parts: MsgPart[];
+  onRewind?: () => void;
+}) {
   const hasNonEmptyText = parts.some((p) => p.kind === 'text' && p.text);
   const hasImage = parts.some((p) => p.kind === 'image');
   if (!hasNonEmptyText && !hasImage) return null;
@@ -231,6 +361,17 @@ function UserItem({ parts }: { parts: MsgPart[] }) {
           ),
         )}
       </div>
+      {onRewind && (
+        <button
+          type="button"
+          className="ti-user-rewind"
+          onClick={onRewind}
+          title="Rewind to before this message"
+          aria-label="Rewind"
+        >
+          ↩ rewind
+        </button>
+      )}
     </div>
   );
 }
@@ -268,12 +409,13 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
   );
 }
 
-const PREVIEW_LINES = 4;
+const PREVIEW_LINES = 2;
 
 function ToolItem({ name, input, result }: { name: string; input: unknown; result?: string }) {
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
-  const allLines = (result ?? '').split('\n');
+  const resultText = (result ?? '').replace(/\n+$/, '');
+  const allLines = resultText ? resultText.split('\n') : [];
   const previewLines = open ? allLines : allLines.slice(0, PREVIEW_LINES);
   const extra = Math.max(0, allLines.length - PREVIEW_LINES);
 
@@ -288,7 +430,7 @@ function ToolItem({ name, input, result }: { name: string; input: unknown; resul
           </span>
         )}
       </div>
-      {result !== undefined && (
+      {result !== undefined && allLines.length > 0 && (
         <div className="ti-tool-out">
           <span className="ti-rail">└</span>
           <div className="ti-tool-body">
@@ -409,9 +551,69 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   );
 }
 
-function ItemView({ it }: { it: Item }) {
+// Inline permission gate — Allow / Deny buttons that POST the decision back
+// so the SDK's canUseTool callback resumes with the user's choice.
+function PermissionItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny') => void;
+}) {
+  // Only pending gates are worth showing — once resolved, the tool block
+  // above already tells the story (Bash ran / didn't run).
+  if (it.status !== 'pending') return null;
+  const header = toolHeader(it.toolName, it.input);
+  return (
+    <div className="ti-perm">
+      <span className="ti-perm-icon">🔒</span>
+      <span className="ti-perm-title">
+        Run <strong>{it.toolName}</strong>?
+      </span>
+      {header && (
+        <span className="ti-perm-args" title={header}>
+          ({header})
+        </span>
+      )}
+      <span className="ti-perm-actions">
+        <button
+          type="button"
+          className="ghost small"
+          onClick={() => onDecide(it.permissionId, 'deny')}
+        >
+          Deny
+        </button>
+        <button
+          type="button"
+          className="primary small"
+          onClick={() => onDecide(it.permissionId, 'allow')}
+        >
+          Allow
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function ItemView({
+  it,
+  onRewind,
+  onPermissionDecide,
+}: {
+  it: Item;
+  onRewind?: (uuid: string) => void;
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny') => void;
+}) {
   switch (it.kind) {
     case 'user':
+      return (
+        <UserItem
+          parts={it.parts}
+          onRewind={
+            onRewind && it.uuid ? () => onRewind(it.uuid!) : undefined
+          }
+        />
+      );
     case 'live-user':
       return <UserItem parts={it.parts} />;
     case 'assistant':
@@ -422,30 +624,148 @@ function ItemView({ it }: { it: Item }) {
       return <ThinkingItem text={it.text} />;
     case 'tool':
       return <ToolItem name={it.name} input={it.input} result={it.result} />;
+    case 'todo':
+      return <TodoItem todos={it.todos} />;
+    case 'system_event':
+      return <SystemEventItem eventType={it.eventType} text={it.text} />;
     case 'genui':
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
+    case 'permission':
+      return onPermissionDecide ? (
+        <PermissionItem it={it} onDecide={onPermissionDecide} />
+      ) : (
+        <PermissionItem it={it} onDecide={() => {}} />
+      );
   }
+}
+
+// Session-level actions dropdown ("···" button). Extra items get added
+// here — the button intentionally does nothing on its own; each menu row
+// carries its own click handler.
+function SessionActionsMenu({
+  disabled,
+  busyCompact,
+  onCompact,
+}: {
+  disabled: boolean;
+  busyCompact: boolean;
+  onCompact: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: Event) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: Event) => {
+      const ke = e as unknown as { key: string };
+      if (ke.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+  return (
+    <div className="actions-menu-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="icon-btn"
+        title="Session actions"
+        aria-label="Session actions"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="5" cy="12" r="1.4" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+          <circle cx="19" cy="12" r="1.4" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <div className="actions-menu">
+          <button
+            type="button"
+            className="actions-menu-item"
+            disabled={disabled || busyCompact}
+            onClick={() => {
+              setOpen(false);
+              onCompact();
+            }}
+          >
+            <span className="actions-menu-body">
+              <span className="actions-menu-label">
+                {busyCompact ? 'Compacting…' : 'Compact'}
+              </span>
+              <span className="actions-menu-sub">Summarise → replace transcript</span>
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---- Session view ---------------------------------------------------------
 
-export function Session() {
-  const { project = '', sid = '' } = useParams();
+export type SessionProps = {
+  // When rendered as a canvas tile the parent passes project + sid directly
+  // instead of relying on the URL params (multiple tiles on one route can't
+  // share params). `focused` gates the global Shift+Tab handler so only the
+  // active tile responds.
+  project?: string;
+  sid?: string;
+  focused?: boolean;
+  onFocus?: () => void;
+  onRemove?: () => void;
+  // Suppress the top breadcrumb + copy/refresh bar — the tile grip already
+  // hosts those actions in canvas mode.
+  hideBar?: boolean;
+  // Incrementing this from the parent forces a fresh reload of the jsonl
+  // (used by the tile's refresh button).
+  refreshKey?: number;
+};
+
+export function Session(props: SessionProps = {}) {
+  const params = useParams();
+  const project = props.project ?? params.project ?? '';
+  const sid = props.sid ?? params.sid ?? '';
   const location = useLocation();
   const navigate = useNavigate();
   const isNew = !sid;
   const isPending = Boolean((location.state as { pending?: boolean } | null)?.pending);
+  // When mounted as a canvas tile the parent decides focus. Standalone
+  // (single-URL) mount is always focused.
+  const focused = props.focused ?? true;
+  const hideBar = props.hideBar ?? false;
+  const refreshKey = props.refreshKey ?? 0;
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [polling, setPolling] = useState(false);
-  const [liveAssistant, setLiveAssistant] = useState<string>('');
   const [liveUser, setLiveUser] = useState<string>('');
-  // Tool calls that started during the current send but haven't been merged
-  // into jsonl yet. Indexed by tool_use_id for in-place tool_result patching.
-  const [liveTools, setLiveTools] = useState<Array<Extract<Item, { kind: 'genui' | 'tool' }>>>([]);
+  // Single ordered timeline for the current turn: text chunks and tool
+  // calls/permissions are interleaved in the same array so the render
+  // matches Claude's actual "text → tool → text → tool" sequencing. Previous
+  // implementation kept `liveAssistant: string` separate and rendered it
+  // as one block ABOVE `liveTools`, which visually flipped the order.
+  type LiveTurnItem = Extract<Item, { kind: 'live-assistant' | 'tool' | 'genui' | 'permission' }>;
+  const [liveTurn, setLiveTurn] = useState<LiveTurnItem[]>([]);
+  // Cumulative assistant text length across the timeline — the thinking
+  // indicator uses this as its len/4 fallback estimate.
+  const liveAssistantLen = useMemo(
+    () =>
+      liveTurn.reduce(
+        (sum, it) => (it.kind === 'live-assistant' ? sum + it.text.length : sum),
+        0,
+      ),
+    [liveTurn],
+  );
   // -1 = no usage signal yet (Macaron path or pre-first-delta). Indicator
   // falls back to a len/4 estimate when this is < 0.
   const [outputTokens, setOutputTokens] = useState<number>(-1);
@@ -462,8 +782,23 @@ export function Session() {
   // trigger that pulls the canonical data back.
   const [completedTurns, setCompletedTurns] = useState<Item[]>([]);
   const [input, setInput] = useState('');
+  // Shell-style prompt history, per project. Latest at the end. Loaded
+  // lazily so each new mount picks up entries appended by sibling tiles.
+  const [history, setHistory] = useState<string[]>(() => loadHistory(project));
+  useEffect(() => { setHistory(loadHistory(project)); }, [project]);
+  // Navigation state. null = user is composing a fresh draft; otherwise
+  // 0 = latest sent, 1 = one before, … history.length-1 = oldest. When we
+  // enter history navigation we stash the draft so ArrowDown-past-latest
+  // can restore it.
+  const [historyIdx, setHistoryIdx] = useState<number | null>(null);
+  const draftInputRef = useRef<string>('');
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // Shift+Tab cycles through permission modes globally on the Session view
+  // (mirrors claude-cli). The toast surfaces the change since the status bar
+  // may be off-screen when the user scrolls up through history.
+  const permissionModeRef = useRef<PermissionMode>('default');
+  permissionModeRef.current = permissionMode;
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -471,6 +806,9 @@ export function Session() {
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
   const toast = useToast();
+  const confirm = useConfirm();
+  const [busyCompact, setBusyCompact] = useState(false);
+  const [busyRewind, setBusyRewind] = useState(false);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
@@ -492,6 +830,110 @@ export function Session() {
     if (accepted.length) setImages((cur) => [...cur, ...accepted]);
   }, [toast]);
 
+  // Rewind: drop the picked message + everything after it. Server backs up
+  // the discarded tail to a .rewind-<ts>.jsonl.bak sibling so it's
+  // recoverable. Fresh jsonl means we drop completedTurns too and reload.
+  const handleRewind = useCallback(
+    async (uuid: string) => {
+      if (busyRewind) return;
+      const ok = await confirm({
+        title: 'Rewind to before this message?',
+        body: (
+          <>
+            This message and every reply / tool call after it will be removed
+            from the transcript. A backup is kept next to the jsonl.
+          </>
+        ),
+        confirmLabel: 'Rewind',
+        destructive: true,
+      });
+      if (!ok) return;
+      setBusyRewind(true);
+      try {
+        const r = await api.rewindSession(project, sid, uuid);
+        setCompletedTurns([]);
+        setLiveUser('');
+        setLiveTurn([]);
+        const d = await api.session(project, sid);
+        setData(d);
+        setShown(PAGE_SIZE);
+        toast(`Rewound · dropped ${r.dropped} lines`);
+      } catch (e) {
+        toast(`rewind failed: ${(e as Error).message}`);
+      } finally {
+        setBusyRewind(false);
+      }
+    },
+    [busyRewind, confirm, project, sid, toast],
+  );
+
+  // Compact: replace the transcript with a provider-generated recap.
+  const handleCompact = useCallback(async () => {
+    if (busyCompact) return;
+    const ok = await confirm({
+      title: 'Compact this session?',
+      body: (
+        <>
+          The current transcript will be replaced with a single recap
+          paragraph generated by your active provider. A full backup is kept
+          next to the jsonl.
+        </>
+      ),
+      confirmLabel: 'Compact',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyCompact(true);
+    try {
+      await api.compactSession(project, sid);
+      setCompletedTurns([]);
+      setLiveUser('');
+      setLiveAssistant('');
+      setLiveTools([]);
+      const d = await api.session(project, sid);
+      setData(d);
+      setShown(PAGE_SIZE);
+      toast('Session compacted');
+    } catch (e) {
+      toast(`compact failed: ${(e as Error).message}`);
+    } finally {
+      setBusyCompact(false);
+    }
+  }, [busyCompact, confirm, project, sid, toast]);
+
+  // Permission decision: POST to server; server resolves the pending
+  // canUseTool promise. Optimistically update the local card so it doesn't
+  // linger in "pending" — the server will echo a permission_resolved event
+  // that overwrites the same status field anyway.
+  const handlePermissionDecide = useCallback(
+    (permissionId: string, decision: 'allow' | 'deny') => {
+      setLiveTurn((cur) =>
+        cur.map((t) =>
+          t.kind === 'permission' && t.permissionId === permissionId
+            ? { ...t, status: decision }
+            : t,
+        ),
+      );
+      api.permissionDecision(permissionId, decision).catch((e) => {
+        toast(`permission ${decision} failed: ${(e as Error).message}`);
+      });
+    },
+    [toast],
+  );
+
+  // Stop: signal the server to abort the in-flight SDK stream for this
+  // session. The SSE will close as a result and `sending` flips off via
+  // the existing `done` handler.
+  const handleStop = useCallback(async () => {
+    if (!sid) return;
+    try {
+      await api.stopSession(project, sid);
+      toast('Stop requested');
+    } catch (e) {
+      toast(`stop failed: ${(e as Error).message}`);
+    }
+  }, [project, sid, toast]);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setError('');
     try {
@@ -509,13 +951,39 @@ export function Session() {
 
   useEffect(() => {
     setData(null);
-    setLiveAssistant('');
+    setLiveTurn([]);
     setLiveUser('');
     setShown(PAGE_SIZE);
     if (isNew) return; // no jsonl yet — empty state until first send
     // For brand-new sessions the jsonl may not exist yet — suppress the 404 error.
     load({ silent: isPending });
-  }, [project, sid, load, isPending, isNew]);
+    // refreshKey included so an incrementing parent nonce forces reload.
+  }, [project, sid, load, isPending, isNew, refreshKey]);
+
+  // Global Shift+Tab → cycle permission mode, matching claude-cli's binding.
+  // The browser's own "reverse focus" behaviour is preempted; we surface the
+  // switch via toast because the status bar might be scrolled out of view.
+  useEffect(() => {
+    const CYCLE: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+    const LABELS: Record<PermissionMode, string> = {
+      default: 'Default (ask)',
+      acceptEdits: 'Accept edits',
+      plan: 'Plan mode',
+      bypassPermissions: 'Bypass all',
+    };
+    const onKey = (e: Event) => {
+      if (!focused) return; // canvas tiles only respond when active
+      const ke = e as unknown as { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void };
+      if (ke.key !== 'Tab' || !ke.shiftKey || ke.ctrlKey || ke.metaKey || ke.altKey) return;
+      ke.preventDefault();
+      const cur = permissionModeRef.current;
+      const next = CYCLE[(CYCLE.indexOf(cur) + 1) % CYCLE.length]!;
+      setPermissionMode(next);
+      toast(`Permission → ${LABELS[next]}`);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toast, focused]);
 
   // When we arrived from "+ New session", the in-browser live store already
   // has the fetch open and is collecting deltas (this survived the route
@@ -528,15 +996,48 @@ export function Session() {
     const applyState = (s: typeof seed) => {
       if (!s) return;
       setLiveUser(s.userText);
-      setLiveAssistant(s.assistantBuf);
       setOutputTokens(s.outputTokens);
-      // Project liveStore tools → Session Item shape (a copy so React notices).
-      setLiveTools(
-        s.tools.map((t) =>
-          t.kind === 'genui'
-            ? { id: `genui-${t.toolUseId}`, kind: 'genui', toolUseId: t.toolUseId, prompt: 'TSX rendering…', code: t.code || undefined, status: t.status, error: t.error }
-            : { id: t.id, kind: 'tool', name: t.name, input: t.input, result: t.result },
-        ),
+      // Project liveStore timeline → Session Item shape (fresh objects so
+      // React notices identity changes even when the underlying entry was
+      // mutated in-place).
+      setLiveTurn(
+        s.timeline.map((t) => {
+          if (t.kind === 'genui') {
+            return {
+              id: `genui-${t.toolUseId}`,
+              kind: 'genui' as const,
+              toolUseId: t.toolUseId,
+              prompt: 'TSX rendering…',
+              code: t.code || undefined,
+              status: t.status,
+              error: t.error,
+            };
+          }
+          if (t.kind === 'permission') {
+            return {
+              id: t.id,
+              kind: 'permission' as const,
+              permissionId: t.permissionId,
+              toolName: t.toolName,
+              input: t.input,
+              status: t.status,
+            };
+          }
+          if (t.kind === 'tool') {
+            return {
+              id: t.id,
+              kind: 'tool' as const,
+              name: t.name,
+              input: t.input,
+              result: t.result,
+            };
+          }
+          return {
+            id: t.id,
+            kind: 'live-assistant' as const,
+            text: t.text,
+          };
+        }),
       );
     };
     if (seed) applyState(seed);
@@ -580,6 +1081,25 @@ export function Session() {
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
 
+  // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
+  // The status bar mirrors the current in-progress task + progress fraction.
+  const currentTodo = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      if (it.kind === 'todo') {
+        const inProg = it.todos.find((t) => t.status === 'in_progress');
+        const done = it.todos.filter((t) => t.status === 'completed').length;
+        if (!inProg) return null;
+        return {
+          text: inProg.activeForm || inProg.content,
+          done,
+          total: it.todos.length,
+        };
+      }
+    }
+    return null;
+  }, [items]);
+
   // Note: no auto-scroll useEffect. The thread uses flex-direction:
   // column-reverse so the browser anchors scroll at the visual bottom
   // automatically — new content pushes existing content up without us
@@ -587,6 +1107,14 @@ export function Session() {
 
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
+  // Session start time from the earliest message timestamp — mirrors the CLI's
+  // "cwd (elapsed)" header. Null before any messages arrive.
+  const startedAt = useMemo(() => {
+    const first = data?.messages?.find((m) => m.timestamp);
+    if (!first?.timestamp) return null;
+    const t = new Date(first.timestamp).getTime();
+    return Number.isFinite(t) ? t : null;
+  }, [data]);
 
   // Snapshot the current live buffers (from the last completed turn) into
   // completedTurns, then reset live state for the next turn. Called just
@@ -595,9 +1123,9 @@ export function Session() {
   const rollLiveIntoHistory = useCallback(() => {
     const frozen: Item[] = [];
     const ts = Date.now();
-    // Freeze the whole user turn (images + text) into ONE Item so it renders
-    // as a single card in completedTurns, matching how a page-refresh load
-    // via flatten() would group them from the jsonl.
+    // Freeze the user turn (images + text) into ONE Item so it renders as
+    // a single card in history — matches how a page-refresh load groups
+    // them via flatten() from the jsonl.
     const parts: MsgPart[] = [];
     for (const img of liveUserImages) {
       const m = /^data:([^;]+);base64,(.*)$/.exec(img.dataUrl);
@@ -607,15 +1135,21 @@ export function Session() {
     }
     if (liveUser) parts.push({ kind: 'text', text: liveUser });
     if (parts.length) frozen.push({ id: `hist-u-${ts}`, kind: 'user', parts });
-    frozen.push(...liveTools);
-    if (liveAssistant) frozen.push({ id: `hist-a-${ts}`, kind: 'assistant', text: liveAssistant });
+    // Walk the timeline in order — convert `live-assistant` chunks into
+    // final `assistant` items so completedTurns rendering is uniform.
+    for (const it of liveTurn) {
+      if (it.kind === 'live-assistant') {
+        if (it.text) frozen.push({ id: `${it.id}-hist`, kind: 'assistant', text: it.text });
+      } else {
+        frozen.push(it);
+      }
+    }
     if (frozen.length) setCompletedTurns((cur) => [...cur, ...frozen]);
     setLiveUser('');
-    setLiveAssistant('');
-    setLiveTools([]);
+    setLiveTurn([]);
     setLiveUserImages([]);
     setOutputTokens(-1);
-  }, [liveUser, liveAssistant, liveTools, liveUserImages]);
+  }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
     async (e?: FormEvent) => {
@@ -625,6 +1159,11 @@ export function Session() {
       const sentImages = images;
       setInput('');
       setImages([]);
+      // Persist to prompt history + reset navigation state.
+      const nextHistory = pushHistory(project, text);
+      setHistory(nextHistory);
+      setHistoryIdx(null);
+      draftInputRef.current = '';
       // Roll the *previous* turn's live buffers into history before we
       // clobber them with this turn's user text — otherwise typing a second
       // message erases the first reply until the next page refresh.
@@ -634,8 +1173,7 @@ export function Session() {
       // liveUserImages instead of a placeholder string.
       setLiveUser(text);
       setLiveUserImages(sentImages);
-      setLiveAssistant('');
-      setLiveTools([]);
+      setLiveTurn([]);
       setOutputTokens(-1);
 
       if (isNew) {
@@ -658,7 +1196,6 @@ export function Session() {
         return;
       }
 
-      let buf = '';
       await streamSession(
         `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/message`,
         {
@@ -668,27 +1205,38 @@ export function Session() {
         },
         {
           onDelta: (t) => {
-            buf += t;
-            setLiveAssistant(buf);
+            setLiveTurn((cur) => {
+              const last = cur[cur.length - 1];
+              if (last?.kind === 'live-assistant') {
+                return [
+                  ...cur.slice(0, -1),
+                  { ...last, text: last.text + t },
+                ];
+              }
+              return [
+                ...cur,
+                { id: `live-a-${Date.now()}-${cur.length}`, kind: 'live-assistant', text: t },
+              ];
+            });
           },
           onToolUse: ({ id, name, input: toolInput }) => {
-            if (isRenderUITool(name)) {
-              setLiveTools((cur) => [
-                ...cur,
-                { id: `genui-${id}`, kind: 'genui', toolUseId: id, prompt: 'TSX rendering…', status: 'pending' },
-              ]);
-            } else {
-              setLiveTools((cur) => [
-                ...cur,
-                { id: `live-${id}`, kind: 'tool', name, input: toolInput },
-              ]);
-            }
+            setLiveTurn((cur) =>
+              isRenderUITool(name)
+                ? [
+                    ...cur,
+                    { id: `genui-${id}`, kind: 'genui', toolUseId: id, prompt: 'TSX rendering…', status: 'pending' },
+                  ]
+                : [
+                    ...cur,
+                    { id: `live-${id}`, kind: 'tool', name, input: toolInput },
+                  ],
+            );
           },
           onToolInputDelta: ({ id, name, accumulated }) => {
             if (!isRenderUITool(name)) return;
             const partial = extractPartialCode(accumulated);
             if (!partial) return;
-            setLiveTools((cur) =>
+            setLiveTurn((cur) =>
               cur.map((t) =>
                 t.kind === 'genui' && t.toolUseId === id && (!t.code || partial.length > t.code.length)
                   ? { ...t, code: partial }
@@ -701,7 +1249,7 @@ export function Session() {
             try {
               const obj = JSON.parse(final_json);
               if (typeof obj?.code === 'string') {
-                setLiveTools((cur) =>
+                setLiveTurn((cur) =>
                   cur.map((t) =>
                     t.kind === 'genui' && t.toolUseId === id
                       ? { ...t, status: 'ready', code: obj.code }
@@ -711,8 +1259,28 @@ export function Session() {
               }
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
+          onPermissionRequest: ({ id, toolName, input }) => {
+            setLiveTurn((cur) => [
+              ...cur,
+              {
+                id: `perm-${id}`,
+                kind: 'permission',
+                permissionId: id,
+                toolName,
+                input,
+                status: 'pending',
+              },
+            ]);
+          },
+          onPermissionResolved: ({ id, decision }) => {
+            setLiveTurn((cur) =>
+              cur.map((t) =>
+                t.kind === 'permission' && t.permissionId === id ? { ...t, status: decision } : t,
+              ),
+            );
+          },
           onToolResult: ({ tool_use_id, text: resultText, isError }) => {
-            setLiveTools((cur) =>
+            setLiveTurn((cur) =>
               cur.map((t) => {
                 if (t.kind === 'genui' && t.toolUseId === tool_use_id) {
                   if (isError || resultText.startsWith('render_ui failed:')) {
@@ -731,7 +1299,17 @@ export function Session() {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
-            setLiveAssistant((cur) => cur + `\n[error] ${err}`);
+            setLiveTurn((cur) => {
+              const last = cur[cur.length - 1];
+              const chunk = `\n[error] ${err}`;
+              if (last?.kind === 'live-assistant') {
+                return [...cur.slice(0, -1), { ...last, text: last.text + chunk }];
+              }
+              return [
+                ...cur,
+                { id: `live-a-err-${Date.now()}`, kind: 'live-assistant', text: chunk },
+              ];
+            });
           },
           onDone: () => {
             // Don't re-read the jsonl here — the CLI writes it asynchronously
@@ -758,46 +1336,82 @@ export function Session() {
       }
       e.preventDefault();
       send();
+      return;
+    }
+    // Shell-style history navigation: ArrowUp when already in history mode
+    // OR when the textarea is empty / cursor is at position 0 recalls an
+    // earlier prompt. Escape bails back to the draft the user was typing.
+    if (e.key === 'ArrowUp') {
+      const ta = e.currentTarget;
+      const canEnter =
+        historyIdx !== null || input === '' || ta.selectionStart === 0;
+      if (!canEnter || history.length === 0) return;
+      e.preventDefault();
+      const nextIdx = historyIdx === null ? 0 : Math.min(historyIdx + 1, history.length - 1);
+      if (historyIdx === null) draftInputRef.current = input;
+      setHistoryIdx(nextIdx);
+      setInput(history[history.length - 1 - nextIdx]!);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      if (historyIdx === null) return;
+      e.preventDefault();
+      if (historyIdx === 0) {
+        setHistoryIdx(null);
+        setInput(draftInputRef.current);
+        return;
+      }
+      const nextIdx = historyIdx - 1;
+      setHistoryIdx(nextIdx);
+      setInput(history[history.length - 1 - nextIdx]!);
+      return;
+    }
+    if (e.key === 'Escape' && historyIdx !== null) {
+      e.preventDefault();
+      setHistoryIdx(null);
+      setInput(draftInputRef.current);
     }
   };
 
   return (
     <section className="view session-view">
-      <div className="session-bar">
-        <div className="session-bar-left">
-          <Link to="/" className="crumb-link">Workspaces</Link>
-          <span className="sep">›</span>
-          <Link to={`/w/${encodeURIComponent(project)}`} className="crumb-link">{name}</Link>
-          <span className="sep">›</span>
-          <span className="sess-id-crumb">{isNew ? 'new' : sid.slice(0, 8)}</span>
-          {data?.gitBranch && <span className="sess-branch">{data.gitBranch}</span>}
-        </div>
-        <div className="session-bar-right">
-          {!isNew && (
+      {!hideBar && (
+        <div className="session-bar">
+          <div className="session-bar-left">
+            <Link to="/" className="crumb-link">Workspaces</Link>
+            <span className="sep">›</span>
+            <Link to={`/w/${encodeURIComponent(project)}`} className="crumb-link">{name}</Link>
+            <span className="sep">›</span>
+            <span className="sess-id-crumb">{isNew ? 'new' : sid.slice(0, 8)}</span>
+            {data?.gitBranch && <span className="sess-branch">{data.gitBranch}</span>}
+          </div>
+          <div className="session-bar-right">
+            {!isNew && (
+              <button
+                className="ghost small"
+                onClick={() => navigator.clipboard.writeText(`claude --resume ${sid}`).then(() => toast(`copied: claude --resume ${sid}`))}
+                title="Copy claude --resume command"
+              >
+                Copy resume
+              </button>
+            )}
             <button
-              className="ghost small"
-              onClick={() => navigator.clipboard.writeText(`claude --resume ${sid}`).then(() => toast(`copied: claude --resume ${sid}`))}
-              title="Copy claude --resume command"
+              className="icon-btn"
+              onClick={() => load()}
+              title="Refresh"
+              aria-label="Refresh"
+              disabled={isNew}
             >
-              Copy resume
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />
+                <path d="M3 12a9 9 0 0 1 15.36-6.36L21 8" />
+                <polyline points="21 3 21 8 16 8" />
+                <polyline points="3 21 3 16 8 16" />
+              </svg>
             </button>
-          )}
-          <button
-            className="icon-btn"
-            onClick={() => load()}
-            title="Refresh"
-            aria-label="Refresh"
-            disabled={isNew}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />
-              <path d="M3 12a9 9 0 0 1 15.36-6.36L21 8" />
-              <polyline points="21 3 21 8 16 8" />
-              <polyline points="3 21 3 16 8 16" />
-            </svg>
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
@@ -805,13 +1419,14 @@ export function Session() {
         button, banners, error/empty placeholders) goes at the END of the DOM.
       */}
       <div className="thread tui" ref={threadRef}>
-        {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistant.length} outputTokens={outputTokens} />}
-        {/* Render whenever there's text — not just while sending. Since we no
-            longer reload the jsonl on `done`, this line has to survive until
-            either the next send() (which rolls it into completedTurns) or a
-            manual page refresh (which loads canonical data). */}
-        {liveAssistant && <ItemView it={{ id: 'live-a', kind: 'live-assistant', text: liveAssistant }} />}
-        {[...liveTools].reverse().map((t) => <ItemView key={t.id} it={t} />)}
+        {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
+        {/* Single ordered timeline for the current turn. Items are appended
+            to `liveTurn` in exact SSE arrival order, so reversing here
+            (thread is column-reverse) puts the newest at the visual bottom
+            while preserving relative text/tool interleaving. */}
+        {[...liveTurn].reverse().map((t) => (
+          <ItemView key={t.id} it={t} onPermissionDecide={handlePermissionDecide} />
+        ))}
         {/* Current-turn user message = one card. Images stack ABOVE the
             text (Claude-web ordering: attachments before prose). */}
         {(liveUser || liveUserImages.length > 0) && (
@@ -834,7 +1449,7 @@ export function Session() {
           <ItemView key={it.id} it={it} />
         ))}
         {[...tail].reverse().map((it) => (
-          <ItemView key={it.id} it={it} />
+          <ItemView key={it.id} it={it} onRewind={handleRewind} />
         ))}
         {hidden > 0 && (
           <button className="ghost load-earlier" onClick={() => setShown((s) => s + PAGE_SIZE)}>
@@ -856,14 +1471,22 @@ export function Session() {
           !error &&
           !polling &&
           !liveUser &&
-          !liveAssistant &&
-          liveTools.length === 0 &&
+          liveTurn.length === 0 &&
           completedTurns.length === 0 && (
             <div className="muted">Loading…</div>
           )}
         {error && <div className="ti-error">error: {error}</div>}
+        {/* CLI-parity: cwd + elapsed line at the visual top of the thread.
+            Rendered LAST in DOM because .thread is column-reverse. */}
+        {(cwd || startedAt) && <SessionHeader cwd={cwd} startedAt={startedAt} />}
       </div>
 
+      {/* Input area always mounted — collapses to a zero-fr grid row
+          when the tile isn't focused so a click-focus animates in
+          smoothly against the content's natural height, and the user's
+          typed draft survives focus changes. */}
+      <div className={`session-input-area${focused ? '' : ' collapsed'}`}>
+      <div className="session-input-inner">
       <form
         className={`session-input${dragOver ? ' drag-over' : ''}`}
         onSubmit={send}
@@ -898,7 +1521,12 @@ export function Session() {
           placeholder="Reply to Claude…"
           value={input}
           disabled={sending}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            // Any manual edit exits history-navigation mode — pressing
+            // Send now sends the (possibly edited) text as a fresh entry.
+            if (historyIdx !== null) setHistoryIdx(null);
+          }}
           onCompositionStart={() => { composingRef.current = true; }}
           onCompositionEnd={() => {
             composingRef.current = false;
@@ -945,30 +1573,53 @@ export function Session() {
               <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
-          <div className="session-input-spacer" />
-          <PermissionChip
-            value={permissionMode}
-            onChange={setPermissionMode}
-            disabled={sending}
+          <SessionActionsMenu
+            disabled={isNew || sending}
+            busyCompact={busyCompact}
+            onCompact={() => void handleCompact()}
           />
-          <ProviderPicker />
-          <button
-            className="primary send-btn"
-            type="submit"
-            disabled={sending || (!input.trim() && images.length === 0)}
-            aria-label="Send"
-          >
-            {sending ? (
-              <span className="send-dot" />
-            ) : (
+          <div className="session-input-spacer" />
+          {sending ? (
+            <button
+              type="button"
+              className="primary send-btn stop-btn"
+              onClick={() => void handleStop()}
+              disabled={!sid}
+              title="Stop generation"
+              aria-label="Stop"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="1.5" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              className="primary send-btn"
+              type="submit"
+              disabled={!input.trim() && images.length === 0}
+              aria-label="Send"
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 19V5" />
                 <path d="m5 12 7-7 7 7" />
               </svg>
-            )}
-          </button>
+            </button>
+          )}
         </div>
       </form>
+
+      <StatusBar
+        projectName={name}
+        permissionMode={permissionMode}
+        onPermissionChange={setPermissionMode}
+        sending={sending}
+        currentTodo={currentTodo}
+        latestUsage={data?.latestUsage}
+        claudeMdCount={data?.claudeMdCount}
+        mcpCount={data?.mcpCount}
+      />
+      </div>
+      </div>
     </section>
   );
 }

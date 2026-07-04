@@ -1,10 +1,50 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Link } from 'react-router-dom';
-import { api } from '../lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { api, basename, type Workspace, type SessionListItem } from '../lib/api';
+import { useToast } from './Toast';
+import { ContextMenu, type MenuItem } from './ContextMenu';
+import {
+  getCanvasSids,
+  toggleCanvasSid,
+  focusCanvasSid,
+  subscribeCanvas,
+} from '../lib/canvas';
+
+type WsData = Workspace & { sessions: SessionListItem[] };
+
+function sessStatus(mtime: number): 'completed' | 'running' {
+  return Date.now() - mtime < 60_000 ? 'running' : 'completed';
+}
 
 export function Sidebar() {
+  const [workspaces, setWorkspaces] = useState<WsData[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
-  const [model, setModel] = useState<string>('');
+  const [model, setModel] = useState('');
+  const [ctxMenu, setCtxMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  // Per-workspace set of canvas-pinned sids, so the session rows can show
+  // + / ✓ toggles. Re-reads from localStorage whenever a canvas changes.
+  const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
+  const navigate = useNavigate();
+  const location = useLocation();
+  const toast = useToast();
+
+  const loadData = useCallback(async () => {
+    try {
+      const d = await api.workspaces();
+      const results = await Promise.all(
+        d.workspaces.map(async (w) => {
+          try {
+            const detail = await api.workspace(w.project);
+            return { ...w, sessions: detail.sessions } as WsData;
+          } catch {
+            return { ...w, sessions: [] } as WsData;
+          }
+        }),
+      );
+      setWorkspaces(results);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     api
@@ -14,35 +54,260 @@ export function Sidebar() {
         setModel(j.model);
       })
       .catch(() => setStatus('bad'));
-  }, []);
+    loadData();
+    const t = setInterval(loadData, 10_000);
+    return () => clearInterval(t);
+  }, [loadData]);
 
-  const port = window.location.port || '80';
+  // Track canvas state per workspace. On every workspaces refresh (or
+  // canvas mutation) re-read the sids so the +/✓ toggles stay accurate.
+  useEffect(() => {
+    const refresh = () => {
+      const next: Record<string, string[]> = {};
+      for (const w of workspaces) next[w.project] = getCanvasSids(w.project);
+      setCanvasBy(next);
+    };
+    refresh();
+    const unsubs = workspaces.map((w) => subscribeCanvas(w.project, refresh));
+    return () => {
+      for (const u of unsubs) u();
+    };
+  }, [workspaces]);
+
+  // Auto-expand workspace from URL
+  useEffect(() => {
+    const m = location.pathname.match(/^\/w\/([^/]+)/);
+    if (m) {
+      const proj = decodeURIComponent(m[1]!);
+      setExpanded((s) => {
+        if (s.has(proj)) return s;
+        const next = new Set(s);
+        next.add(proj);
+        return next;
+      });
+    }
+  }, [location.pathname]);
+
+  const toggleExpand = (project: string) => {
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(project)) next.delete(project);
+      else next.add(project);
+      return next;
+    });
+  };
+
+  const activeProject = (() => {
+    const m = location.pathname.match(/^\/w\/([^/]+)/);
+    return m ? decodeURIComponent(m[1]!) : '';
+  })();
+
+
+  const wsMenu = (w: WsData, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          icon: '＋',
+          label: 'New Session',
+          onClick: () => navigate(`/w/${encodeURIComponent(w.project)}`),
+        },
+        {
+          icon: '📋',
+          label: 'Copy Path',
+          onClick: () => {
+            navigator.clipboard.writeText(w.cwd || w.project);
+            toast('path copied');
+          },
+        },
+        'separator',
+        {
+          icon: '✕',
+          label: 'Delete Workspace',
+          danger: true,
+          onClick: () => toast('delete not yet implemented'),
+        },
+      ],
+    });
+  };
+
+  const sessMenu = (w: WsData, s: SessionListItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          icon: '◎',
+          label: 'Focus Session',
+          onClick: () =>
+            navigate(
+              `/w/${encodeURIComponent(w.project)}/s/${encodeURIComponent(s.sessionId)}`,
+            ),
+        },
+        {
+          icon: '⊕',
+          label: 'Duplicate',
+          onClick: () => toast('duplicate not yet implemented'),
+        },
+        'separator',
+        {
+          icon: '✕',
+          label: 'Delete Session',
+          danger: true,
+          onClick: async () => {
+            try {
+              await api.deleteSession(w.project, s.sessionId);
+              toast(`deleted ${s.sessionId.slice(0, 8)}`);
+              loadData();
+            } catch (err) {
+              toast(`delete failed: ${(err as Error).message}`);
+            }
+          },
+        },
+      ],
+    });
+  };
 
   return (
-    <aside className="sidebar">
-      <Link className="brand" to="/">
-        <img className="logo" src="/mindlab-symbol.svg" alt="Macaron" />
+    <aside className="sidebar-v2">
+      <Link className="sb-brand" to="/">
+        <img className="sb-logo" src="/mindlab-symbol.svg" alt="" />
         <div>
-          <div className="brand-name">Macaron</div>
-          <div className="brand-sub">Claude Code plugin</div>
+          <div className="sb-brand-name">Macaron</div>
+          <div className="sb-brand-sub">Claude Code plugin</div>
         </div>
       </Link>
 
-      <nav className="nav">
-        <NavLink to="/" end className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-          <span>Dashboard</span>
-          <small>workspaces &amp; sessions</small>
-        </NavLink>
-        <NavLink to="/settings" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-          <span>Settings</span>
-          <small>provider &amp; API key</small>
-        </NavLink>
-      </nav>
+      <div className="sb-label">
+        <span>WORKSPACES</span>
+      </div>
 
-      <footer className="footer">
-        <div className={'status ' + status}>{status === 'ok' ? `online · ${model}` : status === 'bad' ? 'offline' : 'connecting…'}</div>
-        <div>port <code>{port}</code></div>
+      <div className="sb-ws-list">
+        {workspaces.map((w) => {
+          const name = w.name || basename(w.cwd) || w.project;
+          const isExpanded = expanded.has(w.project);
+          const isActive = activeProject === w.project;
+          const runCount = w.sessions.filter((s) => sessStatus(s.mtime) === 'running').length;
+
+          return (
+            <div key={w.project} className={'sb-ws' + (isActive ? ' active' : '')}>
+              <div
+                className="sb-ws-head"
+                onClick={() => {
+                  toggleExpand(w.project);
+                  navigate(`/w/${encodeURIComponent(w.project)}`);
+                }}
+                onContextMenu={(e) => wsMenu(w, e)}
+              >
+                <span className="sb-arrow">{isExpanded ? '▾' : '▸'}</span>
+                <span className="sb-ws-name">{name}</span>
+                <span className="sb-spacer" />
+                {runCount > 0 && !isExpanded && (
+                  <span className="sb-badge sb-badge-running">{runCount}</span>
+                )}
+                <button
+                  className="sb-dots"
+                  onClick={(e) => wsMenu(w, e)}
+                  title="Workspace actions"
+                >
+                  ···
+                </button>
+              </div>
+              {isExpanded && (
+                <div className="sb-ws-sessions">
+                  {w.sessions.map((s) => {
+                    const st = sessStatus(s.mtime);
+                    const pinned = (canvasBy[w.project] || []).includes(s.sessionId);
+                    return (
+                      <div
+                        key={s.sessionId}
+                        className={'sb-sess' + (pinned ? ' pinned' : '')}
+                        onClick={() => {
+                          // First click adds to canvas. Subsequent click on a
+                          // pinned row focuses it (and navigates so the URL
+                          // matches — canvas view handles the sid).
+                          if (!pinned) toggleCanvasSid(w.project, s.sessionId);
+                          else focusCanvasSid(w.project, s.sessionId);
+                          if (activeProject !== w.project) {
+                            navigate(`/w/${encodeURIComponent(w.project)}`);
+                          }
+                          // Ask the matching tile to scroll into view + focus
+                          // its composer. Custom event fires regardless of
+                          // whether the focused sid actually changed, so
+                          // re-clicking the same row still re-scrolls.
+                          window.dispatchEvent(
+                            new CustomEvent('macaron:focus-tile', {
+                              detail: { project: w.project, sid: s.sessionId },
+                            }),
+                          );
+                        }}
+                        onContextMenu={(e) => sessMenu(w, s, e)}
+                      >
+                        <span className={'sb-sess-dot sb-sess-dot-' + st} />
+                        <span className="sb-sess-name">
+                          {s.preview || s.sessionId.slice(0, 8)}
+                        </span>
+                        <button
+                          type="button"
+                          className={'sb-sess-pin' + (pinned ? ' pinned' : '')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCanvasSid(w.project, s.sessionId);
+                            if (activeProject !== w.project) {
+                              navigate(`/w/${encodeURIComponent(w.project)}`);
+                            }
+                          }}
+                          title={pinned ? 'Remove from canvas' : 'Add to canvas'}
+                          aria-label={pinned ? 'Remove from canvas' : 'Add to canvas'}
+                        >
+                          {pinned ? '✓' : '+'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {w.sessions.length === 0 && (
+                    <div className="sb-sess empty">No sessions</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {workspaces.length === 0 && (
+          <div className="sb-empty">No workspaces</div>
+        )}
+      </div>
+
+      <div className="sb-spacer-grow" />
+
+      <Link className="sb-settings-link" to="/settings">
+        <span>⚙</span>
+        <span>Settings</span>
+      </Link>
+
+      <footer className="sb-footer">
+        <div className={'sb-status sb-status-' + status}>
+          {status === 'ok'
+            ? `online · ${model}`
+            : status === 'bad'
+              ? 'offline'
+              : 'connecting…'}
+        </div>
       </footer>
+
+      {ctxMenu && (
+        <ContextMenu
+          items={ctxMenu.items}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </aside>
   );
 }

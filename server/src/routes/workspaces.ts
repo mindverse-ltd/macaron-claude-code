@@ -11,6 +11,7 @@ import {
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
+import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv } from '../lib/settings-store.js';
 
 type Params = { project: string };
@@ -85,10 +86,11 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       startSSE(reply);
       sseSend(reply, { type: 'starting', cwd });
 
-      // Don't pass abortController — we want the SDK to keep running even if
-      // the client navigates away. The live registry handles the post-nav
-      // subscription.
-      const stream = runClaude({ prompt: text, cwd, model, permissionMode, images, envOverrides: providerEnv });
+      // Pass an abortController so a later `/stop` (from the Session view
+      // once it has a sid) can interrupt this stream. Navigating away does
+      // NOT abort — only an explicit /stop does.
+      const abortController = new AbortController();
+      const stream = runClaude({ prompt: text, cwd, model, permissionMode, images, envOverrides: providerEnv, abortController });
 
       let clientGone = false;
       reply.raw.on('close', () => {
@@ -111,6 +113,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
           if (ev.kind === 'session' && !capturedSid) {
             capturedSid = ev.sessionId;
             liveStart(capturedSid, { cwd });
+            registerRun(capturedSid, abortController);
             livePush(capturedSid, { type: 'user-text', text });
             safeSend({ type: 'meta', cwd, sessionId: capturedSid });
           } else if (ev.kind === 'delta') {
@@ -132,6 +135,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             const payload = { type: 'tool_result' as const, tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError };
             safeSend(payload);
             if (capturedSid) livePush(capturedSid, payload);
+          } else if (ev.kind === 'permission_request') {
+            const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input };
+            safeSend(payload);
+            if (capturedSid) livePush(capturedSid, payload);
+          } else if (ev.kind === 'permission_resolved') {
+            const payload = { type: 'permission_resolved' as const, id: ev.id, decision: ev.decision };
+            safeSend(payload);
+            if (capturedSid) livePush(capturedSid, payload);
           } else if (ev.kind === 'usage') {
             const payload = { type: 'usage' as const, outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens };
             safeSend(payload);
@@ -144,14 +155,20 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             if (capturedSid) livePush(capturedSid, { type: 'error', error: ev.error });
           } else if (ev.kind === 'done') {
             safeSend({ type: 'done', exitCode: ev.exitCode });
-            if (capturedSid) liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
+            if (capturedSid) {
+              liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
+              endRun(capturedSid);
+            }
             if (!clientGone) sseDone(reply);
           }
         }
       })().catch((e: unknown) => {
         const msg = (e as Error).message;
         safeSend({ type: 'error', error: msg });
-        if (capturedSid) liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
+        if (capturedSid) {
+          liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
+          endRun(capturedSid);
+        }
         if (!clientGone) sseDone(reply);
       });
     },

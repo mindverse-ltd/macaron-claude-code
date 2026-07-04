@@ -22,8 +22,18 @@ if [ ! -d "$DIR/node_modules" ] || [ ! -d "$DIR/server/node_modules" ] || [ ! -d
   (cd "$DIR" && npm install --silent)
 fi
 
+# Rebuild when dist is missing OR when any tracked source file is newer
+# than the current bundle — so `claude plugin update` (git pull) picks up
+# code changes without users having to blow the cache away by hand.
+needs_build=0
 if [ ! -f "$SERVER_DIST" ] || [ ! -f "$WEB_DIST/index.html" ]; then
-  echo "[macaron] building (one-time, ~30s)…" >&2
+  needs_build=1
+elif [ -n "$(find "$DIR/web/src" "$DIR/server/src" "$DIR/shared/src" \
+       -newer "$WEB_DIST/index.html" -type f -print -quit 2>/dev/null)" ]; then
+  needs_build=1
+fi
+if [ "$needs_build" -eq 1 ]; then
+  echo "[macaron] building (~30s)…" >&2
   (cd "$DIR" && npm run build --silent)
 fi
 
