@@ -67,8 +67,6 @@ try {
   process.exit(1);
 }
 process.env.NODE_ENV ??= 'production';
-process.env.MACARON_HOST ??= '127.0.0.1';
-process.env.MACARON_PORT ??= '7878';
 
 // Relative to this bin file → ../server/dist/index.js (ESM import() resolves
 // against import.meta.url, so it works regardless of the caller's cwd).
