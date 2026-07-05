@@ -733,6 +733,10 @@ export type SessionProps = {
   // Fired when the streaming state flips so a canvas tile can wrap itself
   // in a flowing-light animation while a turn is in-flight.
   onSendingChange?: (sending: boolean) => void;
+  // Canvas-created sessions do not go through route state, so the parent marks
+  // the tile as pending while its first-turn liveStore stream is still active.
+  pending?: boolean;
+  onPendingDone?: () => void;
 };
 
 export function Session(props: SessionProps = {}) {
@@ -742,7 +746,9 @@ export function Session(props: SessionProps = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const isNew = !sid;
-  const isPending = Boolean((location.state as { pending?: boolean } | null)?.pending);
+  const isPending =
+    Boolean((location.state as { pending?: boolean } | null)?.pending) ||
+    Boolean(props.pending);
   // When mounted as a canvas tile the parent decides focus. Standalone
   // (single-URL) mount is always focused.
   const focused = props.focused ?? true;
@@ -754,6 +760,9 @@ export function Session(props: SessionProps = {}) {
   // handler always dispatch to the current onFocus.
   const onFocusRef = useRef(props.onFocus);
   onFocusRef.current = props.onFocus;
+  const onPendingDoneRef = useRef(props.onPendingDone);
+  onPendingDoneRef.current = props.onPendingDone;
+  const skipNextLoadRef = useRef(false);
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
@@ -855,7 +864,7 @@ export function Session(props: SessionProps = {}) {
         toast(`${f.name}: too big (>${(MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0)} MB)`);
         continue;
       }
-      const dataUrl: string = await new Promise((res, rej) => {
+      const dataUrl = await new Promise<string>((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result || ''));
         r.onerror = () => rej(r.error);
@@ -925,8 +934,7 @@ export function Session(props: SessionProps = {}) {
       await api.compactSession(project, sid);
       setCompletedTurns([]);
       setLiveUser('');
-      setLiveAssistant('');
-      setLiveTools([]);
+      setLiveTurn([]);
       const d = await api.session(project, sid);
       setData(d);
       setShown(PAGE_SIZE);
@@ -987,12 +995,25 @@ export function Session(props: SessionProps = {}) {
   }, [project, sid]);
 
   useEffect(() => {
+    setShown(PAGE_SIZE);
+    if (isNew) {
+      setData(null);
+      setLiveTurn([]);
+      setLiveUser('');
+      return; // no jsonl yet — empty state until first send
+    }
+    if (isPending) {
+      setData(null);
+      return; // liveStore owns the first turn until the user refreshes or sends again
+    }
+    if (skipNextLoadRef.current) {
+      skipNextLoadRef.current = false;
+      return;
+    }
+    // For brand-new sessions the jsonl may not exist yet — suppress the 404 error.
     setData(null);
     setLiveTurn([]);
     setLiveUser('');
-    setShown(PAGE_SIZE);
-    if (isNew) return; // no jsonl yet — empty state until first send
-    // For brand-new sessions the jsonl may not exist yet — suppress the 404 error.
     load({ silent: isPending });
     // refreshKey included so an incrementing parent nonce forces reload.
   }, [project, sid, load, isPending, isNew, refreshKey]);
@@ -1077,7 +1098,17 @@ export function Session(props: SessionProps = {}) {
         }),
       );
     };
-    if (seed) applyState(seed);
+    if (seed) {
+      applyState(seed);
+      if (seed.done) {
+        setPolling(false);
+        setSending(false);
+        skipNextLoadRef.current = true;
+        clearLive(sid);
+        onPendingDoneRef.current?.();
+        return;
+      }
+    }
     let rafScheduled = false;
     let pendingState = seed;
     const flush = () => {
@@ -1095,7 +1126,9 @@ export function Session(props: SessionProps = {}) {
         // for this turn; they roll into completedTurns on the next send.
         setPolling(false);
         setSending(false);
+        skipNextLoadRef.current = true;
         clearLive(sid);
+        onPendingDoneRef.current?.();
         return;
       }
       if (!rafScheduled) {
@@ -1106,7 +1139,11 @@ export function Session(props: SessionProps = {}) {
     // Safety: if we're on a stale URL whose live store entry is gone (e.g.
     // page refresh after streaming finished), fall back to plain load.
     if (!seed) {
-      load({ silent: true }).then(() => { setPolling(false); setSending(false); });
+      load({ silent: true }).then(() => {
+        setPolling(false);
+        setSending(false);
+        onPendingDoneRef.current?.();
+      });
     }
     return () => {
       unsub();

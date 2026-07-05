@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import type { SessionStreamEvent } from '@macaron/shared';
 import { CLAUDE_PROJECTS } from '../config.js';
 import {
   decodeClaudeProjectName,
@@ -106,6 +107,15 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       };
 
       let capturedSid = '';
+      const pendingEvents: SessionStreamEvent[] = [];
+      const emitStreamEvent = (payload: SessionStreamEvent) => {
+        if (!capturedSid) {
+          pendingEvents.push(payload);
+          return;
+        }
+        safeSend(payload);
+        livePush(capturedSid, payload);
+      };
       // Run the iterator in the background so this handler returns immediately
       // (Fastify supports hijacked replies as long as we don't await forever).
       (async () => {
@@ -116,48 +126,44 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             registerRun(capturedSid, abortController);
             livePush(capturedSid, { type: 'user-text', text });
             safeSend({ type: 'meta', cwd, sessionId: capturedSid });
+            for (const payload of pendingEvents.splice(0)) {
+              safeSend(payload);
+              livePush(capturedSid, payload);
+            }
           } else if (ev.kind === 'delta') {
-            safeSend({ type: 'delta', text: ev.text });
-            if (capturedSid) livePush(capturedSid, { type: 'delta', text: ev.text });
+            emitStreamEvent({ type: 'delta', text: ev.text });
           } else if (ev.kind === 'tool_use') {
             const payload = { type: 'tool_use' as const, id: ev.id, name: ev.name, input: ev.input };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'tool_input_delta') {
             const payload = { type: 'tool_input_delta' as const, id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'tool_input_done') {
             const payload = { type: 'tool_input_done' as const, id: ev.id, name: ev.name, final_json: ev.final_json };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'tool_result') {
             const payload = { type: 'tool_result' as const, tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'permission_request') {
             const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'permission_resolved') {
             const payload = { type: 'permission_resolved' as const, id: ev.id, decision: ev.decision };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'usage') {
             const payload = { type: 'usage' as const, outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens };
-            safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            emitStreamEvent(payload);
           } else if (ev.kind === 'message') {
-            safeSend({ type: 'event', event: 'system', subtype: ev.subtype });
-            if (capturedSid) livePush(capturedSid, { type: 'event', event: 'system', subtype: ev.subtype });
+            emitStreamEvent({ type: 'event', event: 'system', subtype: ev.subtype });
           } else if (ev.kind === 'error') {
-            safeSend({ type: 'error', error: ev.error });
-            if (capturedSid) livePush(capturedSid, { type: 'error', error: ev.error });
+            emitStreamEvent({ type: 'error', error: ev.error });
           } else if (ev.kind === 'done') {
-            safeSend({ type: 'done', exitCode: ev.exitCode });
             if (capturedSid) {
+              safeSend({ type: 'done', exitCode: ev.exitCode });
               liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
               endRun(capturedSid);
+            } else {
+              pendingEvents.push({ type: 'done', exitCode: ev.exitCode });
             }
             if (!clientGone) sseDone(reply);
           }

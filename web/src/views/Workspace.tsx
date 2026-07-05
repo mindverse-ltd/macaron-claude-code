@@ -54,6 +54,7 @@ export function Workspace() {
   const [showNewInput, setShowNewInput] = useState(false);
   const [newPrompt, setNewPrompt] = useState('');
   const [creating, setCreating] = useState(false);
+  const [pendingLiveSids, setPendingLiveSids] = useState<Set<string>>(() => new Set());
   const toast = useToast();
   const canvas = useCanvas(project);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -94,6 +95,7 @@ export function Workspace() {
       const newSid = await startNewSession(project, { text: newPrompt.trim() });
       setNewPrompt('');
       setShowNewInput(false);
+      setPendingLiveSids((cur) => new Set(cur).add(newSid));
       canvas.add(newSid);
       canvas.focus(newSid);
       load();
@@ -252,6 +254,15 @@ export function Workspace() {
                     label={meta?.preview?.slice(0, 60) || tile.sid.slice(0, 8)}
                     isFocused={isFocused}
                     project={project}
+                    pending={pendingLiveSids.has(tile.sid)}
+                    onPendingDone={() => {
+                      setPendingLiveSids((cur) => {
+                        if (!cur.has(tile.sid)) return cur;
+                        const next = new Set(cur);
+                        next.delete(tile.sid);
+                        return next;
+                      });
+                    }}
                     onFocus={() => canvas.focus(tile.sid)}
                     onRemove={() => canvas.remove(tile.sid)}
                     onResizeStart={(e) => startResize(tile.sid, e)}
@@ -274,6 +285,8 @@ function SortableTile({
   label,
   isFocused,
   project,
+  pending,
+  onPendingDone,
   onFocus,
   onRemove,
   onResizeStart,
@@ -282,6 +295,8 @@ function SortableTile({
   label: string;
   isFocused: boolean;
   project: string;
+  pending: boolean;
+  onPendingDone: () => void;
   onFocus: () => void;
   onRemove: () => void;
   onResizeStart: (e: React.PointerEvent) => void;
@@ -417,6 +432,8 @@ function SortableTile({
           focused={isFocused}
           onFocus={onFocus}
           hideBar
+          pending={pending}
+          onPendingDone={onPendingDone}
           refreshKey={refreshKey}
           onSendingChange={setIsRunning}
         />
