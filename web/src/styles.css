@@ -1459,6 +1459,45 @@ textarea:focus, select:focus, input:focus {
   cursor: grabbing;
 }
 
+/* "Running" signal: a single 2px indeterminate progress bar riding the
+   very top edge of the tile — a bright bead slides left → right on
+   loop, everything else stays untouched. No border colour change, no
+   box-shadow pulse, no ambient tint — those all fought each other and
+   made the corners look smudged. */
+.ws-tile-running-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 4;
+  pointer-events: none;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.ws-tile-running-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(201, 100, 66, 0.4) 20%,
+    #ff6b3d 50%,
+    rgba(201, 100, 66, 0.4) 80%,
+    transparent 100%
+  );
+  animation: ws-tile-bar-slide 1.4s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+@keyframes ws-tile-bar-slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+
 .ws-tile-grip {
   display: flex;
   align-items: center;
@@ -2291,7 +2330,16 @@ textarea:focus, select:focus, input:focus {
   flex-shrink: 0;
 }
 .sb-sess-dot-completed { background: var(--good); }
-.sb-sess-dot-running { background: var(--accent); }
+.sb-sess-dot-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-soft-2);
+  animation: sb-dot-pulse 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+@keyframes sb-dot-pulse {
+  0%   { box-shadow: 0 0 0 0    rgba(201, 100, 66, 0.55); }
+  70%  { box-shadow: 0 0 0 6px  rgba(201, 100, 66, 0);     }
+  100% { box-shadow: 0 0 0 0    rgba(201, 100, 66, 0);     }
+}
 .sb-sess-name {
   overflow: hidden;
   text-overflow: ellipsis;

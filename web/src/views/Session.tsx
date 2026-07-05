@@ -18,6 +18,7 @@ import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { loadHistory, pushHistory } from '../lib/history';
+import { ensureNotificationPermission, notify } from '../lib/notify';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -729,6 +730,9 @@ export type SessionProps = {
   // Incrementing this from the parent forces a fresh reload of the jsonl
   // (used by the tile's refresh button).
   refreshKey?: number;
+  // Fired when the streaming state flips so a canvas tile can wrap itself
+  // in a flowing-light animation while a turn is in-flight.
+  onSendingChange?: (sending: boolean) => void;
 };
 
 export function Session(props: SessionProps = {}) {
@@ -744,10 +748,43 @@ export function Session(props: SessionProps = {}) {
   const focused = props.focused ?? true;
   const hideBar = props.hideBar ?? false;
   const refreshKey = props.refreshKey ?? 0;
+  const onSendingChange = props.onSendingChange;
+  // Ref rather than closure — send() captures props once, but permission
+  // notifications may fire long after the send call. Ref lets the click
+  // handler always dispatch to the current onFocus.
+  const onFocusRef = useRef(props.onFocus);
+  onFocusRef.current = props.onFocus;
+  // Marked true once a stream has started so the done-notification only
+  // fires for turns the user actually initiated (not initial jsonl load).
+  const streamedRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [polling, setPolling] = useState(false);
+  // Notify the parent tile whenever the effective "running" state flips
+  // (either an in-flight send OR the initial new-session SSE poll). Debounced
+  // by a microtask so React batches state updates naturally.
+  useEffect(() => {
+    onSendingChange?.(sending || polling);
+  }, [sending, polling, onSendingChange]);
+  // Browser notification on stream completion. Tracks the running edge:
+  // fires on true→false when we actually streamed this turn (avoids
+  // pinging on the initial jsonl load when everything starts at false).
+  useEffect(() => {
+    const running = sending || polling;
+    if (running) {
+      streamedRef.current = true;
+      return;
+    }
+    if (!streamedRef.current) return;
+    streamedRef.current = false;
+    notify({
+      title: 'Macaron · session ready',
+      body: `${sid.slice(0, 8)} finished a turn`,
+      tag: `macaron-done-${sid}`,
+      onClick: () => onFocusRef.current?.(),
+    });
+  }, [sending, polling, sid]);
   const [liveUser, setLiveUser] = useState<string>('');
   // Single ordered timeline for the current turn: text chunks and tool
   // calls/permissions are interleaved in the same array so the render
@@ -1169,6 +1206,9 @@ export function Session(props: SessionProps = {}) {
       // message erases the first reply until the next page refresh.
       rollLiveIntoHistory();
       setSending(true);
+      // First send in a session triggers a permission request — one-time
+      // per user, cached across sessions. Silently no-ops if denied.
+      void ensureNotificationPermission();
       // Live text is just what the user typed; images render inline via
       // liveUserImages instead of a placeholder string.
       setLiveUser(text);
@@ -1260,6 +1300,21 @@ export function Session(props: SessionProps = {}) {
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
           onPermissionRequest: ({ id, toolName, input }) => {
+            // Nudge the user via native notification when a tool needs
+            // approval — otherwise a session in a background tab can
+            // silently stall. requireInteraction keeps it visible until
+            // acted on.
+            notify({
+              title: 'Macaron · permission needed',
+              body: `${toolName} wants to run` + (
+                typeof (input as { command?: string })?.command === 'string'
+                  ? `: ${(input as { command?: string }).command!.slice(0, 80)}`
+                  : ''
+              ),
+              tag: `macaron-perm-${sid}`,
+              requireInteraction: true,
+              onClick: () => onFocusRef.current?.(),
+            });
             setLiveTurn((cur) => [
               ...cur,
               {

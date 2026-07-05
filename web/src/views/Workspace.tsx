@@ -297,6 +297,9 @@ function SortableTile({
   // Incremented by the tile's refresh button — Session watches this prop
   // and re-runs its jsonl load, saving us from cross-component refs.
   const [refreshKey, setRefreshKey] = useState(0);
+  // Flipped by Session while a turn is streaming — drives the flowing-light
+  // border animation so a running tile stands out on a busy canvas.
+  const [isRunning, setIsRunning] = useState(false);
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const setRef = useCallback(
     (n: HTMLDivElement | null) => {
@@ -346,12 +349,19 @@ function SortableTile({
   return (
     <div
       ref={setRef}
-      className={`ws-tile${isFocused ? ' focused' : ''}${isDragging ? ' dragging' : ''}`}
+      className={`ws-tile${isFocused ? ' focused' : ''}${isDragging ? ' dragging' : ''}${isRunning ? ' running' : ''}`}
       style={style}
       onClick={() => {
         if (!isFocused) onFocus();
       }}
     >
+      {isRunning && (
+        <div className="ws-tile-running-bar" aria-hidden>
+          {/* Indeterminate progress bead — CSS handles the slide. Sits
+              on top of the grip bar so it's visible even when the tile
+              is scrolled to the top. */}
+        </div>
+      )}
       <div className="ws-tile-grip" {...attributes} {...listeners} title="Drag to reorder">
         <span className="ws-tile-grip-dots">⋮⋮</span>
         <span className="ws-tile-grip-label">{label}</span>
@@ -408,6 +418,7 @@ function SortableTile({
           onFocus={onFocus}
           hideBar
           refreshKey={refreshKey}
+          onSendingChange={setIsRunning}
         />
       </div>
       <div
