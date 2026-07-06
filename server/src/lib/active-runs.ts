@@ -20,3 +20,10 @@ export function abortRun(sid: string): boolean {
 export function endRun(sid: string): void {
   runs.delete(sid);
 }
+
+export function abortAllRuns(): number {
+  const n = runs.size;
+  for (const ac of runs.values()) ac.abort();
+  runs.clear();
+  return n;
+}

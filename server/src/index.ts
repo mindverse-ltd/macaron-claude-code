@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { HOST, PORT, WEB_DIST } from './config.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { abortAllRuns } from './lib/active-runs.js';
 import { checkGenUI } from './lib/genui-check.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
@@ -64,4 +65,17 @@ try {
 } catch (err) {
   app.log.error(err);
   process.exit(1);
+}
+
+// tsx watch restarts on any src change (git pull included) by SIGTERM, then
+// SIGKILL after 5s. The render_ui MCP bridge lives in this process, so a kill
+// mid-turn silently strands the in-flight SDK run. Abort runs first — SSE
+// consumers then get explicit error/done events — and exit within tsx's window.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(sig, () => {
+    const n = abortAllRuns();
+    app.log.info(`${sig}: aborted ${n} in-flight run(s), shutting down`);
+    setTimeout(() => process.exit(0), 2000).unref();
+    void app.close().then(() => process.exit(0));
+  });
 }
