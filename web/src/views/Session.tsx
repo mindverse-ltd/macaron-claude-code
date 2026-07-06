@@ -17,6 +17,7 @@ import {
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
+import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
@@ -623,8 +624,12 @@ function ItemView({
       return <LiveAssistantItem text={it.text} />;
     case 'thinking':
       return <ThinkingItem text={it.text} />;
-    case 'tool':
-      return <ToolItem name={it.name} input={it.input} result={it.result} />;
+    case 'tool': {
+      // Edit/Write/MultiEdit render as an inline diff card; every other tool
+      // (and any edit whose input hasn't fully streamed yet) uses the plain row.
+      const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
+      return diff ? <DiffCard name={it.name} diff={diff} /> : <ToolItem name={it.name} input={it.input} result={it.result} />;
+    }
     case 'todo':
       return <TodoItem todos={it.todos} />;
     case 'system_event':
