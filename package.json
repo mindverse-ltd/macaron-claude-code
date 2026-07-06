@@ -19,7 +19,8 @@
     "typecheck": "npm run typecheck -w @macaron/shared && npm run typecheck -w @macaron/server && npm run typecheck -w @macaron/web"
   },
   "bin": {
-    "mcc": "./bin/mcc.mjs"
+    "mcc": "./bin/mcc.mjs",
+    "mcx": "./bin/mcx.mjs"
   },
   "files": [
     "bin",

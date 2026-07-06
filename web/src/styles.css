@@ -2323,6 +2323,7 @@ textarea:focus, select:focus, input:focus {
 .sb-sess:hover { background: var(--surface-3); }
 .sb-sess.active { background: var(--surface); color: var(--text); }
 .sb-sess.empty { color: var(--muted-2); font-style: italic; padding-left: 32px; }
+
 .sb-sess-dot {
   width: 7px;
   height: 7px;

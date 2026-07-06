@@ -296,4 +296,5 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       });
     },
   );
+
 }

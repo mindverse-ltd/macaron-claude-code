@@ -16,6 +16,7 @@
     "@fastify/static": "^8.0.0",
     "@genui/diagnostics": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556",
     "@macaron/shared": "*",
+    "@openai/codex-sdk": "^0.142.5",
     "fastify": "^5.2.0",
     "typescript": "^5.7.0",
     "zod": "^4.4.3"

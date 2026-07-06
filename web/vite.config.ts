@@ -17,6 +17,15 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     commonjsOptions: { transformMixedEsModules: true },
+    rollupOptions: {
+      // Two SPA bundles: the claude UI at /index.html, the codex UI at
+      // /codex.html. Fastify picks which one to serve as `/` based on
+      // MACARON_ENGINE at boot.
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        codex: path.resolve(__dirname, 'codex.html'),
+      },
+    },
   },
   server: {
     port: 5173,

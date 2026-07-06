@@ -10,8 +10,15 @@ export type Workspace = {
   lastPreview: string;
 };
 
+// Which agent engine produced this session. `claude` = claude-agent-sdk
+// jsonl under ~/.claude/projects. `codex` = @openai/codex-sdk rollout files
+// under ~/.codex/sessions. Both are grouped by cwd into the same
+// Workspace list; the tile UI dispatches to the appropriate backend
+// route based on this discriminator.
+export type SessionKind = 'claude' | 'codex';
+
 export type SessionListItem = {
-  kind: 'claude';
+  kind: SessionKind;
   project: string;
   cwd: string;
   gitBranch?: string;
@@ -58,6 +65,7 @@ export type UsageSnapshot = {
 };
 
 export type SessionDetail = {
+  kind: SessionKind;
   sessionId: string;
   project: string;
   cwd: string;

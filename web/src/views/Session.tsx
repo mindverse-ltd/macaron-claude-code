@@ -855,7 +855,7 @@ export function Session(props: SessionProps = {}) {
         toast(`${f.name}: too big (>${(MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0)} MB)`);
         continue;
       }
-      const dataUrl: string = await new Promise((res, rej) => {
+      const dataUrl: string = await new Promise<string>((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result || ''));
         r.onerror = () => rej(r.error);
@@ -925,8 +925,7 @@ export function Session(props: SessionProps = {}) {
       await api.compactSession(project, sid);
       setCompletedTurns([]);
       setLiveUser('');
-      setLiveAssistant('');
-      setLiveTools([]);
+      setLiveTurn([]);
       const d = await api.session(project, sid);
       setData(d);
       setShown(PAGE_SIZE);

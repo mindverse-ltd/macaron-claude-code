@@ -429,6 +429,7 @@ export async function readSessionMessages(project: string, sid: string): Promise
   ]);
 
   return {
+    kind: 'claude',
     sessionId: sid,
     project,
     cwd,

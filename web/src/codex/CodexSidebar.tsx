@@ -1,0 +1,203 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { codexApi, type CodexThread, type CodexWorkspace } from './api';
+import {
+  getCanvasSids,
+  toggleCanvasSid,
+  focusCanvasSid,
+  subscribeCanvas,
+} from '../lib/canvas';
+
+type WsData = CodexWorkspace & { sessions: CodexThread[] };
+
+function basename(p: string): string {
+  if (!p) return '';
+  const parts = p.split('/').filter(Boolean);
+  return parts[parts.length - 1] || p;
+}
+
+export function CodexSidebar() {
+  const [workspaces, setWorkspaces] = useState<WsData[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
+  const [model, setModel] = useState('');
+  const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeProject = /^\/w\/([^/]+)/.exec(location.pathname)?.[1] ? decodeURIComponent(/^\/w\/([^/]+)/.exec(location.pathname)![1]!) : '';
+
+  const load = useCallback(async () => {
+    try {
+      const d = await codexApi.workspaces();
+      const results = await Promise.all(
+        d.workspaces.map(async (w) => {
+          try {
+            const detail = await codexApi.workspace(w.project);
+            return { ...w, sessions: detail.sessions } as WsData;
+          } catch {
+            return { ...w, sessions: [] } as WsData;
+          }
+        }),
+      );
+      setWorkspaces(results);
+    } catch { /* nop */ }
+  }, []);
+
+  useEffect(() => {
+    load();
+    codexApi.config()
+      .then((c) => { setStatus('ok'); setModel(c.provider.model); })
+      .catch(() => setStatus('bad'));
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  // Auto-expand the workspace that owns the active thread OR is the current
+  // canvas route.
+  const activeSid = /\/t\/([^/]+)/.exec(location.pathname)?.[1];
+  useEffect(() => {
+    if (activeProject) {
+      setExpanded((s) => (s.has(activeProject) ? s : new Set(s).add(activeProject)));
+    }
+    if (!activeSid) return;
+    for (const w of workspaces) {
+      if (w.sessions.some((s) => s.sessionId === activeSid)) {
+        setExpanded((s) => (s.has(w.project) ? s : new Set(s).add(w.project)));
+        break;
+      }
+    }
+  }, [activeSid, activeProject, workspaces]);
+
+  // Re-read per-workspace canvas sids so the +/✓ toggles stay accurate.
+  useEffect(() => {
+    const refresh = () => {
+      const next: Record<string, string[]> = {};
+      for (const w of workspaces) next[w.project] = getCanvasSids(w.project);
+      setCanvasBy(next);
+    };
+    refresh();
+    const unsubs = workspaces.map((w) => subscribeCanvas(w.project, refresh));
+    return () => { for (const u of unsubs) u(); };
+  }, [workspaces]);
+
+  const toggle = (p: string) => setExpanded((s) => {
+    const n = new Set(s);
+    if (n.has(p)) n.delete(p); else n.add(p);
+    return n;
+  });
+
+  const del = async (e: React.MouseEvent, sid: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this thread? The rollout file under ~/.codex/sessions will be removed.')) return;
+    try {
+      await codexApi.deleteThread(sid);
+      await load();
+      if (activeSid === sid) navigate('/');
+    } catch (err) {
+      alert(`delete failed: ${(err as Error).message}`);
+    }
+  };
+
+  return (
+    <aside className="cx-sidebar">
+      <Link className="cx-sb-brand" to="/">
+        <img className="cx-sb-logo" src="/mindlab-symbol.svg" alt="" />
+        <div>
+          <div className="cx-sb-brand-name">Macaron</div>
+          <div className="cx-sb-brand-sub">Codex plugin</div>
+        </div>
+      </Link>
+
+      <button className="cx-sb-new" onClick={() => navigate('/')}>
+        <span>＋</span>
+        <span>New thread</span>
+      </button>
+
+      <div className="cx-sb-label"><span>WORKSPACES</span></div>
+
+      <div className="cx-sb-list">
+        {workspaces.length === 0 && (
+          <div className="cx-sb-empty">No workspaces yet.</div>
+        )}
+        {workspaces.map((w) => {
+          const isExpanded = expanded.has(w.project);
+          const name = w.name || basename(w.cwd) || w.project;
+          return (
+            <div key={w.project} className={'cx-sb-ws' + (isExpanded ? ' open' : '')}>
+              <div
+                className={'cx-sb-ws-head' + (w.project === activeProject ? ' active' : '')}
+                onClick={() => {
+                  toggle(w.project);
+                  navigate(`/w/${encodeURIComponent(w.project)}`);
+                }}
+              >
+                <span className="cx-sb-ws-arrow">{isExpanded ? '▾' : '▸'}</span>
+                <span className="cx-sb-ws-name">{name}</span>
+                <span className="cx-sb-ws-count">{w.sessionCount}</span>
+              </div>
+              {isExpanded && (
+                <div className="cx-sb-ws-sessions">
+                  {w.sessions.map((s) => {
+                    const pinned = (canvasBy[w.project] || []).includes(s.sessionId);
+                    return (
+                      <div
+                        key={s.sessionId}
+                        className={'cx-sb-thread' + (pinned ? ' pinned' : '')}
+                        onClick={() => {
+                          // Click to add to canvas; re-click on pinned focuses it.
+                          if (!pinned) toggleCanvasSid(w.project, s.sessionId);
+                          else focusCanvasSid(w.project, s.sessionId);
+                          if (activeProject !== w.project) {
+                            navigate(`/w/${encodeURIComponent(w.project)}`);
+                          }
+                        }}
+                        title={s.cwd}
+                      >
+                        <span className="cx-sb-thread-title">
+                          {s.preview || s.sessionId.slice(0, 8)}
+                        </span>
+                        <button
+                          type="button"
+                          className={'cx-sb-thread-pin' + (pinned ? ' pinned' : '')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCanvasSid(w.project, s.sessionId);
+                            if (activeProject !== w.project) {
+                              navigate(`/w/${encodeURIComponent(w.project)}`);
+                            }
+                          }}
+                          title={pinned ? 'Remove from canvas' : 'Add to canvas'}
+                        >{pinned ? '✓' : '+'}</button>
+                        <button
+                          className="cx-sb-thread-del"
+                          onClick={(e) => del(e, s.sessionId)}
+                          title="Delete"
+                        >×</button>
+                      </div>
+                    );
+                  })}
+                  {w.sessions.length === 0 && (
+                    <div className="cx-sb-thread empty">No threads</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="cx-sb-grow" />
+
+      <Link className="cx-sb-settings" to="/settings">
+        <span>⚙</span>
+        <span>Settings</span>
+      </Link>
+
+      <footer className="cx-sb-foot">
+        <div className={'cx-sb-status cx-sb-status-' + status}>
+          {status === 'ok' ? `online · ${model}` : status === 'bad' ? 'config missing' : 'connecting…'}
+        </div>
+      </footer>
+    </aside>
+  );
+}

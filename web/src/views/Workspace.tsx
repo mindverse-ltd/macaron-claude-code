@@ -342,8 +342,7 @@ function SortableTile({
   };
 
   const copyResume = () => {
-    const cmd = `claude --resume ${tile.sid}`;
-    void navigator.clipboard.writeText(cmd);
+    void navigator.clipboard.writeText(`claude --resume ${tile.sid}`);
   };
 
   return (
