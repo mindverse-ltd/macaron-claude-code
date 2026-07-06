@@ -34,6 +34,7 @@ import { App } from './App';
 import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
 import { Settings } from './views/Settings';
+import { Analytics } from './views/Analytics';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
@@ -76,6 +77,7 @@ const router = createHashRouter([
     element: <App />,
     children: [
       { index: true, element: <Dashboard /> },
+      { path: 'usage', element: <Analytics /> },
       { path: 'settings', element: <Settings /> },
       { path: 'w/:project', element: <Workspace /> },
       { path: 'w/:project/s/:sid', element: <Workspace /> },
