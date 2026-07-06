@@ -733,6 +733,18 @@ export type SessionProps = {
   // Fired when the streaming state flips so a canvas tile can wrap itself
   // in a flowing-light animation while a turn is in-flight.
   onSendingChange?: (sending: boolean) => void;
+  // Canvas-path "the first turn is already streaming" flag — parent sets
+  // this when a draft tile just got promoted to a real sid. Session then
+  // subscribes to the liveStore stream instead of GET-ing the (not-yet-
+  // written) jsonl (which would 404). Equivalent to the `/s/new` route's
+  // `state: { pending: true }`.
+  initialPending?: boolean;
+  onPendingConsumed?: () => void;
+  // Called by the isNew send path (draft tile) with the real sid the server
+  // assigned. The parent swaps the draft sentinel for this sid in place, so
+  // the tile keeps its grid position and Session remounts under the real
+  // sid with `initialPending=true`.
+  onCreated?: (newSid: string) => void;
 };
 
 export function Session(props: SessionProps = {}) {
@@ -742,7 +754,10 @@ export function Session(props: SessionProps = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const isNew = !sid;
-  const isPending = Boolean((location.state as { pending?: boolean } | null)?.pending);
+  const routePending = Boolean((location.state as { pending?: boolean } | null)?.pending);
+  const isPending = routePending || Boolean(props.initialPending);
+  const onCreated = props.onCreated;
+  const onPendingConsumed = props.onPendingConsumed;
   // When mounted as a canvas tile the parent decides focus. Standalone
   // (single-URL) mount is always focused.
   const focused = props.focused ?? true;
@@ -782,9 +797,11 @@ export function Session(props: SessionProps = {}) {
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
       tag: `macaron-done-${sid}`,
+      project,
+      sid,
       onClick: () => onFocusRef.current?.(),
     });
-  }, [sending, polling, sid]);
+  }, [sending, polling, sid, project]);
   const [liveUser, setLiveUser] = useState<string>('');
   // Single ordered timeline for the current turn: text chunks and tool
   // calls/permissions are interleaved in the same array so the render
@@ -1095,6 +1112,9 @@ export function Session(props: SessionProps = {}) {
         setPolling(false);
         setSending(false);
         clearLive(sid);
+        // Let the parent (draft-tile owner) drop this sid from its
+        // pending set so a later refresh doesn't re-enter this branch.
+        onPendingConsumed?.();
         return;
       }
       if (!rafScheduled) {
@@ -1110,7 +1130,7 @@ export function Session(props: SessionProps = {}) {
     return () => {
       unsub();
     };
-  }, [isPending, sid, load]);
+  }, [isPending, sid, load, onPendingConsumed]);
 
   const items = useMemo(() => (data ? flatten(data.messages) : []), [data]);
   const total = items.length;
@@ -1224,10 +1244,19 @@ export function Session(props: SessionProps = {}) {
             permissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
           });
-          navigate(
-            `/w/${encodeURIComponent(project)}/s/${encodeURIComponent(newSid)}`,
-            { replace: true, state: { pending: true } },
-          );
+          if (onCreated) {
+            // Canvas draft-tile path: hand the real sid to the parent so it
+            // can swap the draft sentinel in place. Session then remounts
+            // with the real sid + `initialPending=true` and picks up the
+            // in-flight SSE stream via subscribeLive.
+            onCreated(newSid);
+          } else {
+            // Standalone /s/new route: navigate keeps the existing behaviour.
+            navigate(
+              `/w/${encodeURIComponent(project)}/s/${encodeURIComponent(newSid)}`,
+              { replace: true, state: { pending: true } },
+            );
+          }
         } catch (err) {
           toast(`error: ${(err as Error).message}`);
           setSending(false);
@@ -1312,6 +1341,8 @@ export function Session(props: SessionProps = {}) {
               ),
               tag: `macaron-perm-${sid}`,
               requireInteraction: true,
+              project,
+              sid,
               onClick: () => onFocusRef.current?.(),
             });
             setLiveTurn((cur) => [
@@ -1376,7 +1407,7 @@ export function Session(props: SessionProps = {}) {
         },
       );
     },
-    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast],
+    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {

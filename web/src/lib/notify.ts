@@ -1,63 +1,86 @@
-// Browser notification helper. Silent no-op when the tab is currently
-// focused (user's already looking), when the API is unavailable, or when
-// the user has denied permission. Click-to-focus is wired in the caller
-// via the `onClick` option.
+// In-app notification store. Replaced the browser Notification API path so
+// notifications render inside the WebUI (top-right stack) and clicks route
+// through react-router — otherwise a browser-permission gate silently drops
+// half of them and the click can only refocus the window, not the session.
+//
+// Shape kept identical to the old API so existing callers work; new optional
+// `project` + `sid` fields tell the renderer where to jump on click.
 
 export type NotifyOptions = {
   title: string;
   body?: string;
-  // De-dupe key — repeated notifications with the same tag replace the
-  // previous one rather than stacking (per browser Notification spec).
+  // De-dupe key. Same tag replaces the prior card rather than stacking.
   tag?: string;
-  // True while a permission gate is waiting for the user. Keeps the
-  // notification visible until dismissed rather than auto-fading.
+  // Sticky: don't auto-dismiss. Used for permission requests that need an
+  // explicit user action.
   requireInteraction?: boolean;
+  // Where clicking the card should take the user. When present, the renderer
+  // navigates to `/w/:project/s/:sid` (the Workspace route auto-adds the
+  // session to canvas + focuses it). Falls back to `onClick` alone if unset.
+  project?: string;
+  sid?: string;
+  // Extra side-effect on click (e.g. focus a canvas tile that's already on
+  // screen). Runs after the navigation.
   onClick?: () => void;
 };
 
-function isTabActive(): boolean {
-  // `document.hasFocus()` covers "window is on top". `document.hidden`
-  // covers "tab is background". Either one being false means the user
-  // won't see UI updates without a nudge.
-  return !document.hidden && document.hasFocus();
+export type NotifyItem = NotifyOptions & {
+  id: string;
+  createdAt: number;
+};
+
+// --- Subscribable store ---
+// Kept as a plain module-level array + listener set so the API surface
+// (`notify(...)`) stays a bare function callable from any module without a
+// Provider dependency. Component subscribes via `subscribeNotify`.
+
+let items: NotifyItem[] = [];
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const l of listeners) l();
 }
 
-let permissionAsked = false;
-
-export async function ensureNotificationPermission(): Promise<NotificationPermission> {
-  if (typeof Notification === 'undefined') return 'denied';
-  if (Notification.permission !== 'default') return Notification.permission;
-  if (permissionAsked) return Notification.permission;
-  permissionAsked = true;
-  try {
-    return await Notification.requestPermission();
-  } catch {
-    return 'denied';
-  }
+export function getNotifyItems(): NotifyItem[] {
+  return items;
 }
+
+export function subscribeNotify(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+export function dismissNotify(id: string): void {
+  const next = items.filter((n) => n.id !== id);
+  if (next.length === items.length) return;
+  items = next;
+  emit();
+}
+
+export function clearNotify(): void {
+  if (items.length === 0) return;
+  items = [];
+  emit();
+}
+
+// Monotonic counter — Date.now() would collide when two notifications land
+// in the same millisecond (permission_request + tool_use fire back-to-back).
+let seq = 0;
 
 export function notify(opts: NotifyOptions): void {
-  if (typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'granted') return;
-  if (isTabActive()) return;
-  try {
-    const n = new Notification(opts.title, {
-      body: opts.body,
-      tag: opts.tag,
-      requireInteraction: opts.requireInteraction ?? false,
-      icon: '/mindlab-symbol.svg',
-      badge: '/mindlab-symbol.svg',
-    });
-    if (opts.onClick) {
-      n.onclick = () => {
-        try {
-          window.focus();
-        } catch { /* ignore */ }
-        opts.onClick?.();
-        n.close();
-      };
-    }
-  } catch {
-    /* browser refused (e.g. rate-limit) — silently drop */
+  const id = `n-${++seq}`;
+  const item: NotifyItem = { ...opts, id, createdAt: Date.now() };
+  // Same-tag dedupe: drop any prior item sharing this tag before pushing.
+  if (opts.tag) {
+    items = items.filter((n) => n.tag !== opts.tag);
   }
+  items = [...items, item];
+  emit();
+}
+
+// --- Legacy API kept as no-op ---
+// `ensureNotificationPermission` used to prompt for browser Notification
+// permission; not needed anymore but old call sites might still invoke it.
+export async function ensureNotificationPermission(): Promise<'granted'> {
+  return 'granted';
 }
