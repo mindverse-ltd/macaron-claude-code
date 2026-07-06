@@ -8,7 +8,7 @@
 // Cache is warmed at startup so getActiveProviderEnv() is synchronous —
 // hot-path request handlers can call it without awaiting disk I/O.
 
-import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -288,8 +288,14 @@ function ensureIsolatedDir(): string {
       const st = lstatSync(projectsLink);
       // Repair if it's not a symlink or points elsewhere.
       if (!st.isSymbolicLink()) {
-        // A stray dir was created here on an earlier run; replace it.
-        fs.rm(projectsLink, { recursive: true, force: true }).catch(() => {});
+        // A stray real dir was created here on an earlier run — transcripts
+        // may have landed inside. Rescue them into the real projects tree
+        // before replacing the dir with the symlink.
+        for (const name of readdirSync(projectsLink)) {
+          const to = path.join(realProjects, name);
+          if (!existsSync(to)) renameSync(path.join(projectsLink, name), to);
+        }
+        rmSync(projectsLink, { recursive: true, force: true });
         symlinkSync(realProjects, projectsLink);
       }
     } catch {
