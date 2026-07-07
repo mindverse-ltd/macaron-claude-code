@@ -20,6 +20,26 @@ export function decodeClaudeProjectName(encoded: string): string {
   return encoded.replace(/^-/, '/').replace(/-/g, '/');
 }
 
+// Resolve a project's real cwd. The encoded project name decodes lossily
+// (claude-cli maps `/` → `-`, so every `-` decodes back to `/` and any path
+// segment containing a hyphen comes out wrong). All sessions in a project dir
+// share one cwd, embedded in each jsonl head — so read any session's head and
+// prefer that, falling back to the (possibly-wrong) decode only when the
+// project has no readable sessions yet.
+export async function resolveProjectCwd(project: string): Promise<string> {
+  try {
+    const dir = path.join(CLAUDE_PROJECTS, project);
+    for (const f of await fs.readdir(dir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      const head = await readSessionSummary(path.join(dir, f));
+      if (head?.cwd) return head.cwd;
+    }
+  } catch {
+    /* no project dir / no sessions — fall back to decode */
+  }
+  return decodeClaudeProjectName(project);
+}
+
 type SessionSummary = {
   firstUserText: string;
   cwd: string;

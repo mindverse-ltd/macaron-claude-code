@@ -7,6 +7,7 @@ import {
   duplicateSession,
   readSessionMessages,
   readSessionSummary,
+  resolveProjectCwd,
   rewindSession,
   writeCompactedSession,
 } from '../lib/session-store.js';
@@ -42,7 +43,10 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: { project: string } }>(
     '/api/sessions/claude/:project/commands',
     async ({ params }) => {
-      const cwd = decodeClaudeProjectName(params.project) || process.env.HOME || '';
+      // Resolve the real cwd from a jsonl head — the decoded project name is
+      // lossy and would send walkCommands to a non-existent dir, dropping
+      // every project-scoped command (see resolveProjectCwd).
+      const cwd = await resolveProjectCwd(params.project);
       return { commands: await listSlashCommands(cwd) };
     },
   );
