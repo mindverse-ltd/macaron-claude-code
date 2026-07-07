@@ -23,20 +23,23 @@ export function extractPartialCode(raw: string, field = 'code'): string {
 // partial-json with Allow.ARR completes an unclosed array but drops any element
 // that isn't a fully-closed string — so a chip appears only once its question
 // is whole, never half-typed. Mirrors free-chat's iterateSuggestion.
-// We scan every '[' rather than the first one: the model's reply is relayed
-// verbatim, so a non-Anthropic provider may prefix the array with prose that
-// itself contains a bracket (a markdown link, a citation) — locking onto the
-// first '[' would parse that and permanently yield nothing for the whole turn.
+// We scan every '[' and keep the one yielding the MOST items rather than the
+// first that parses: the model's reply is relayed verbatim, so a non-Anthropic
+// provider may wrap the real array in prose that itself contains a decoy array
+// (`For example ["thanks"]. Suggestions: [...]`) or a bracket (markdown link,
+// citation). The real suggestion list is the longest; a decoy is near-always a
+// single element, so picking the largest array beats first- or last-bracket.
 export function parseFollowups(raw: string): string[] {
+  let best: string[] = [];
   for (let i = raw.indexOf('['); i >= 0; i = raw.indexOf('[', i + 1)) {
     try {
       const parsed = parse(raw.slice(i), Allow.ARR);
       if (!Array.isArray(parsed)) continue;
       const items = parsed.filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 5);
-      if (items.length) return items;
+      if (items.length > best.length) best = items;
     } catch {
       /* not the array's bracket — try the next one */
     }
   }
-  return [];
+  return best;
 }
