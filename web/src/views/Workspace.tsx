@@ -88,10 +88,15 @@ export function Workspace() {
 
   // Landed here from the directory picker: a cwd is staged for this project
   // but no session exists yet. Auto-open a draft tile so the chosen folder
-  // drops straight into a composer. The existing-draft check keeps it to one.
+  // drops straight into a composer — but only once per project. The pending
+  // cwd lingers until the first successful send, so without this guard a user
+  // who dismisses the draft (×) would have it re-added on the next render.
+  const autoDrafted = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (autoDrafted.current.has(project)) return;
     if (!peekPendingCwd(project)) return;
     if (canvas.tiles.some((t) => isDraftSid(t.sid))) return;
+    autoDrafted.current.add(project);
     canvas.addDraft();
   }, [project, canvas]);
 
