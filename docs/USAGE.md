@@ -15,9 +15,20 @@
 
 **Codex**（先装 codex CLI）：
 
+推荐走 Codex 官方 plugin marketplace（v0.140+ 支持），装完在 codex 会话里说一句 "open macaron" 就自动拉起 WebUI：
+
 ```bash
-brew install codex        # 或 npm i -g @openai/codex
-mcx                       # 打开 http://localhost:7878
+brew install codex                                                        # 或 npm i -g @openai/codex
+codex plugin marketplace add mindverse-ltd/macaron-claude-code            # 注册市场（GitHub owner/repo）
+codex plugin add macaron@macaron                                          # 装 macaron 插件
+```
+
+之后在 codex 会话里 `@macaron` 或说 "open macaron webui"，Codex 会调用 `macaron-webui` skill 自动跑 `start.sh` → 打开 <http://localhost:7878>。
+
+不想用 plugin？直接跑独立 CLI 也行：
+
+```bash
+mcx                       # 等价于装完后 skill 内部做的事
 ```
 
 进去在 **Settings** 里填 Base URL / API Key / Model 就能用。
