@@ -2,16 +2,17 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, readSessionSummary } from '../lib/session-store.js';
+import { readSessionSummary } from '../lib/session-store.js';
 import { readHooks } from '../lib/hooks-store.js';
 
 type Query = { project?: string };
 
-// Resolve a workspace's real cwd from its encoded project name, preferring an
-// existing session's recorded cwd (matches the workspaces route). Returns ''
-// if it can't be resolved so the caller falls back to user-scope-only hooks.
+// Resolve a workspace's real cwd from an existing session's recorded cwd.
+// Returns '' when no session records one, so the caller falls back to
+// user-scope-only hooks. We deliberately do NOT decode `project` into a path:
+// decodeClaudeProjectName is lossy and `project` is client-supplied, so
+// trusting it would let a forged value read an arbitrary <dir>/.claude/settings.json.
 async function resolveCwd(project: string): Promise<string> {
-  let cwd = decodeClaudeProjectName(project);
   try {
     const projDir = path.join(CLAUDE_PROJECTS, project);
     const files = await fs.readdir(projDir);
@@ -21,9 +22,9 @@ async function resolveCwd(project: string): Promise<string> {
       if (meta?.cwd) return meta.cwd;
     }
   } catch {
-    /* no sessions yet — use the decoded name */
+    /* no such project dir / no sessions — user-scope only */
   }
-  return cwd;
+  return '';
 }
 
 export async function registerHooksRoutes(app: FastifyInstance): Promise<void> {
