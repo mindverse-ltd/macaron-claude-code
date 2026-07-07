@@ -1285,6 +1285,47 @@ textarea:focus, select:focus, input:focus {
   color: var(--text);
 }
 .session-input textarea:focus { outline: none; }
+
+/* @-mention file autocomplete. Anchored above the textarea (the composer sits
+   at the bottom of the viewport), so the list opens upward. */
+.mention-anchor { position: relative; }
+.mention-popup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 20;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+.mention-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.mention-item.active { background: var(--accent-soft); }
+.mention-name { font-size: 13px; font-weight: 500; flex: 0 0 auto; }
+.mention-path {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .session-input-tools {
   display: flex;
   align-items: center;

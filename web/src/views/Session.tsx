@@ -16,6 +16,7 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { useFileMention } from '../components/MentionPopup';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
@@ -857,12 +858,16 @@ export function Session(props: SessionProps = {}) {
   const [dragOver, setDragOver] = useState(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
   const toast = useToast();
   const confirm = useConfirm();
   const [busyCompact, setBusyCompact] = useState(false);
   const [busyRewind, setBusyRewind] = useState(false);
+  // @-mention file autocomplete over the project tree. Inserts `@relpath`
+  // tokens the CLI resolves natively; no server-side prompt rewriting.
+  const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef });
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
@@ -1411,6 +1416,8 @@ export function Session(props: SessionProps = {}) {
   );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Mention popup gets first dibs on ↑/↓/Enter/Tab/Esc while it's open.
+    if (mention.onKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1601,7 +1608,10 @@ export function Session(props: SessionProps = {}) {
             ))}
           </div>
         )}
+        <div className="mention-anchor">
+        {mention.popup}
         <textarea
+          ref={textareaRef}
           rows={2}
           placeholder="Reply to Claude…"
           value={input}
@@ -1611,7 +1621,9 @@ export function Session(props: SessionProps = {}) {
             // Any manual edit exits history-navigation mode — pressing
             // Send now sends the (possibly edited) text as a fresh entry.
             if (historyIdx !== null) setHistoryIdx(null);
+            mention.refresh();
           }}
+          onSelect={() => mention.refresh()}
           onCompositionStart={() => { composingRef.current = true; }}
           onCompositionEnd={() => {
             composingRef.current = false;
@@ -1629,6 +1641,7 @@ export function Session(props: SessionProps = {}) {
           }}
           onKeyDown={onKey}
         />
+        </div>
         {/*
           Claude-web-style toolbar. Attach on the far left. Model (provider)
           and permission chips grouped on the right next to Send. Each chip

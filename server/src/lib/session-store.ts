@@ -244,6 +244,66 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
   return summary;
 }
 
+// Resolve a claude project-dir name back to its working directory: prefer the
+// cwd embedded in any existing session's jsonl, else decode the encoded name
+// (which mirrors claude-cli's dir encoding). Same logic the new-session route
+// uses to pick a spawn cwd.
+export async function resolveProjectCwd(project: string): Promise<string> {
+  let cwd = decodeClaudeProjectName(project);
+  try {
+    const projDir = path.join(CLAUDE_PROJECTS, project);
+    const files = await fs.readdir(projDir);
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue;
+      const meta = await readSessionSummary(path.join(projDir, f));
+      if (meta?.cwd) return meta.cwd;
+    }
+  } catch {
+    /* no sessions yet — fall back to decoded name */
+  }
+  return cwd;
+}
+
+// Directories never worth walking for an @-mention: build output, vendored
+// deps, caches. Mirrors fafawlf/claude-code-web's skip-list.
+const FILE_SEARCH_SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '.venv', 'venv',
+  '__pycache__', '.pytest_cache', 'target', '.cache', '.turbo', '.parcel-cache',
+  'coverage', '.idea', '.vscode',
+]);
+const FILE_SEARCH_MAX_DEPTH = 8;
+const FILE_SEARCH_MAX_ENTRIES_PER_DIR = 2000;
+
+async function walkFiles(root: string, dir: string, needle: string, out: string[], limit: number, depth: number): Promise<void> {
+  if (out.length >= limit || depth > FILE_SEARCH_MAX_DEPTH) return;
+  let entries;
+  try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+  if (entries.length > FILE_SEARCH_MAX_ENTRIES_PER_DIR) entries = entries.slice(0, FILE_SEARCH_MAX_ENTRIES_PER_DIR);
+  for (const e of entries) {
+    if (out.length >= limit) return;
+    if (e.name.startsWith('.')) continue;
+    if (FILE_SEARCH_SKIP_DIRS.has(e.name)) continue;
+    const full = path.join(dir, e.name);
+    const rel = full.slice(root.length + 1);
+    if (e.isDirectory()) {
+      await walkFiles(root, full, needle, out, limit, depth + 1);
+    } else if (e.isFile()) {
+      if (!needle || rel.toLowerCase().includes(needle)) out.push(rel);
+    }
+  }
+}
+
+// Recursively list files under a project's cwd, substring-matched on the
+// repo-relative path. Skips build/vendor/cache dirs and dotfiles; bounded by
+// depth, per-dir entry count, and a hard result cap. Powers the composer's
+// @-mention autocomplete.
+export async function searchProjectFiles(project: string, needle: string, limit: number): Promise<{ cwd: string; results: string[] }> {
+  const cwd = await resolveProjectCwd(project);
+  const results: string[] = [];
+  await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0);
+  return { cwd, results };
+}
+
 export async function listAllSessions(): Promise<SessionListItem[]> {
   let projects;
   try {

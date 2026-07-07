@@ -82,6 +82,9 @@ export type SessionDetail = {
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
+// Result of the composer's @-mention file search: repo-relative POSIX paths
+// under the workspace cwd, matched by substring on the needle.
+export type FileSearchResponse = { cwd: string; results: string[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
