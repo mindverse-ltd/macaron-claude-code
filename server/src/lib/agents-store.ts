@@ -91,7 +91,11 @@ function serialize(a: AgentFile): string {
   if (a.tools.length) lines.push(`tools: ${a.tools.join(', ')}`);
   if (a.model) lines.push(`model: ${frontmatterValue(a.model)}`);
   lines.push('---', '');
-  return lines.join('\n') + a.prompt.replace(/^\n+/, '') + '\n';
+  // Normalise both ends of the body so a no-op re-save is idempotent.
+  // Without trimming the trailing newline, every save appends one more
+  // (parse() only strips a leading newline), growing the file by a blank
+  // line each edit.
+  return lines.join('\n') + a.prompt.replace(/^\n+/, '').replace(/\n+$/, '') + '\n';
 }
 
 export async function listAgents(): Promise<AgentFile[]> {
