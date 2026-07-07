@@ -194,7 +194,7 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
                     if (i.tool_name !== 'Edit' && i.tool_name !== 'Write' && i.tool_name !== 'MultiEdit') return {};
                     const file = i.tool_input?.file_path;
                     if (!file || !i.tool_use_id) return {};
-                    const diagnostics = getFileDiagnostics(file);
+                    const diagnostics = getFileDiagnostics(file, opts.cwd);
                     if (diagnostics.length === 0) return {};
                     push({ kind: 'diagnostics', file, toolUseId: i.tool_use_id, diagnostics });
                     const report = reportForAgent(file, diagnostics);
@@ -389,4 +389,3 @@ export async function* runFollowup(opts: FollowupOptions): AsyncGenerator<string
   }
   console.log(`[claude-runner] followup  resume=${opts.resume.slice(0, 8)}  text=${got ? 'ok' : 'empty'}`);
 }
-

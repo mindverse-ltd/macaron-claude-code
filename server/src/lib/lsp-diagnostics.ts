@@ -50,12 +50,33 @@ const toDiag = (d: ts.Diagnostic): Diagnostic | null => {
   return { severity, line: p.line + 1, col: p.character + 1, message };
 };
 
+function findConfigBounded(startDir: string, rootDir?: string): string | undefined {
+  const start = path.resolve(startDir);
+  const stop = rootDir ? path.resolve(rootDir) : undefined;
+  if (stop) {
+    const rel = path.relative(stop, start);
+    if (rel === '..' || rel.startsWith(`..${path.sep}`)) return undefined;
+  }
+  for (let dir = start;;) {
+    const candidate = path.join(dir, 'tsconfig.json');
+    if (ts.sys.fileExists(candidate)) return candidate;
+    if (stop && dir === stop) return undefined;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
 // Diagnostics for a single edited file. [] when it's not TS/JS, has no reachable
 // tsconfig, or a check throws — silence beats phantom errors on a good edit.
-export function getFileDiagnostics(absPath: string): Diagnostic[] {
+//
+// rootDir bounds tsconfig discovery to the session cwd. An unbounded upward walk
+// can bind scratch files to an unrelated ~/tsconfig.json and make TS scan a huge
+// ancestor tree synchronously inside the PostToolUse hook.
+export function getFileDiagnostics(absPath: string, rootDir?: string): Diagnostic[] {
   if (!TS_JS_EXT.has(path.extname(absPath))) return [];
   try {
-    const tsconfig = ts.findConfigFile(path.dirname(absPath), ts.sys.fileExists, 'tsconfig.json');
+    const tsconfig = findConfigBounded(path.dirname(absPath), rootDir);
     if (!tsconfig) return [];
     const e = getEntry(tsconfig);
     e.roots.add(absPath);
