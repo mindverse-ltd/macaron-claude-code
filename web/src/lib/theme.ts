@@ -73,8 +73,20 @@ function subscribe(cb: () => void) {
   return () => listeners.delete(cb);
 }
 
+// Snapshot must encode everything the render reads. getTheme() alone returns
+// only the setting, so an OS light<->dark flip while on 'system' keeps the
+// snapshot === 'system' and React bails out of the re-render — leaving any
+// `resolved`-derived UI (the Settings hint today) stale against the DOM that
+// apply() already re-themed. Fold `resolved` into the snapshot string so its
+// identity changes on an OS flip.
+function getSnapshot(): string {
+  const t = getTheme();
+  return t === 'system' ? `system:${resolveTheme(t)}` : t;
+}
+
 /** React hook: current theme setting + the resolved light/dark it maps to. */
 export function useTheme(): { theme: Theme; resolved: ResolvedTheme } {
-  const theme = useSyncExternalStore(subscribe, getTheme, () => 'system' as Theme);
+  useSyncExternalStore(subscribe, getSnapshot, () => 'system:light');
+  const theme = getTheme();
   return { theme, resolved: resolveTheme(theme) };
 }
