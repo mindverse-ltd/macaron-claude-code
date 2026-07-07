@@ -38,11 +38,35 @@ function toolHint(input: unknown): string {
 }
 
 function toolInputJson(input: unknown): string {
+  // JSON.stringify(undefined) returns the JS value `undefined` (not a string),
+  // which then blows up fenceFor's `.matchAll` and aborts the whole export — an
+  // absent `input` is real (a partial write during a streaming or aborted tool
+  // call). Coerce every non-string result so the "never throws" contract holds.
+  if (input === undefined) return '';
   try {
-    return JSON.stringify(input, null, 2);
+    const json = JSON.stringify(input, null, 2);
+    return typeof json === 'string' ? json : String(input);
   } catch {
     return String(input);
   }
+}
+
+// Escape the three characters that would otherwise be parsed as raw HTML when
+// interpolated into an HTML context (a <summary>, a heading) or a Markdown
+// inline-HTML span (a blockquote). Untrusted tool names/hints, the title and
+// system-event text must not silently corrupt the exported doc — a faithful
+// paste into a PR/issue is the whole point of the export.
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// A literal </details> or </summary> inside Markdown-rendered content (thinking
+// text) would close the disclosure block wrapping it. Insert a zero-width space
+// after the "<" so the token no longer parses as a closing tag while staying
+// visually identical — thinking is otherwise kept as Markdown so its formatting
+// survives.
+function neutralizeClosers(text: string): string {
+  return text.replace(/<(\/(?:details|summary)>)/gi, '<\u200b$1');
 }
 
 // tool_use + its paired tool_result render as one collapsed <details>.
@@ -51,7 +75,7 @@ function renderToolUse(
   result: string | undefined,
 ): string {
   const hint = toolHint(block.input);
-  const summary = `🔧 ${block.name}${hint ? ` · ${hint}` : ''}`;
+  const summary = `🔧 ${escapeHtml(block.name)}${hint ? ` · ${escapeHtml(hint)}` : ''}`;
   const parts = [`<details>`, `<summary>${summary}</summary>`, ''];
   parts.push('**Input**', '', codeFence(toolInputJson(block.input), 'json'), '');
   if (result != null && result.trim()) parts.push('**Result**', '', codeFence(result), '');
@@ -60,34 +84,46 @@ function renderToolUse(
 }
 
 function renderMessage(m: Message, resultByToolId: Map<string, string>): string {
-  const out: string[] = [];
+  // Collect each block as a self-contained chunk and join with a single blank
+  // line. We must NOT run a global `\n{3,}` collapse over the assembled body:
+  // it would reach inside the code fences (tool input JSON, tool results) and
+  // silently rewrite blank lines that are the user's verbatim content — git
+  // diffs, logs, PEP8 double-blanks. Trimming each chunk's outer edges and
+  // joining with `\n\n` keeps block separation tidy without touching any
+  // fenced interior. (Extra blank runs inside prose render identically anyway.)
+  const chunks: string[] = [];
+  const push = (s: string) => {
+    const t = s.trim();
+    if (t) chunks.push(t);
+  };
   for (const b of m.blocks) {
     switch (b.kind) {
       case 'text':
-        if (b.text.trim()) out.push(b.text.trim(), '');
+        push(b.text);
         break;
       case 'thinking':
         if (b.text.trim())
-          out.push('<details>', '<summary>💭 Thinking</summary>', '', b.text.trim(), '</details>', '');
+          push(`<details>\n<summary>💭 Thinking</summary>\n\n${neutralizeClosers(b.text.trim())}\n</details>`);
         break;
       case 'tool_use':
-        out.push(renderToolUse(b, resultByToolId.get(b.id)), '');
+        push(renderToolUse(b, resultByToolId.get(b.id)));
         break;
       case 'tool_result':
         // Only surface results not already merged into their tool_use above
         // (unpaired results are rare but keep them rather than drop context).
         if ((!b.toolUseId || !resultByToolId.has(b.toolUseId)) && b.text.trim())
-          out.push('<details>', '<summary>🔧 Tool result</summary>', '', codeFence(b.text), '</details>', '');
+          push(`<details>\n<summary>🔧 Tool result</summary>\n\n${codeFence(b.text)}\n</details>`);
         break;
       case 'image':
-        out.push(`_[image: ${b.mimeType}, ${Math.round(b.data.length / 1024)} KB]_`, '');
+        // b.data is base64 (~4 chars per 3 bytes); report the decoded size.
+        push(`_[image: ${b.mimeType}, ${Math.round((b.data.length * 3) / 4 / 1024)} KB]_`);
         break;
       case 'system_event':
-        out.push(`> ※ ${b.text.replace(/\n/g, ' ').trim()}`, '');
+        push(`> ※ ${escapeHtml(b.text.replace(/\n/g, ' ').trim())}`);
         break;
     }
   }
-  const body = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const body = chunks.join('\n\n');
   // A message whose only blocks were tool_results already merged upstream
   // renders empty — skip it (and its role header) rather than emit a bare
   // "### User" with nothing under it.
@@ -126,7 +162,7 @@ export function sessionToMarkdown(detail: SessionDetail): string {
   ].filter(Boolean);
 
   const head = [
-    `# ${title}`,
+    `# ${escapeHtml(title)}`,
     '',
     `> ${meta.join(' · ')}`,
     `> Exported from macaron · ${detail.messages.length} messages${detail.truncated ? ' · _transcript truncated (older messages omitted)_' : ''}`,
