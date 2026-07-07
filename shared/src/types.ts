@@ -80,6 +80,22 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
+// to /api/push/subscribe and stored server-side; `notify` is the JSON payload
+// the server ships to the SW's `push` handler (see web/public/sw.js).
+export type PushSubscriptionPayload = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+};
+export type PushNotifyPayload = {
+  title: string;
+  body?: string;
+  tag?: string;
+  requireInteraction?: boolean;
+  // Hash-route the SW opens/focuses on click, e.g. `#/w/:project/s/:sid`.
+  url?: string;
+};
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };

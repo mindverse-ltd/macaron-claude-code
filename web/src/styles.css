@@ -2772,3 +2772,88 @@ textarea:focus, select:focus, input:focus {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* ---------- responsive / mobile ---------- */
+/* Desktop default: the drawer wrapper is transparent so #root's grid still
+   sees .sidebar-v2 as a direct child. The hamburger + backdrop stay hidden
+   until the mobile breakpoint takes over. */
+.sb-drawer { display: contents; }
+.mobile-nav-toggle { display: none; }
+.sb-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  /* Single column: the sidebar leaves the flow and slides in as an overlay. */
+  #root { grid-template-columns: 1fr; }
+
+  .mobile-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: calc(10px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    z-index: 60;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(61, 57, 41, 0.10);
+  }
+
+  .sb-drawer {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 70;
+    height: 100dvh;
+    width: min(84vw, 300px);
+    transform: translateX(-100%);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 40px rgba(61, 57, 41, 0.18);
+  }
+  .sb-drawer.open { transform: translateX(0); }
+  .sb-drawer .sidebar-v2 {
+    height: 100dvh;
+    position: static;
+    padding-top: calc(16px + env(safe-area-inset-top));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .sb-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    background: rgba(30, 28, 20, 0.32);
+  }
+
+  /* Give page content room for the fixed hamburger and honour the notch. */
+  .view {
+    padding: 60px 18px calc(40px + env(safe-area-inset-bottom));
+  }
+
+  .ws-canvas-v2 {
+    height: 100dvh;
+    padding: 56px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .ws-canvas-head { padding-left: 44px; }
+
+  /* Stack the canvas as one scrolling column; ignore per-tile spans so tiles
+     never overflow the viewport width. Height inline-set from rowSpan stays. */
+  .ws-canvas-grid-v2 { grid-template-columns: 1fr !important; }
+  .ws-tile { grid-column: span 1 !important; }
+  /* Drag-reorder + resize handles are pointer-hover affordances with no touch
+     equivalent; hide the resize grip so it can't fight page scroll. */
+  .ws-tile-resize { display: none; }
+
+  .wk-grid { grid-template-columns: 1fr; }
+
+  /* Comfortable tap targets on the small controls the mobile user actually hits. */
+  .sb-ws-head, .sb-sess, .sb-settings-link { min-height: 44px; }
+}
