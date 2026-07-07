@@ -107,10 +107,10 @@ export function Hooks() {
         <>
           <div className="hooks-sources">
             {data.sources.map((s) => (
-              <span key={s.path} className={`hooks-source${s.present ? '' : ' absent'}`}>
-                <span className={`prov-tag ${s.present ? 'ok' : 'bad'}`}>{SCOPE_LABEL[s.scope]}</span>
+              <span key={s.path} className={`hooks-source${s.present && !s.error ? '' : ' absent'}`}>
+                <span className={`prov-tag ${s.present && !s.error ? 'ok' : 'bad'}`}>{SCOPE_LABEL[s.scope]}</span>
                 <code title={s.path}>{s.path}</code>
-                {!s.present && <span className="hooks-source-note">not found</span>}
+                {s.error ? <span className="hooks-source-note" title={s.error}>invalid JSON</span> : !s.present && <span className="hooks-source-note">not found</span>}
               </span>
             ))}
           </div>

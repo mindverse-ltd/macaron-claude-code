@@ -27,15 +27,19 @@ type RawHandler = {
   if?: string;
   prompt?: string;
   agent?: string;
+  server?: string;
+  tool?: string;
 };
-type RawMatcherGroup = { matcher?: string; hooks?: RawHandler[] };
+type RawMatcherGroup = { matcher?: string; hooks?: Array<RawHandler | null> };
 type RawSettings = { hooks?: Record<string, RawMatcherGroup[]> };
 
 // Best identifier of what a handler actually runs, per kind. Command hooks
 // carry a `command`; HTTP hooks a `url`; prompt/agent hooks a short label.
-function describeRun(h: RawHandler): string {
+function describeRun(h: RawHandler | null): string {
+  if (!h) return '';
   if (h.command) return h.command;
   if (h.url) return h.url;
+  if (h.server || h.tool) return [h.server, h.tool].filter(Boolean).join(' · ');
   if (h.prompt) return h.prompt;
   if (h.agent) return h.agent;
   return '';
@@ -51,6 +55,7 @@ function flattenSettings(raw: RawSettings, scope: HookScope, source: string): Ho
       const matcher = String(group?.matcher ?? '');
       const handlers = Array.isArray(group?.hooks) ? group.hooks : [];
       for (const h of handlers) {
+        if (!h) continue;
         out.push({
           event,
           matcher,
@@ -66,13 +71,22 @@ function flattenSettings(raw: RawSettings, scope: HookScope, source: string): Ho
   return out;
 }
 
-async function readSettingsFile(p: string): Promise<RawSettings | null> {
+type ReadSettingsResult =
+  | { kind: 'ok'; settings: RawSettings }
+  | { kind: 'missing' }
+  | { kind: 'parseError'; error: string };
+
+async function readSettingsFile(p: string): Promise<ReadSettingsResult> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(p, 'utf8');
-    return JSON.parse(raw) as RawSettings;
+    raw = await fs.readFile(p, 'utf8');
   } catch {
-    // Missing file or malformed JSON — treat as "no hooks here".
-    return null;
+    return { kind: 'missing' };
+  }
+  try {
+    return { kind: 'ok', settings: JSON.parse(raw) as RawSettings };
+  } catch (e) {
+    return { kind: 'parseError', error: (e as Error).message };
   }
 }
 
@@ -95,16 +109,18 @@ export async function readHooks(cwd?: string): Promise<HooksResponse> {
   const results = await Promise.all(
     wanted.map(async ({ scope, path: p }) => {
       const raw = await readSettingsFile(p);
+      const present = raw.kind !== 'missing';
       return {
         scope,
         path: p,
-        present: raw !== null,
-        handlers: raw ? flattenSettings(raw, scope, p) : [],
+        present,
+        ...(raw.kind === 'parseError' ? { error: raw.error } : {}),
+        handlers: raw.kind === 'ok' ? flattenSettings(raw.settings, scope, p) : [],
       };
     }),
   );
   return {
     handlers: results.flatMap((r) => r.handlers),
-    sources: results.map(({ scope, path, present }) => ({ scope, path, present })),
+    sources: results.map(({ scope, path, present, error }) => ({ scope, path, present, ...(error ? { error } : {}) })),
   };
 }

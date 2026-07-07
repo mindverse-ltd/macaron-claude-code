@@ -119,5 +119,5 @@ export type HooksResponse = {
   handlers: HookHandlerView[];
   // Which scopes were actually found on disk, so the UI can explain an empty
   // result ("no project settings.json") instead of just showing nothing.
-  sources: Array<{ scope: HookScope; path: string; present: boolean }>;
+  sources: Array<{ scope: HookScope; path: string; present: boolean; error?: string }>;
 };
