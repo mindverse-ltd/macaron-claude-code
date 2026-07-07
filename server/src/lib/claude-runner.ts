@@ -286,3 +286,76 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
   }
 }
 
+// Follow-up question suggestions: a second, throwaway query that resumes the
+// just-finished session so it shares the LLM prefix with the main turn —
+// provider-side prompt caching kicks in, so it's near-free. persistSession:
+// false keeps this off disk (the original transcript is never appended to).
+// The prompt is a no-tools-guard (à la Piebald's summarization guard) fused
+// with promplate's suggest.j2 content shape: user-perspective, 2-5 items,
+// JSON list, same language/tone as the user.
+const FOLLOWUP_PROMPT = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+You already have the full conversation above as context — tool calls will be rejected and waste your only turn.
+
+Your task: envisage 2-5 possible follow-up questions the USER could ask next to continue this conversation productively.
+
+Rules:
+- User's perspective: questions the user would ask the assistant, not the reverse.
+- Each fundamentally different in intent (dive deeper / pivot / verify / request an example / challenge an assumption).
+- 2-8 words each, concise, no duplication, no platitudes like "thanks".
+- Use THE SAME LANGUAGE and tone as the user's most recent message.
+
+Output ONLY a JSON array of strings, nothing else. Example:
+["how does caching work","show a smaller example","what if I skip persistSession"]`;
+
+export type FollowupOptions = {
+  resume: string;
+  cwd: string;
+  model?: string;
+  envOverrides?: Record<string, string> | null;
+};
+
+// Yields raw text deltas of the model's JSON-array reply. The route forwards
+// these as `followup_delta` SSE events; the WebUI accumulates and parses them
+// incrementally with partial-json (Allow.ARR) so chips appear as they stream.
+// Parsing lives client-side — here we only relay text, never interpret it.
+export async function* runFollowup(opts: FollowupOptions): AsyncGenerator<string> {
+  const stream = query({
+    prompt: FOLLOWUP_PROMPT,
+    options: {
+      cwd: opts.cwd,
+      resume: opts.resume,
+      model: opts.model,
+      // Advertise the exact same toolset as runClaude so this request's
+      // tools+system+messages prefix is byte-identical to the main turn's —
+      // that's what makes the provider's prompt cache hit. That takes both
+      // the same mcpServers AND a canUseTool callback: without one the SDK
+      // drops its interactive tools (AskUserQuestion, EnterPlanMode, …) and
+      // injects a "tools no longer available" system block, breaking the
+      // prefix. Ours just denies, so nothing can ever execute; maxTurns: 1
+      // keeps a stray tool_use from spiraling into an agentic loop.
+      mcpServers: { macaron: macaronMcpServer },
+      canUseTool: async () => ({ behavior: 'deny', message: 'text-only query', interrupt: true }),
+      maxTurns: 1,
+      persistSession: false,
+      // Stream content_block_delta text so the route can relay it; without
+      // this the SDK only emits the final `result` and there's nothing to forward.
+      includePartialMessages: true,
+      ...(opts.envOverrides ? { env: opts.envOverrides } : {}),
+    },
+  });
+  let got = false;
+  for await (const m of stream as AsyncIterable<SDKMessage>) {
+    if (m.type === 'stream_event') {
+      const ev = m.event;
+      if (ev.type === 'content_block_delta') {
+        const d = ev.delta as { type?: string; text?: string };
+        if (d?.type === 'text_delta' && d.text) {
+          got = true;
+          yield d.text;
+        }
+      }
+    }
+  }
+  console.log(`[claude-runner] followup  resume=${opts.resume.slice(0, 8)}  text=${got ? 'ok' : 'empty'}`);
+}
+

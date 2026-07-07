@@ -20,7 +20,7 @@ export function CodexSidebar() {
   const [workspaces, setWorkspaces] = useState<WsData[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
-  const [model, setModel] = useState('');
+  const [providerLabel, setProviderLabel] = useState('');
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
   const navigate = useNavigate();
   const location = useLocation();
@@ -46,7 +46,16 @@ export function CodexSidebar() {
   useEffect(() => {
     load();
     codexApi.config()
-      .then((c) => { setStatus('ok'); setModel(c.provider.model); })
+      .then((c) => {
+        setStatus('ok');
+        if (c.activeProviderId === 'system') {
+          const b = c.builtins[0];
+          setProviderLabel(`system · ${b?.detectedModel || '(codex default)'}`);
+        } else {
+          const p = c.customProviders.find((x) => x.id === c.activeProviderId);
+          setProviderLabel(p ? `${p.name} · ${p.model}` : 'unknown provider');
+        }
+      })
       .catch(() => setStatus('bad'));
     const t = setInterval(load, 10_000);
     return () => clearInterval(t);
@@ -195,7 +204,7 @@ export function CodexSidebar() {
 
       <footer className="cx-sb-foot">
         <div className={'cx-sb-status cx-sb-status-' + status}>
-          {status === 'ok' ? `online · ${model}` : status === 'bad' ? 'config missing' : 'connecting…'}
+          {status === 'ok' ? providerLabel || 'online' : status === 'bad' ? 'config missing' : 'connecting…'}
         </div>
       </footer>
     </aside>
