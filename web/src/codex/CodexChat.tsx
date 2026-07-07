@@ -296,7 +296,7 @@ export function CodexChat(props: CodexChatProps = {}) {
             onStop={stop}
             disabled={sending}
             running={sending && !isNew}
-            placeholder={sending ? 'Codex is working…' : undefined}
+            placeholder={sending ? 'Draft next message…' : undefined}
           />
         </div>
       </div>

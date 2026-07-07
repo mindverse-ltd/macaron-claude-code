@@ -41,7 +41,6 @@ export function CodexComposer({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={key}
           placeholder={placeholder ?? 'Message Codex…'}
-          disabled={disabled}
           rows={1}
         />
         {running && onStop ? (

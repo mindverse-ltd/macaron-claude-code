@@ -1603,9 +1603,8 @@ export function Session(props: SessionProps = {}) {
         )}
         <textarea
           rows={2}
-          placeholder="Reply to Claude…"
+          placeholder={sending ? 'Draft next message…' : 'Reply to Claude…'}
           value={input}
-          disabled={sending}
           onChange={(e) => {
             setInput(e.target.value);
             // Any manual edit exits history-navigation mode — pressing
