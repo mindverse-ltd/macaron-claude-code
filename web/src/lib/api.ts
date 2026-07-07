@@ -149,8 +149,12 @@ export const api = {
       },
     ),
   prContext: (project: string, sid: string) =>
-    getJSON<PrContext>(
+    // Use `req` (not `getJSON`) so the server's descriptive error body
+    // ("not a git repository", etc.) reaches the toast instead of a bare
+    // `http 400`, matching the createPr path.
+    req<PrContext>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr-context`,
+      { method: 'GET' },
     ),
   createPr: (project: string, sid: string, input: CreatePrRequest) =>
     req<CreatePrResult>(

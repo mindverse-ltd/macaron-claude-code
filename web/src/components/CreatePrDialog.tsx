@@ -37,7 +37,14 @@ export function CreatePrDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
 
-  const canSubmit = title.trim().length > 0 && ctx.ahead > 0 && ctx.branch !== ctx.defaultBranch && !busy;
+  const detached = ctx.branch === 'HEAD';
+  const canSubmit =
+    title.trim().length > 0 &&
+    ctx.ahead !== null &&
+    ctx.ahead > 0 &&
+    ctx.branch !== ctx.defaultBranch &&
+    !detached &&
+    !busy;
 
   return (
     <div className="confirm-backdrop" onClick={onCancel}>
@@ -52,9 +59,11 @@ export function CreatePrDialog({
 
         <div className="pr-branch-line">
           <code>{ctx.branch}</code> <span className="pr-arrow">→</span> <code>{ctx.defaultBranch}</code>
-          <span className="pr-ahead">
-            · {ctx.ahead} commit{ctx.ahead === 1 ? '' : 's'}
-          </span>
+          {ctx.ahead !== null && (
+            <span className="pr-ahead">
+              · {ctx.ahead} commit{ctx.ahead === 1 ? '' : 's'}
+            </span>
+          )}
         </div>
 
         {ctx.existingPrUrl ? (
@@ -64,12 +73,22 @@ export function CreatePrDialog({
           </div>
         ) : (
           <>
+            {detached && (
+              <div className="pr-note pr-note-warn">
+                You're on a detached HEAD — check out a branch to open a PR.
+              </div>
+            )}
             {ctx.branch === ctx.defaultBranch && (
               <div className="pr-note pr-note-warn">
                 You're on the default branch — switch to a feature branch to open a PR.
               </div>
             )}
-            {ctx.ahead === 0 && ctx.branch !== ctx.defaultBranch && (
+            {ctx.ahead === null && !detached && ctx.branch !== ctx.defaultBranch && (
+              <div className="pr-note pr-note-warn">
+                Couldn't resolve the base branch ({ctx.defaultBranch}) to compare against.
+              </div>
+            )}
+            {ctx.ahead === 0 && !detached && ctx.branch !== ctx.defaultBranch && (
               <div className="pr-note pr-note-warn">
                 No commits ahead of {ctx.defaultBranch} yet — nothing to include.
               </div>

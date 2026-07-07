@@ -65,8 +65,11 @@ export async function getPrContext(cwd: string): Promise<PrContext> {
 
   // Commits on this branch not on the default branch. Prefer the remote base
   // (origin/<default>) so "ahead" reflects what a PR would actually contain;
-  // fall back to the local default branch, then 0.
-  let ahead = 0;
+  // fall back to the local default branch. `null` means neither base ref
+  // exists (single-branch/shallow clone) — distinct from a genuine 0, so the
+  // UI can say "couldn't resolve the base branch" instead of "nothing to
+  // include".
+  let ahead: number | null = null;
   for (const base of [`origin/${defaultBranch}`, defaultBranch]) {
     try {
       const out = await git(cwd, ['rev-list', '--count', `${base}..HEAD`]);
@@ -77,7 +80,8 @@ export async function getPrContext(cwd: string): Promise<PrContext> {
     }
   }
 
-  const existing = branch !== defaultBranch ? await existingPrUrl(cwd, branch) : undefined;
+  const existing =
+    branch !== defaultBranch && branch !== 'HEAD' ? await existingPrUrl(cwd, branch) : undefined;
   return { branch, defaultBranch, ahead, dirty, hasRemote, existingPrUrl: existing };
 }
 
@@ -89,8 +93,14 @@ export async function createPr(
   input: { title: string; body: string; draft: boolean },
 ): Promise<CreatePrResult> {
   const ctx = await getPrContext(cwd);
+  if (ctx.branch === 'HEAD') {
+    throw new Error("can't open a PR from a detached HEAD — check out a branch first");
+  }
   if (ctx.branch === ctx.defaultBranch) {
     throw new Error(`can't open a PR from the default branch (${ctx.defaultBranch})`);
+  }
+  if (ctx.ahead === null) {
+    throw new Error(`couldn't resolve the base branch (${ctx.defaultBranch}) to compare against`);
   }
   if (ctx.ahead === 0) {
     throw new Error(`branch ${ctx.branch} has no commits ahead of ${ctx.defaultBranch}`);
