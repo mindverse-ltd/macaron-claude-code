@@ -19,6 +19,11 @@ function readInput(b: SaveBody): CommandInput {
   };
 }
 
+function metadataError(input: CommandInput): string | null {
+  if (/[\r\n]/.test(input.description || '') || /[\r\n]/.test(input.argumentHint || '')) return 'description and argument hint must be single-line';
+  return null;
+}
+
 export async function registerCommandRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/commands', async () => ({ commands: await listCommands() }));
 
@@ -35,6 +40,8 @@ export async function registerCommandRoutes(app: FastifyInstance): Promise<void>
       return reply.status(400).send({ error: 'name must be lowercase letters, digits, dash or underscore' });
     }
     const input = readInput(b);
+    const metaErr = metadataError(input);
+    if (metaErr) return reply.status(400).send({ error: metaErr });
     if (!input.body.trim()) return reply.status(400).send({ error: 'body required' });
     try {
       return await createCommand(name, input);
@@ -46,6 +53,8 @@ export async function registerCommandRoutes(app: FastifyInstance): Promise<void>
 
   app.put<{ Params: { name: string }; Body: SaveBody }>('/api/commands/:name', async (req, reply) => {
     const input = readInput(req.body || {});
+    const metaErr = metadataError(input);
+    if (metaErr) return reply.status(400).send({ error: metaErr });
     if (!input.body.trim()) return reply.status(400).send({ error: 'body required' });
     try {
       const updated = await updateCommand(req.params.name, input);

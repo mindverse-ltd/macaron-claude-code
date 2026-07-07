@@ -36,9 +36,9 @@ export function Prompts() {
     try {
       if (editing.isNew) {
         const name = d.name.trim().toLowerCase();
-        if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
+        if (!/^[a-z0-9][a-z0-9_-]*$/.test(name) || name.length > 64) {
           setBusy(false);
-          return toast('name: lowercase letters, digits, dash or underscore');
+          return toast('name: lowercase letters, digits, dash or underscore, max 64 chars');
         }
         await api.createCommand(name, input);
         toast(`saved /${name}`);
@@ -200,7 +200,7 @@ function PromptForm({
         />
         <p className="settings-hint">
           {isNew
-            ? <>Invoked as <code>/{draft.name.trim() || 'name'}</code>. Lowercase letters, digits, dash or underscore.</>
+            ? <>Invoked as <code>/{draft.name.trim() || 'name'}</code>. Lowercase letters, digits, dash or underscore, max 64 chars.</>
             : <>Rename isn't supported yet — delete and recreate to change the name.</>}
         </p>
       </div>
