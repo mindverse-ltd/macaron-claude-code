@@ -16,10 +16,17 @@ function normalizeTools(tools: string[] | string | undefined): string[] {
   return [];
 }
 
+function validNameOr400(name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }): boolean {
+  if (isValidAgentName(name)) return true;
+  reply.status(400).send({ error: 'invalid agent name' });
+  return false;
+}
+
 export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/agents', async () => ({ agents: await listAgents() }));
 
   app.get<{ Params: { name: string } }>('/api/agents/:name', async (req, reply) => {
+    if (!validNameOr400(req.params.name, reply)) return;
     const a = await readAgent(req.params.name);
     if (!a) return reply.status(404).send({ error: 'agent not found' });
     return a;
@@ -51,6 +58,7 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.put<{ Params: { name: string }; Body: AgentBody }>('/api/agents/:name', async (req, reply) => {
+    if (!validNameOr400(req.params.name, reply)) return;
     const cur = await readAgent(req.params.name);
     if (!cur) return reply.status(404).send({ error: 'agent not found' });
     const b = req.body || {};
@@ -73,6 +81,7 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete<{ Params: { name: string } }>('/api/agents/:name', async (req, reply) => {
+    if (!validNameOr400(req.params.name, reply)) return;
     const ok = await deleteAgent(req.params.name);
     if (!ok) return reply.status(404).send({ error: 'agent not found' });
     return { agents: await listAgents() };

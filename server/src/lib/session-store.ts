@@ -528,6 +528,7 @@ export async function readSubagentMessages(
   sid: string,
   agentId: string,
 ): Promise<SessionDetail> {
+  if (!/^[A-Za-z0-9_-]+$/.test(agentId)) throw new Error('invalid subagent id');
   const filePath = path.join(CLAUDE_PROJECTS, project, sid, 'subagents', `agent-${agentId}.jsonl`);
   const { messages, cwd, gitBranch, truncated, totalBytes, latestUsage } =
     await parseTranscriptFile(filePath);

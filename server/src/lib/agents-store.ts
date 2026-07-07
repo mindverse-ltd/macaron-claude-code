@@ -21,7 +21,27 @@ export function isValidAgentName(name: string): boolean {
 }
 
 function agentPath(name: string): string {
+  if (!isValidAgentName(name)) throw new Error('invalid agent name');
   return path.join(CLAUDE_AGENTS, `${name}.md`);
+}
+
+function readScalar(value: string | undefined): string {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') return parsed;
+    } catch { /* fall back to raw scalar below */ }
+  }
+  const singleQuoted = /^'(.*)'$/.exec(trimmed);
+  return singleQuoted ? singleQuoted[1] ?? '' : trimmed;
+}
+
+function frontmatterValue(value: string): string {
+  // JSON string syntax is also valid YAML scalar syntax and keeps embedded
+  // newlines escaped on one frontmatter line.
+  return JSON.stringify(value);
 }
 
 // Split a raw .md into { frontmatter lines, body }. Missing/blank frontmatter
@@ -29,28 +49,37 @@ function agentPath(name: string): string {
 // (body-only = system prompt with no metadata).
 function parse(raw: string, name: string): AgentFile {
   const fm: Record<string, string> = {};
+  const lists: Record<string, string[]> = {};
   let body = raw;
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw);
   if (m) {
     body = m[2] ?? '';
+    let activeList = '';
     for (const line of (m[1] ?? '').split('\n')) {
+      const listItem = /^\s*-\s*(.+?)\s*$/.exec(line);
+      if (activeList && listItem) {
+        lists[activeList] = [...(lists[activeList] ?? []), readScalar(listItem[1])];
+        continue;
+      }
       const idx = line.indexOf(':');
       if (idx < 0) continue;
       const key = line.slice(0, idx).trim();
       const val = line.slice(idx + 1).trim();
-      if (key) fm[key] = val;
+      activeList = key && !val ? key : '';
+      if (key && val) fm[key] = val;
     }
   }
-  const tools = (fm.tools || '')
+  const inlineTools = (fm.tools || '')
     .replace(/^\[|\]$/g, '')
     .split(',')
     .map((t) => t.trim().replace(/^["']|["']$/g, ''))
     .filter(Boolean);
+  const tools = lists.tools?.length ? lists.tools.filter(Boolean) : inlineTools;
   return {
     name,
-    description: fm.description || '',
+    description: readScalar(fm.description),
     tools,
-    model: fm.model || '',
+    model: readScalar(fm.model),
     prompt: body.replace(/^\r?\n/, ''),
   };
 }
@@ -58,9 +87,9 @@ function parse(raw: string, name: string): AgentFile {
 // Re-emit frontmatter + body. Only writes keys the UI owns; `tools` is dropped
 // when empty so the agent inherits all tools (Claude Code's default).
 function serialize(a: AgentFile): string {
-  const lines = ['---', `name: ${a.name}`, `description: ${a.description}`];
+  const lines = ['---', `name: ${a.name}`, `description: ${frontmatterValue(a.description)}`];
   if (a.tools.length) lines.push(`tools: ${a.tools.join(', ')}`);
-  if (a.model) lines.push(`model: ${a.model}`);
+  if (a.model) lines.push(`model: ${frontmatterValue(a.model)}`);
   lines.push('---', '');
   return lines.join('\n') + a.prompt.replace(/^\n+/, '') + '\n';
 }

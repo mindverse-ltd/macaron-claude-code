@@ -48,6 +48,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   app.get<{ Params: Params & { agentId: string } }>(
     '/api/sessions/claude/:project/:sid/subagents/:agentId',
     async ({ params }, reply) => {
+      if (!/^[A-Za-z0-9_-]+$/.test(params.agentId)) return reply.status(400).send({ error: 'invalid subagent id' });
       try {
         return await readSubagentMessages(params.project, params.sid, params.agentId);
       } catch (e) {
