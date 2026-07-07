@@ -1164,6 +1164,22 @@ export function Session(props: SessionProps = {}) {
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
 
+  // Opening an already-idle session (last item is an assistant reply, nothing
+  // streaming) surfaces follow-ups too — not only the instant a turn ends. One
+  // shot per sid; the generation guard drops deltas from a session we've since
+  // left, and the followupRaw check skips it once a turn's chips already exist.
+  const lastItemKind = items[items.length - 1]?.kind;
+  useEffect(() => {
+    if (isNew || isPending || sending || polling) return;
+    if (lastItemKind !== 'assistant' || followupRaw) return;
+    const gen = ++followupGen.current;
+    void streamSession(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/followups`,
+      {},
+      { onFollowupDelta: (t) => { if (followupGen.current === gen) setFollowupRaw((prev) => prev + t); } },
+    );
+  }, [project, sid, isNew, isPending, sending, polling, lastItemKind]);
+
   // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
   // The status bar mirrors the current in-progress task + progress fraction.
   const currentTodo = useMemo(() => {

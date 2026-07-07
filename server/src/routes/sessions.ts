@@ -232,6 +232,36 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     reply.raw.on('close', () => ls.subs.delete(reply));
   });
 
+  // Proactive follow-ups for an already-idle session: resume + runFollowup
+  // with NO main turn, so merely opening a finished conversation surfaces
+  // suggestions too — not only the instant a turn ends. Same cache-hit prefix
+  // as the post-turn path. Best-effort; gated on the global toggle.
+  app.post<{ Params: Params }>(
+    '/api/sessions/claude/:project/:sid/followups',
+    async ({ params }, reply) => {
+      const { project, sid } = params;
+      startSSE(reply);
+      if (!getFollowupSuggestionsEnabled()) { sseDone(reply); return; }
+
+      let cwd = decodeClaudeProjectName(project) || process.env.HOME || '/tmp';
+      try {
+        const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+        if (head?.cwd) cwd = head.cwd;
+      } catch { /* fall back to decoded project name */ }
+
+      const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
+      let clientGone = false;
+      reply.raw.on('close', () => { clientGone = true; });
+      try {
+        for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+          if (clientGone) break;
+          try { sseSend(reply, { type: 'followup_delta', text: delta }); } catch { clientGone = true; break; }
+        }
+      } catch { /* swallow: follow-up is enrichment, never fatal */ }
+      if (!clientGone) sseDone(reply);
+    },
+  );
+
   // Send a message into an existing session (`claude -p --resume <sid>`).
   app.post<{ Params: Params; Body: MessageBody }>(
     '/api/sessions/claude/:project/:sid/message',
