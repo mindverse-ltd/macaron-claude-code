@@ -55,10 +55,24 @@ async function git(
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string; message?: string };
     if (typeof err.code === 'number' && okExitCodes.includes(err.code)) {
-      return err.stdout || '';
+      // git overloads exit 1: `diff --no-index` uses it for "printed a diff"
+      // (stdout set), but also for access errors (empty stdout, real stderr) —
+      // only accept the former; let the latter fall through to a real error.
+      const out = err.stdout || '';
+      if (out || !(err.stderr || '').trim()) return out;
     }
-    throw new GitError((err.stderr || err.message || 'git failed').trim(), err.code ?? null);
+    // Some git failures (e.g. an empty commit) report the reason on stdout with
+    // an empty stderr, so fall back to stdout before the generic message.
+    throw new GitError((err.stderr || err.stdout || err.message || 'git failed').trim(), err.code ?? null);
   }
+}
+
+// Everything git reports (porcelain paths) and everything we feed back
+// (pathspecs) is repo-root-relative, so worktree/index commands must run from
+// the repo root — the project cwd may be a subdirectory of the repo, in which
+// case the paths won't match when run there.
+async function gitRoot(cwd: string): Promise<string> {
+  return (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
 }
 
 // Guard a caller-supplied relative path stays inside cwd. Git pathspecs are
@@ -107,9 +121,9 @@ function parseStatus(z: string): GitFileStatus[] {
 export async function status(cwd: string): Promise<GitStatus> {
   // Cheap repo probe first — a non-repo cwd should render as an empty panel,
   // not a 500.
-  let repoRoot = '';
+  let root = '';
   try {
-    repoRoot = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+    root = await gitRoot(cwd);
   } catch {
     return { isRepo: false, branch: '', detached: false, hasCommits: false, ahead: 0, behind: 0, files: [] };
   }
@@ -138,8 +152,10 @@ export async function status(cwd: string): Promise<GitStatus> {
     }
   }
 
-  const z = await git(cwd, ['status', '--porcelain=v1', '-z']);
-  void repoRoot;
+  // `--untracked-files=all` so a new directory expands into its individual
+  // files (each of which the untracked diff path can render) instead of
+  // collapsing to a single `?? dir/` row the diff endpoint can't handle.
+  const z = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   return { isRepo: true, branch, detached, hasCommits, ahead, behind, upstream, files: parseStatus(z) };
 }
 
@@ -148,37 +164,39 @@ export async function diff(
   file: string,
   opts: { staged?: boolean; untracked?: boolean } = {},
 ): Promise<string> {
+  const root = await gitRoot(cwd);
   if (opts.untracked) {
     // Untracked files have no HEAD side — diff against /dev/null so the panel
     // shows the whole file as additions. `--no-index` exits 1 when it prints.
-    const abs = safeRelPath(cwd, file);
-    return git(cwd, ['diff', '--no-index', '--', '/dev/null', abs], [0, 1]);
+    const abs = safeRelPath(root, file);
+    return git(root, ['diff', '--no-index', '--', '/dev/null', abs], [0, 1]);
   }
   const args = ['diff', '--no-color'];
   if (opts.staged) args.push('--cached');
   args.push('--', file);
-  return git(cwd, args);
+  return git(root, args);
 }
 
 export async function stage(cwd: string, files: string[]): Promise<void> {
   if (files.length === 0) return;
-  await git(cwd, ['add', '--', ...files]);
+  await git(await gitRoot(cwd), ['add', '--', ...files]);
 }
 
 export async function unstage(cwd: string, files: string[]): Promise<void> {
   if (files.length === 0) return;
+  const root = await gitRoot(cwd);
   // `restore --staged` needs a commit to compare against; on a repo with no
   // HEAD yet fall back to `rm --cached` to unstage the initial add.
-  const hasCommits = await git(cwd, ['rev-parse', '--verify', 'HEAD']).then(() => true).catch(() => false);
-  if (hasCommits) await git(cwd, ['restore', '--staged', '--', ...files]);
-  else await git(cwd, ['rm', '--cached', '-r', '--', ...files]);
+  const hasCommits = await git(root, ['rev-parse', '--verify', 'HEAD']).then(() => true).catch(() => false);
+  if (hasCommits) await git(root, ['restore', '--staged', '--', ...files]);
+  else await git(root, ['rm', '--cached', '-r', '--', ...files]);
 }
 
 export async function commit(cwd: string, message: string, all: boolean): Promise<string> {
   const args = ['commit'];
   if (all) args.push('-a');
   args.push('-m', message);
-  return git(cwd, args);
+  return git(await gitRoot(cwd), args);
 }
 
 export async function branches(cwd: string): Promise<GitBranches> {
@@ -189,6 +207,11 @@ export async function branches(cwd: string): Promise<GitBranches> {
 }
 
 export async function checkout(cwd: string, branch: string, create: boolean): Promise<string> {
-  const args = create ? ['checkout', '-b', branch] : ['checkout', branch];
-  return git(cwd, args);
+  // `git switch` treats its argument as a ref, never a pathspec, so a value
+  // like `.` or a real path can't trigger a worktree-discarding checkout the
+  // way `git checkout <arg>` can. Reject leading-dash so it can't be read as a
+  // flag (`--detach`, `-f`) either.
+  if (branch.startsWith('-')) throw new GitError(`invalid branch name: ${branch}`, null);
+  const args = create ? ['switch', '-c', branch] : ['switch', branch];
+  return git(await gitRoot(cwd), args);
 }
