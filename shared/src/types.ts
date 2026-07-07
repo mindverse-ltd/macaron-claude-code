@@ -35,7 +35,7 @@ export type Block =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
-  | { kind: 'tool_result'; toolUseId?: string; text: string }
+  | { kind: 'tool_result'; toolUseId?: string; text: string; isError?: boolean }
   // Base64-encoded image attached to a user message. Preserved in jsonl by
   // the CLI; the WebUI renders it inline where it appears in the block order,
   // so pastes/attachments interleaved with text stay in position.
