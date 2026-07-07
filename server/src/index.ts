@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { checkGenUI } from './lib/genui-check.js';
 
@@ -94,6 +95,7 @@ if (existsSync(WEB_DIST)) {
 try {
   await warmSettingsCache();
   await warmCodexConfigCache();
+  await warmShareCache();
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
   if (authGenerated) {

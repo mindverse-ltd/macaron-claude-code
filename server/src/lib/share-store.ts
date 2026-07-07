@@ -49,6 +49,16 @@ export async function createShare(project: string, sid: string): Promise<string>
   return token;
 }
 
+// Warm the cache at startup (mirrors settings-store.ts warmSettingsCache).
+// createShare is check-then-act across an `await load()`: on a cold cache, two
+// concurrent first-ever shares of the same session both read an empty list and
+// each mint a token — breaking idempotency and orphaning one link that Unshare
+// then can't fully revoke. Warming the cache before any request serves closes
+// that window; the settings store sidesteps the identical race the same way.
+export async function warmShareCache(): Promise<void> {
+  await load();
+}
+
 export async function resolveShare(token: string): Promise<ShareEntry | null> {
   const shares = await load();
   return shares.find((s) => s.token === token) || null;
@@ -58,9 +68,15 @@ export async function resolveShare(token: string): Promise<ShareEntry | null> {
 // token, so revocation keys on the session. No-op if it was never shared.
 export async function deleteShareBySession(project: string, sid: string): Promise<boolean> {
   const shares = await load();
-  const i = shares.findIndex((s) => s.project === project && s.sid === sid);
-  if (i < 0) return false;
-  shares.splice(i, 1);
+  // Remove EVERY token for this session, not just the first match. If a
+  // duplicate was ever minted (e.g. a concurrent create before the cache was
+  // warm), a single splice would leave a live token behind — an "Unshare" that
+  // silently fails to revoke. Filtering in place keeps the contract airtight.
+  const before = shares.length;
+  const kept = shares.filter((s) => !(s.project === project && s.sid === sid));
+  if (kept.length === before) return false;
+  shares.length = 0;
+  shares.push(...kept);
   await persist();
   return true;
 }
