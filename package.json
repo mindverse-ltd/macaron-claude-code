@@ -9,14 +9,14 @@
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev -w @macaron/server\" \"npm:dev -w @macaron/web\"",
-    "build": "npm run build -w @macaron/shared && npm run build -w @macaron/server && npm run build -w @macaron/web",
-    "build:web": "npm run build -w @macaron/shared && npm run build -w @macaron/web",
-    "build:server": "npm run build -w @macaron/shared && npm run build -w @macaron/server",
+    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @macaron/server dev\" \"pnpm --filter @macaron/web dev\"",
+    "build": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server build && pnpm --filter @macaron/web build",
+    "build:web": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/web build",
+    "build:server": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server build",
     "start": "node server/dist/index.js",
-    "bundle": "npm run bundle -w @macaron/server",
-    "prepack": "npm run build -w @macaron/shared && npm run bundle -w @macaron/server && npm run build -w @macaron/web",
-    "typecheck": "npm run typecheck -w @macaron/shared && npm run typecheck -w @macaron/server && npm run typecheck -w @macaron/web"
+    "bundle": "pnpm --filter @macaron/server bundle",
+    "prepack": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server bundle && pnpm --filter @macaron/web build",
+    "typecheck": "pnpm --filter @macaron/shared typecheck && pnpm --filter @macaron/server typecheck && pnpm --filter @macaron/web typecheck"
   },
   "bin": {
     "mcc": "./bin/mcc.mjs",
