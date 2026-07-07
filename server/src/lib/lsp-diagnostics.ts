@@ -20,9 +20,16 @@ function getEntry(tsconfig: string): Entry {
   if (hit) return hit;
   const cwd = path.dirname(tsconfig);
   const configFile = ts.readConfigFile(tsconfig, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(configFile.config ?? {}, ts.sys, cwd);
+  // readDirectory:()=>[] stops parseJsonConfigFileContent from globbing the
+  // project tree to populate fileNames. A tsconfig with no include/files expands
+  // to every .ts/.tsx under it, which on a flat/large project makes this parse
+  // (and the roots below) an O(tree) scan running synchronously inside the
+  // PostToolUse hook — enough to blow the SDK's 60s hook budget. We only need
+  // parsed.options (extends/paths/lib); the file under check is added to roots
+  // in getFileDiagnostics and its imports resolve lazily via module resolution.
+  const parsed = ts.parseJsonConfigFileContent(configFile.config ?? {}, { ...ts.sys, readDirectory: () => [] }, cwd);
   const versions = new Map<string, number>();
-  const roots = new Set<string>(parsed.fileNames);
+  const roots = new Set<string>();
   const host: ts.LanguageServiceHost = {
     getScriptFileNames: () => Array.from(roots),
     getScriptVersion: (f) => String(versions.get(f) ?? 0),
