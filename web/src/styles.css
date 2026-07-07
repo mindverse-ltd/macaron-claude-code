@@ -1725,6 +1725,36 @@ textarea:focus, select:focus, input:focus {
 .ti-perm-actions .primary.small,
 .ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
 
+/* ---------- plan-mode approval panel (ExitPlanMode) ---------- */
+.ti-plan {
+  margin: 6px 0;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.ti-plan-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ti-plan-icon { flex-shrink: 0; }
+.ti-plan-title { color: var(--text); font-weight: 600; }
+.ti-plan-sub { color: var(--text-2); font-size: 12.5px; }
+.ti-plan-body {
+  margin: 10px 0;
+  max-height: 340px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.ti-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* ---------- session actions dropdown ---------- */
 .actions-menu-wrap {
   position: relative;

@@ -57,8 +57,9 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     },
   );
 
-  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', reason? }.
-  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string } }>(
+  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', reason?, mode? }.
+  // `mode` (allow only) exits plan mode into the chosen permission mode.
+  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string; mode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' } }>(
     '/api/permission-decision',
     async (req, reply) => {
       const id = String(req.body?.id || '').trim();
@@ -68,7 +69,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       }
       const ok = resolvePending(
         id,
-        dec === 'allow' ? { decision: 'allow' } : { decision: 'deny', reason: req.body?.reason },
+        dec === 'allow' ? { decision: 'allow', mode: req.body?.mode } : { decision: 'deny', reason: req.body?.reason },
       );
       return reply.send({ ok });
     },

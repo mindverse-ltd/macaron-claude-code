@@ -162,14 +162,21 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             const id = randomUUID();
             const decision = await new Promise<
-              { decision: 'allow' } | { decision: 'deny'; reason?: string }
+              { decision: 'allow'; mode?: PermissionMode } | { decision: 'deny'; reason?: string }
             >((resolve) => {
               registerPending(id, resolve);
               push({ kind: 'permission_request', id, toolName, input });
             });
             if (decision.decision === 'allow') {
               push({ kind: 'permission_resolved', id, decision: 'allow' });
-              return { behavior: 'allow', updatedInput: input };
+              // A `mode` rides along when the plan-approval panel exits plan
+              // mode: setMode(session) switches how subsequent edits are
+              // gated (acceptEdits = auto, default = ask each time).
+              return {
+                behavior: 'allow',
+                updatedInput: input,
+                ...(decision.mode ? { updatedPermissions: [{ type: 'setMode', mode: decision.mode, destination: 'session' }] } : {}),
+              };
             }
             push({ kind: 'permission_resolved', id, decision: 'deny' });
             return { behavior: 'deny', message: decision.reason || 'denied by user', interrupt: false };

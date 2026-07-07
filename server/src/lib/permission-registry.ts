@@ -4,8 +4,13 @@
 // `/permission-decision`, which invokes the resolver so canUseTool returns
 // and the SDK proceeds.
 
+import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+
 export type PermissionDecision =
-  | { decision: 'allow' }
+  // `mode` (allow only) switches the session's permission mode as the tool is
+  // approved — used by the plan-approval panel to exit plan mode into
+  // acceptEdits ("auto-accept") or default ("manually approve each edit").
+  | { decision: 'allow'; mode?: PermissionMode }
   | { decision: 'deny'; reason?: string };
 
 const pending = new Map<string, (d: PermissionDecision) => void>();

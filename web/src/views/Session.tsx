@@ -596,6 +596,46 @@ function PermissionItem({
   );
 }
 
+// Plan-mode approval panel — shown when the model calls `ExitPlanMode` to
+// present a plan. Three choices map to how the run proceeds once plan mode
+// exits: auto-accept edits (acceptEdits), approve each edit (default), or
+// keep planning (deny — the model refines and re-proposes).
+function PlanApprovalItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
+}) {
+  if (it.status !== 'pending') return null;
+  const plan = typeof (it.input as { plan?: unknown })?.plan === 'string' ? (it.input as { plan: string }).plan : '';
+  return (
+    <div className="ti-plan">
+      <div className="ti-plan-head">
+        <span className="ti-plan-icon">📋</span>
+        <span className="ti-plan-title">Ready to code?</span>
+        <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
+      </div>
+      {plan && (
+        <div className="ti-plan-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+        </div>
+      )}
+      <div className="ti-plan-actions">
+        <button type="button" className="primary small" onClick={() => onDecide(it.permissionId, 'allow', 'acceptEdits')}>
+          Yes, and auto-accept edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'allow', 'default')}>
+          Yes, and manually approve edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'deny')}>
+          No, keep planning
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ItemView({
   it,
   onRewind,
@@ -603,7 +643,7 @@ function ItemView({
 }: {
   it: Item;
   onRewind?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -633,12 +673,14 @@ function ItemView({
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
-    case 'permission':
-      return onPermissionDecide ? (
-        <PermissionItem it={it} onDecide={onPermissionDecide} />
+    case 'permission': {
+      const decide = onPermissionDecide ?? (() => {});
+      return it.toolName === 'ExitPlanMode' ? (
+        <PlanApprovalItem it={it} onDecide={decide} />
       ) : (
-        <PermissionItem it={it} onDecide={() => {}} />
+        <PermissionItem it={it} onDecide={decide} />
       );
+    }
   }
 }
 
@@ -959,7 +1001,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny') => {
+    (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -967,7 +1009,12 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision).catch((e) => {
+      // A plan approval switches the session out of plan mode (server-side via
+      // setMode). Mirror that in the local mode state so the next send() and
+      // the status bar reflect it — otherwise the composer would silently
+      // re-enter plan mode on the following turn.
+      if (decision === 'allow' && mode) setPermissionMode(mode);
+      api.permissionDecision(permissionId, decision, undefined, mode).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
