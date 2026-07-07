@@ -8,6 +8,7 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  SavedCommand,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +16,8 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  SavedCommand,
+  CommandsResponse,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -48,6 +51,12 @@ export type ProviderInput = {
   endpoint: string;
   model: string;
   apiKey?: string;
+};
+
+export type CommandInput = {
+  description?: string;
+  argumentHint?: string;
+  body: string;
 };
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
@@ -87,6 +96,24 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
+    }),
+
+  commands: () => getJSON<CommandsResponse>('/api/commands'),
+  createCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ...input }),
+    }),
+  updateCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteCommand: (name: string) =>
+    req<{ ok: true }>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }),
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>

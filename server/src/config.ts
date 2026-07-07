@@ -13,6 +13,9 @@ export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
 
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
+// User-scoped saved prompts / custom slash commands. One `.md` per command,
+// invoked as `/<filename-stem>` in any session.
+export const CLAUDE_COMMANDS = path.join(HOME, '.claude', 'commands');
 
 // Web root (repo's web/ dir). Same hop from compiled location in both dev (tsx src/) and prod (node dist/).
 // src/config.ts → ../../web  (and after build: dist/config.js → ../../web)

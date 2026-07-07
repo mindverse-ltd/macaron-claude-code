@@ -80,7 +80,21 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// A saved prompt / custom slash command — one `.md` file under
+// ~/.claude/commands/. `name` is the filename stem (invoked as `/name`);
+// `description` and `argumentHint` come from the YAML frontmatter; `body` is
+// the prompt template (may reference $ARGUMENTS / $1 / $2 …). Project-scoped
+// commands (.claude/commands/) are deferred to a follow-up.
+export type SavedCommand = {
+  name: string;
+  description: string;
+  argumentHint: string;
+  body: string;
+  mtime: number;
+};
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type CommandsResponse = { commands: SavedCommand[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type ConfigResponse = {

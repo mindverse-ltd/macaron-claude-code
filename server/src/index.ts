@@ -13,6 +13,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerCommandRoutes } from './routes/commands.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 
@@ -27,6 +28,7 @@ const app = Fastify({
 await app.register(async (instance) => {
   await registerHealthRoutes(instance);
   await registerSettingsRoutes(instance);
+  await registerCommandRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
   await registerSessionRoutes(instance);
