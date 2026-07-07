@@ -608,7 +608,8 @@ function PlanApprovalItem({
   onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
 }) {
   if (it.status !== 'pending') return null;
-  const plan = typeof (it.input as { plan?: unknown })?.plan === 'string' ? (it.input as { plan: string }).plan : '';
+  const rawPlan = (it.input as { plan?: unknown } | null)?.plan;
+  const plan = typeof rawPlan === 'string' ? rawPlan : '';
   return (
     <div className="ti-plan">
       <div className="ti-plan-head">

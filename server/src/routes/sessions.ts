@@ -58,8 +58,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   );
 
   // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', reason?, mode? }.
-  // `mode` (allow only) exits plan mode into the chosen permission mode.
-  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string; mode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' } }>(
+  // `mode` (allow only) exits plan mode into the chosen permission mode. Only the two
+  // modes the plan-approval panel offers are honored — the Body type is advisory
+  // (Fastify doesn't enforce it), so anything else (e.g. `bypassPermissions`) is
+  // dropped here to keep a crafted POST from escalating the session's permissions.
+  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string; mode?: 'default' | 'acceptEdits' } }>(
     '/api/permission-decision',
     async (req, reply) => {
       const id = String(req.body?.id || '').trim();
@@ -67,9 +70,10 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!id || (dec !== 'allow' && dec !== 'deny')) {
         return reply.status(400).send({ error: 'id + decision required' });
       }
+      const mode = dec === 'allow' && (req.body?.mode === 'default' || req.body?.mode === 'acceptEdits') ? req.body.mode : undefined;
       const ok = resolvePending(
         id,
-        dec === 'allow' ? { decision: 'allow', mode: req.body?.mode } : { decision: 'deny', reason: req.body?.reason },
+        dec === 'allow' ? { decision: 'allow', mode } : { decision: 'deny', reason: req.body?.reason },
       );
       return reply.send({ ok });
     },
