@@ -773,6 +773,10 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Set when the current turn hit onError, so the completion effect below can
+  // skip the 'complete' cue — onDone still runs after a stream error, and a
+  // failed turn shouldn't sound like a success.
+  const turnErroredRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -794,7 +798,11 @@ export function Session(props: SessionProps = {}) {
     }
     if (!streamedRef.current) return;
     streamedRef.current = false;
-    playSound('complete');
+    // A turn that ended in onError already played the 'error' cue; don't also
+    // play 'complete' (onDone still fires after a stream error).
+    const errored = turnErroredRef.current;
+    turnErroredRef.current = false;
+    if (!errored) playSound('complete');
     notify({
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
@@ -1387,6 +1395,7 @@ export function Session(props: SessionProps = {}) {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            turnErroredRef.current = true;
             playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
