@@ -4,8 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
-import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
-import { extractPartialCode } from '../lib/partialJson';
+import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -803,6 +803,35 @@ export function Session(props: SessionProps = {}) {
     });
   }, [sending, polling, sid, project]);
   const [liveUser, setLiveUser] = useState<string>('');
+  // Raw follow-up text streamed after each turn (a throwaway cache-hit
+  // query). Parsed incrementally with partial-json. Deltas can arrive from a
+  // stream that a newer send / session switch already superseded (e.g. click
+  // a chip and send while the previous follow-up is still streaming), so
+  // every producer captures its generation and stale deltas are dropped.
+  const [followupRaw, setFollowupRaw] = useState('');
+  const followupGen = useRef(0);
+  const followups = useMemo(() => parseFollowups(followupRaw), [followupRaw]);
+  // The row keeps a reserved slot (so streaming chips don't shove the thread
+  // up) ONLY while the feature is on — when it's off there's nothing to wait
+  // for, so we collapse the space entirely. Fetched once on mount.
+  const [followupsEnabled, setFollowupsEnabled] = useState(false);
+  useEffect(() => { api.settings().then((s) => setFollowupsEnabled(s.followupSuggestions)).catch(() => {}); }, []);
+  // Clear the chips and invalidate any deltas still streaming from a superseded
+  // follow-up query, atomically. Returns the new generation so a producer can
+  // capture it as its token; call sites that only need to reset ignore it.
+  const resetFollowups = useCallback(() => { setFollowupRaw(''); return ++followupGen.current; }, []);
+  // First-turn follow-ups stream over an independent live-store channel that
+  // outlives the main turn's `done` (which clears the live store). 2nd+ turns
+  // deliver follow-ups via streamSession's onFollowupDelta instead. Not gated
+  // on isPending — the canvas path flips it right at `done`, before the
+  // follow-up stream even starts.
+  useEffect(() => {
+    const gen = resetFollowups();
+    return subscribeFollowup(sid, (text) => {
+      if (followupGen.current !== gen) return;
+      setFollowupRaw((prev) => prev + text);
+    });
+  }, [sid]);
   // Single ordered timeline for the current turn: text chunks and tool
   // calls/permissions are interleaved in the same array so the render
   // matches Claude's actual "text → tool → text → tool" sequencing. Previous
@@ -1112,6 +1141,9 @@ export function Session(props: SessionProps = {}) {
         setPolling(false);
         setSending(false);
         clearLive(sid);
+        // Follow-up suggestions stream AFTER `done` over an independent
+        // channel (subscribeFollowup), so clearing the live store here is
+        // safe — the stop semantics are identical to before the feature.
         // Let the parent (draft-tile owner) drop this sid from its
         // pending set so a later refresh doesn't re-enter this branch.
         onPendingConsumed?.();
@@ -1136,6 +1168,26 @@ export function Session(props: SessionProps = {}) {
   const total = items.length;
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
+
+  // Opening an already-idle session (last item is an assistant reply, nothing
+  // streaming) surfaces follow-ups too — not only the instant a turn ends.
+  // Fires once per sid: after our OWN turn `onDone` flips `sending` false while
+  // the message stream is still open, so without this latch the effect would
+  // re-run and fire a duplicate /followups query — bumping the generation and
+  // starving the in-flight post-turn deltas. sid change ⇒ remount ⇒ ref resets.
+  const lastItemKind = items[items.length - 1]?.kind;
+  const idleFollowupFired = useRef(false);
+  useEffect(() => {
+    if (isNew || isPending || sending || polling) return;
+    if (lastItemKind !== 'assistant' || followupRaw || idleFollowupFired.current) return;
+    idleFollowupFired.current = true;
+    const gen = ++followupGen.current;
+    void streamSession(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/followups`,
+      {},
+      { onFollowupDelta: (t) => { if (followupGen.current === gen) setFollowupRaw((prev) => prev + t); } },
+    );
+  }, [project, sid, isNew, isPending, sending, polling, lastItemKind]);
 
   // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
   // The status bar mirrors the current in-progress task + progress fraction.
@@ -1215,6 +1267,9 @@ export function Session(props: SessionProps = {}) {
       const sentImages = images;
       setInput('');
       setImages([]);
+      // New turn ⇒ new follow-up generation: clears the chips and invalidates
+      // any deltas still streaming from the previous turn's follow-up query.
+      const fGen = resetFollowups();
       // Persist to prompt history + reset navigation state.
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
@@ -1404,6 +1459,9 @@ export function Session(props: SessionProps = {}) {
             // and a page refresh reloads the canonical jsonl.
             setSending(false);
           },
+          onFollowupDelta: (t) => {
+            if (followupGen.current === fGen) setFollowupRaw((prev) => prev + t);
+          },
         },
       );
     },
@@ -1505,6 +1563,28 @@ export function Session(props: SessionProps = {}) {
       */}
       <div className="thread tui" ref={threadRef}>
         {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
+        {/* Suggested follow-ups from the throwaway cache-hit query. Rendered
+            ABOVE liveTurn in DOM (so BELOW it visually — column-reverse)
+            i.e. just above the input area, right under the latest reply.
+            Clicking fills the textarea (setInput), doesn't auto-send. The row
+            stays mounted (reserving its height) whenever the feature is on so
+            chips streaming in never shift the thread; off ⇒ no slot at all. */}
+        {followupsEnabled && !isNew && (
+          <div className="ti-followups">
+            {followups.map((q, i) => (
+              <button
+                key={`${q}-${i}`}
+                className="ti-followup-chip"
+                onClick={() => {
+                  resetFollowups();
+                  setInput(q);
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Single ordered timeline for the current turn. Items are appended
             to `liveTurn` in exact SSE arrival order, so reversing here
             (thread is column-reverse) puts the newest at the visual bottom
@@ -1606,6 +1686,7 @@ export function Session(props: SessionProps = {}) {
           placeholder={sending ? 'Draft next message…' : 'Reply to Claude…'}
           value={input}
           onChange={(e) => {
+            if (followupRaw) resetFollowups();
             setInput(e.target.value);
             // Any manual edit exits history-navigation mode — pressing
             // Send now sends the (possibly edited) text as a fresh entry.

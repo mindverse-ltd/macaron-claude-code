@@ -85,6 +85,7 @@ export type SessionStreamHandlers = {
   onUsage?: (u: { outputTokens: number; thinkingTokens?: number }) => void;
   onError?: (msg: string) => void;
   onDone?: () => void;
+  onFollowupDelta?: (text: string) => void;
 };
 
 export async function streamSession(
@@ -143,6 +144,13 @@ export async function streamSession(
         else if (p.type === 'usage') h.onUsage?.(p);
         else if (p.type === 'error') h.onError?.(p.error);
         else if (p.type === 'warn') console.warn('[claude]', p.text);
+        // The server keeps the stream open after `done` to append follow-up
+        // suggestions, so fire onDone on the business event — the turn is
+        // over the moment it arrives, not when the socket closes. The
+        // trailing onDone at stream close stays as the error-path fallback
+        // (it's idempotent).
+        else if (p.type === 'done') h.onDone?.();
+        else if (p.type === 'followup_delta') h.onFollowupDelta?.(p.text);
       } catch {
         /* ignore */
       }
