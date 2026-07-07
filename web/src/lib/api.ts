@@ -41,6 +41,7 @@ export type PublicSettings = {
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
   yoloMode: boolean;
+  followupSuggestions: boolean;
 };
 
 export type ProviderInput = {
@@ -105,6 +106,12 @@ export const api = {
     }),
   setYoloMode: (enabled: boolean) =>
     req<PublicSettings>('/api/settings/yolo', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  setFollowupSuggestions: (enabled: boolean) =>
+    req<PublicSettings>('/api/settings/followups', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
