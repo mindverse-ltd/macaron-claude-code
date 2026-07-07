@@ -97,7 +97,9 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
     let acc = '';
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) return;
+      // Stale guard (matches onChunk/exit): a stop or provider-switch nulls or
+      // replaces proc, so an old start's timer must not clobber the current state.
+      if (settled || proc !== child) return;
       settled = true;
       state = { status: 'error', provider, url: null, startedAt: null, error: `timed out waiting for ${spec.bin} to publish a URL` };
       try { child.kill('SIGKILL'); } catch { /* already gone */ }
