@@ -105,6 +105,10 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
       try { child.kill('SIGKILL'); } catch { /* already gone */ }
       reject(new Error(state.error!));
     }, START_TIMEOUT_MS);
+    // Don't let the startup timer keep the event loop alive during a
+    // shutdown-mid-start (the SIGTERM→SIGKILL kill timer is unref'd for the
+    // same reason).
+    timer.unref();
 
     const onChunk = (buf: Buffer) => {
       if (settled || proc !== child) return;
@@ -130,7 +134,7 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
 
     // Process died. If it happened after we were live, reflect that; the stale
     // guard keeps a killed-old-proc from clobbering a freshly started one.
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
       if (proc !== child) return;
       proc = null;
       if (!settled) {
@@ -140,7 +144,15 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
         reject(new Error(state.error!));
         return;
       }
-      state = { status: 'stopped', provider: null, url: null, startedAt: null, error: null };
+      // Post-settle exit. A user stop nulls `proc` before killing, so this branch
+      // only runs when a still-owned child dies on its own. If the tunnel was
+      // live and the CLI crashed, surface `error` (with the code/signal) instead
+      // of masking it as a user-initiated `stopped`.
+      if (state.status !== 'running') return;
+      const how = signal ? `signal ${signal}` : `code ${code ?? 'null'}`;
+      state = code === 0
+        ? { status: 'stopped', provider: null, url: null, startedAt: null, error: null }
+        : { status: 'error', provider, url: null, startedAt: null, error: `${spec.bin} tunnel exited unexpectedly (${how})` };
     });
   });
 }
