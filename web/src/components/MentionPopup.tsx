@@ -132,8 +132,11 @@ export function useFileMention(opts: {
       if (e.key === 'Enter' || e.key === 'Tab') {
         if (e.key === 'Enter' && e.shiftKey) return false;
         if (e.nativeEvent.isComposing || composingRef.current || e.keyCode === 229) return false;
+        // No results means the popup isn't rendered — don't swallow the key, or
+        // the composer looks dead (Enter can't send `@nomatch`, Tab does nothing).
+        if (!results.length) return false;
         e.preventDefault();
-        if (results.length) choose(results[Math.min(active, results.length - 1)]!);
+        choose(results[Math.min(active, results.length - 1)]!);
         return true;
       }
       if (e.key === 'Escape') { e.preventDefault(); close(); return true; }
