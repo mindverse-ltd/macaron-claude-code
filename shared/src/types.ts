@@ -82,8 +82,39 @@ export type SessionDetail = {
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
-export type HealthResponse = { ok: boolean; model: string };
+export type HealthResponse = {
+  ok: boolean;
+  model: string;
+  // Present only when the SQLite search index is enabled; null when disabled
+  // via MACARON_SEARCH=0. Lets the UI show index size / gate the search entry.
+  search?: { files: number; messages: number; lastSyncAt: number } | null;
+};
 export type AuthStatusResponse = { required: boolean };
+
+// One full-text search hit — a single matched message inside a session. The
+// snippet wraps matched terms in U+0002/U+0003 control chars (SEARCH_HL_OPEN /
+// SEARCH_HL_CLOSE) so the client can highlight by splitting on them, never by
+// interpreting message text as markup.
+export type SearchHit = {
+  project: string;
+  sessionId: string;
+  cwd: string;
+  role: string;
+  uuid: string;
+  ts: string;
+  snippet: string;
+};
+
+export type SearchResponse = {
+  enabled: boolean;
+  query: string;
+  hits: SearchHit[];
+};
+
+// Delimiters the server uses to mark matched terms inside a SearchHit.snippet.
+export const SEARCH_HL_OPEN = '';
+export const SEARCH_HL_CLOSE = '';
+
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };

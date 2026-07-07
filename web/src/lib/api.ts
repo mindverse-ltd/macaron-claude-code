@@ -8,6 +8,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  SearchHit,
+  SearchResponse,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +17,7 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  SearchResponse,
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
@@ -142,6 +145,10 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       },
+    ),
+  search: (q: string, limit = 40) =>
+    getJSON<SearchResponse>(
+      `/api/search?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(String(limit))}`,
     ),
 };
 
