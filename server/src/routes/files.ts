@@ -13,24 +13,44 @@ const ALWAYS_HIDE = ['.git', 'node_modules'];
 // server's global 2 MB bodyLimit.
 const MAX_READ_BYTES = 1024 * 1024;
 
+function isInside(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + path.sep);
+}
+
 // Confine a client-supplied relative path to the project root. Returns the
 // absolute path, or null if it escapes (symlinks resolved via realpath). The
 // root itself is realpath'd so a symlinked cwd still matches its children.
-async function confine(root: string, rel: string): Promise<string | null> {
+async function confine(root: string, rel: string, mode: 'target' | 'parent' = 'target'): Promise<string | null> {
   const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
   const abs = path.resolve(realRoot, rel);
-  if (abs !== realRoot && !abs.startsWith(realRoot + path.sep)) return null;
+  if (!isInside(realRoot, abs)) return null;
+  const realTarget = mode === 'parent'
+    ? await fs.realpath(abs).catch(async (e) => (e?.code === 'ENOENT' ? fs.realpath(path.dirname(abs)).catch(() => null) : null))
+    : await fs.realpath(abs).catch(() => abs);
+  if (!realTarget || !isInside(realRoot, realTarget)) return null;
   return abs;
 }
 
-// Build a gitignore matcher from <root>/.gitignore (absent → empty matcher).
-// Always augmented with ALWAYS_HIDE.
-async function loadIgnore(root: string): Promise<ReturnType<typeof ignore>> {
+// Build a gitignore matcher from <root>/.gitignore and each nested
+// .gitignore above the listed directory. Always augmented with ALWAYS_HIDE.
+async function loadIgnore(root: string, rel: string): Promise<ReturnType<typeof ignore>> {
   const ig = ignore().add(ALWAYS_HIDE);
-  try {
-    ig.add(await fs.readFile(path.join(root, '.gitignore'), 'utf8'));
-  } catch {
-    /* no .gitignore — just the always-hidden set */
+  const parts = rel.split(/[\\/]+/).filter(Boolean);
+  for (let i = 0; i <= parts.length; i++) {
+    const dirRel = parts.slice(0, i).join('/');
+    try {
+      const body = await fs.readFile(path.join(root, dirRel, '.gitignore'), 'utf8');
+      ig.add(body.split(/\r?\n/).map((line) => {
+        if (!dirRel || !line || line.startsWith('#')) return line;
+        const negated = line.startsWith('!');
+        const pattern = negated ? line.slice(1) : line;
+        const anchored = pattern.startsWith('/');
+        const prefixed = `${dirRel}/${anchored ? pattern.slice(1) : pattern}`;
+        return `${negated ? '!' : ''}${prefixed}`;
+      }).join('\n'));
+    } catch {
+      /* no .gitignore at this level */
+    }
   }
   return ig;
 }
@@ -53,7 +73,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(404).send({ error: (e as Error).message });
       }
 
-      const ig = await loadIgnore(root);
+      const ig = await loadIgnore(root, rel);
       const entries: FileEntry[] = [];
       for (const d of dirents) {
         const childRel = path.join(rel, d.name);
@@ -124,7 +144,7 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
       if (typeof req.body?.content !== 'string') {
         return reply.status(400).send({ error: 'content required' });
       }
-      const abs = await confine(root, rel);
+      const abs = await confine(root, rel, 'parent');
       if (!abs) return reply.status(403).send({ error: 'path escapes project root' });
 
       try {
