@@ -28,8 +28,11 @@ export function useFileMention(opts: {
   value: string;
   setValue: (v: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  // The composer's live IME-composition flag. The popup must not swallow the
+  // Enter/Tab that confirms a CJK candidate (see onKeyDown).
+  composingRef: RefObject<boolean>;
 }) {
-  const { project, value, setValue, textareaRef } = opts;
+  const { project, value, setValue, textareaRef, composingRef } = opts;
   const [mention, setMention] = useState<MentionState>(null);
   const [results, setResults] = useState<string[]>([]);
   const [active, setActive] = useState(0);
@@ -96,13 +99,16 @@ export function useFileMention(opts: {
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
       if (!open || results.length === 0) return false;
+      // Enter/Tab mid-IME-composition confirm a CJK candidate — don't hijack
+      // them to insert a file. Mirror the composer's guard and let it through.
+      if ((e.key === 'Enter' || e.key === 'Tab') && (e.nativeEvent.isComposing || composingRef.current || e.keyCode === 229)) return false;
       if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % results.length); return true; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + results.length) % results.length); return true; }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(results[active]!); return true; }
       if (e.key === 'Escape') { e.preventDefault(); close(); return true; }
       return false;
     },
-    [open, results, active, choose, close],
+    [open, results, active, choose, close, composingRef],
   );
 
   const popup = useMemo(() => {

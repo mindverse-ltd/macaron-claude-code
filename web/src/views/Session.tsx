@@ -867,7 +867,7 @@ export function Session(props: SessionProps = {}) {
   const [busyRewind, setBusyRewind] = useState(false);
   // @-mention file autocomplete over the project tree. Inserts `@relpath`
   // tokens the CLI resolves natively; no server-side prompt rewriting.
-  const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef });
+  const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef, composingRef });
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import ignore from 'ignore';
 import type {
   Block,
   Message,
@@ -265,7 +266,8 @@ export async function resolveProjectCwd(project: string): Promise<string> {
 }
 
 // Directories never worth walking for an @-mention: build output, vendored
-// deps, caches. Mirrors fafawlf/claude-code-web's skip-list.
+// deps, caches. Mirrors fafawlf/claude-code-web's skip-list. Applied on top
+// of the repo's own `.gitignore` (loaded per root below).
 const FILE_SEARCH_SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '.venv', 'venv',
   '__pycache__', '.pytest_cache', 'target', '.cache', '.turbo', '.parcel-cache',
@@ -274,7 +276,20 @@ const FILE_SEARCH_SKIP_DIRS = new Set([
 const FILE_SEARCH_MAX_DEPTH = 8;
 const FILE_SEARCH_MAX_ENTRIES_PER_DIR = 2000;
 
-async function walkFiles(root: string, dir: string, needle: string, out: string[], limit: number, depth: number): Promise<void> {
+// Best-effort `.gitignore` matcher for the repo root. Returns null when the
+// file is absent/unreadable so the walk falls back to the skip-list alone.
+// Only the root `.gitignore` is honoured (nested ones are ignored) — enough to
+// keep top-level secrets like `.env` / `*.local` out of the picker per issue #20.
+async function loadGitignore(root: string): Promise<ReturnType<typeof ignore> | null> {
+  try {
+    const raw = await fs.readFile(path.join(root, '.gitignore'), 'utf8');
+    return ignore().add(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function walkFiles(root: string, dir: string, needle: string, out: string[], limit: number, depth: number, ig: ReturnType<typeof ignore> | null): Promise<void> {
   if (out.length >= limit || depth > FILE_SEARCH_MAX_DEPTH) return;
   let entries;
   try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
@@ -286,21 +301,26 @@ async function walkFiles(root: string, dir: string, needle: string, out: string[
     const full = path.join(dir, e.name);
     const rel = full.slice(root.length + 1);
     if (e.isDirectory()) {
-      await walkFiles(root, full, needle, out, limit, depth + 1);
+      // `ignore` does no fs.stat — a trailing slash tells it `rel` is a dir, so
+      // a `foo/` rule matches. Skipping here also prunes the whole subtree.
+      if (ig?.ignores(rel + '/')) continue;
+      await walkFiles(root, full, needle, out, limit, depth + 1, ig);
     } else if (e.isFile()) {
+      if (ig?.ignores(rel)) continue;
       if (!needle || rel.toLowerCase().includes(needle)) out.push(rel);
     }
   }
 }
 
 // Recursively list files under a project's cwd, substring-matched on the
-// repo-relative path. Skips build/vendor/cache dirs and dotfiles; bounded by
-// depth, per-dir entry count, and a hard result cap. Powers the composer's
-// @-mention autocomplete.
+// repo-relative path. Skips build/vendor/cache dirs, dotfiles, and anything the
+// repo's root `.gitignore` excludes; bounded by depth, per-dir entry count, and
+// a hard result cap. Powers the composer's @-mention autocomplete.
 export async function searchProjectFiles(project: string, needle: string, limit: number): Promise<{ cwd: string; results: string[] }> {
   const cwd = await resolveProjectCwd(project);
   const results: string[] = [];
-  await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0);
+  const ig = await loadGitignore(cwd);
+  await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0, ig);
   return { cwd, results };
 }
 
