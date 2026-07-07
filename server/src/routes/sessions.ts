@@ -5,6 +5,7 @@ import {
   decodeClaudeProjectName,
   deleteSession,
   duplicateSession,
+  forkSession,
   readSessionMessages,
   readSessionSummary,
   rewindSession,
@@ -93,6 +94,23 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!uuid) return reply.status(400).send({ error: 'uuid required' });
       try {
         const r = await rewindSession(req.params.project, req.params.sid, uuid);
+        return { ok: true, ...r };
+      } catch (e) {
+        return reply.status(400).send({ error: (e as Error).message });
+      }
+    },
+  );
+
+  // Fork: copy the transcript up to (excluding) the given message uuid into a
+  // fresh sid. Non-destructive twin of rewind — the original is untouched, so
+  // the user branches off a new conversation from that point.
+  app.post<{ Params: Params; Body: { uuid?: string } }>(
+    '/api/sessions/claude/:project/:sid/fork',
+    async (req, reply) => {
+      const uuid = String(req.body?.uuid || '').trim();
+      if (!uuid) return reply.status(400).send({ error: 'uuid required' });
+      try {
+        const r = await forkSession(req.params.project, req.params.sid, uuid);
         return { ok: true, ...r };
       } catch (e) {
         return reply.status(400).send({ error: (e as Error).message });

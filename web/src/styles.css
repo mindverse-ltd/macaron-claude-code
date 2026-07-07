@@ -586,6 +586,29 @@ textarea:focus, select:focus, input:focus {
   border-color: var(--bad);
   background: rgba(192, 82, 74, 0.06);
 }
+/* Fork sits just left of rewind. Same reveal-on-hover affordance, but the
+   accent hover (constructive orange) signals "additive" vs rewind's red. */
+.ti-user-fork {
+  position: absolute;
+  top: 6px;
+  right: 82px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ti-user:hover .ti-user-fork { opacity: 1; }
+.ti-user-fork:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(201, 100, 66, 0.06);
+}
 .ti-user:first-child { margin-top: 0; }
 .ti-chev {
   color: var(--accent);
