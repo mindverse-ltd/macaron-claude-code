@@ -490,6 +490,19 @@ function lineText(content: unknown): string {
   return parts.join(' ');
 }
 
+// Synthetic USER lines the session view hides (mirrors isNoisyUserText in
+// web/src/views/Session.tsx): slash-command wrappers (`<command-name>`…),
+// tool acknowledgements, and failure notices. Search must agree with the
+// view on what a message is, or a hit deep-links to a line that is never
+// rendered. Only applied to user lines — the view shows assistant text as-is.
+function isNoisyUserText(t: string): boolean {
+  if (!t) return true;
+  if (t.startsWith('<')) return true;
+  if (/^The file .* (has been (updated|created) successfully|file state is current)/.test(t)) return true;
+  if (/^Tool .* failed/.test(t)) return true;
+  return false;
+}
+
 // Whitespace-collapsed window around the first match so the palette row
 // shows context, not the whole message.
 function snippetAround(text: string, q: string): string {
@@ -535,13 +548,21 @@ export async function searchMessages(query: string, limit = 30): Promise<Message
       continue;
     }
     for (const line of raw.split('\n')) {
-      if (hits.length >= limit) break;
-      if (!line.trim() || line.toLowerCase().indexOf(ql) < 0) continue; // cheap pre-filter
+      if (!line.trim()) continue;
       try {
         const o = JSON.parse(line);
         if ((o.type !== 'user' && o.type !== 'assistant') || o.isMeta) continue;
         const text = lineText(o.message?.content);
-        if (text.toLowerCase().indexOf(ql) < 0) continue;
+        // Agree with the session view: it hides synthetic user lines
+        // (isNoisyUserText). Without this, queries like `command` return
+        // `<command-name>` hits that deep-link to a line the view never
+        // renders — a dead link.
+        if (o.type === 'user' && isNoisyUserText(text)) continue;
+        // Match the DECODED text, not the escaped JSON bytes. A raw-byte grep
+        // (the old pre-filter) silently dropped real matches: `C:\\Users`
+        // (stored `C:\\\\Users`), any query containing a quote, and phrases
+        // spanning two text blocks (joined by a space only after decode).
+        if (!text || text.toLowerCase().indexOf(ql) < 0) continue;
         hits.push({
           project: s.project,
           sessionId: s.sessionId,
@@ -551,6 +572,11 @@ export async function searchMessages(query: string, limit = 30): Promise<Message
           preview: s.preview,
           mtime: s.mtime,
         });
+        // One hit per session: scroll-to-message is deferred, so `go()` drops
+        // `uuid` and every hit from this file deep-links to the SAME place.
+        // Extra rows would just crowd out other sessions. Revisit when the
+        // message-level anchor lands and uuid is actually consumed.
+        break;
       } catch {
         /* skip malformed */
       }

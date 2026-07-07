@@ -48,7 +48,16 @@ export function CommandPalette() {
   // to scope the "New Session" command. Empty on Dashboard/Settings.
   const currentProject = useMemo(() => {
     const m = location.pathname.match(/^\/w\/([^/]+)/);
-    return m ? decodeURIComponent(m[1]!) : '';
+    if (!m) return '';
+    // A pasted/bookmarked hash with a stray `%` (e.g. #/w/50%off) makes
+    // decodeURIComponent throw URIError. This component is mounted at the App
+    // root with no ErrorBoundary, so an unguarded throw white-screens the
+    // whole SPA on every route — fall back to the raw segment instead.
+    try {
+      return decodeURIComponent(m[1]!);
+    } catch {
+      return m[1]!;
+    }
   }, [location.pathname]);
 
   // Global Cmd/Ctrl-K toggles the palette. IME-guarded; only bare Cmd/Ctrl+K
@@ -112,13 +121,20 @@ export function CommandPalette() {
       setMsgHits([]);
       return;
     }
+    let stale = false;
     const t = setTimeout(() => {
       api
         .searchMessages(q, 20)
-        .then((r) => setMsgHits(r.hits))
-        .catch(() => setMsgHits([]));
+        .then((r) => { if (!stale) setMsgHits(r.hits); })
+        .catch(() => { if (!stale) setMsgHits([]); });
     }, 250);
-    return () => clearTimeout(t);
+    // Guard against out-of-order resolves: without this, typing `de` then
+    // `deploy` can let the slower `de` request resolve last and overwrite the
+    // fresh `deploy` results (or repopulate after the query drops below 2).
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [query, open]);
 
   const close = useCallback(() => setOpen(false), []);
