@@ -61,7 +61,7 @@ mql?.addEventListener('change', () => {
 });
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key !== STORAGE_KEY) return;
+    if (e.key !== STORAGE_KEY && e.key !== null) return;
     current = read();
     apply();
     listeners.forEach((l) => l());
