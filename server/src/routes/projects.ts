@@ -11,6 +11,8 @@ type CreateBody = { name?: string; gitUrl?: string };
 // traversal, no leading dot/dash. Mirrors the slug git itself derives from a
 // clone URL, so a cloned repo and a hand-typed name validate the same way.
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const MAX_NAME_LENGTH = 100;
+const CLONE_TIMEOUT_MS = 10 * 60_000;
 
 // Accept the URL forms `git clone` handles over the network. Local-path and
 // `file://` clones are rejected — this endpoint is for pulling remote repos
@@ -22,7 +24,16 @@ function isAllowedGitUrl(url: string): boolean {
 
 // `https://github.com/owner/repo(.git)` → `repo`. Undefined if no usable slug.
 function repoNameFromUrl(url: string): string | undefined {
-  const tail = url.replace(/[/]+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || '';
+  const normalized = url.replace(/[/]+$/, '').replace(/\.git$/, '');
+  try {
+    const u = new URL(normalized);
+    const parts = u.pathname.split('/').filter(Boolean);
+    const slug = parts.length >= 2 ? parts[1] : parts[0];
+    if (slug && NAME_RE.test(slug)) return slug;
+  } catch {
+    /* scp-style git@host:owner/repo falls through */
+  }
+  const tail = normalized.split(/[/:]/).pop() || '';
   return NAME_RE.test(tail) ? tail : undefined;
 }
 
@@ -31,19 +42,32 @@ function runGitClone(gitUrl: string, dest: string): Promise<void> {
     // argv form + shell:false → the URL can never be interpreted by a shell.
     // `--` stops flag parsing; GIT_TERMINAL_PROMPT=0 fails fast instead of
     // hanging on a credentials prompt for a private repo.
-    const child = spawn('git', ['clone', '--depth', '1', '--', gitUrl, dest], {
+    const child = spawn('git', ['clone', '--', gitUrl, dest], {
       shell: false,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
     let stderr = '';
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (err) reject(err);
+      else resolve();
+    };
+    timeout = setTimeout(() => {
+      child.kill('SIGTERM');
+      finish(new Error(`git clone timed out after ${Math.round(CLONE_TIMEOUT_MS / 60_000)} minutes`));
+    }, CLONE_TIMEOUT_MS);
     child.stderr.on('data', (d) => {
       stderr += String(d);
       if (stderr.length > 8192) stderr = stderr.slice(-8192);
     });
-    child.on('error', (e) => reject(e));
+    child.on('error', (e) => finish(e));
     child.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(stderr.trim().split('\n').pop() || `git clone exited ${code}`));
+      if (code === 0) finish();
+      else finish(new Error(stderr.trim().split('\n').pop() || `git clone exited ${code}`));
     });
   });
 }
@@ -67,6 +91,9 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     if (!NAME_RE.test(name)) {
       return reply.status(400).send({ error: 'name must start alphanumeric and contain only letters, digits, . _ -' });
     }
+    if (name.length > MAX_NAME_LENGTH) {
+      return reply.status(400).send({ error: `name must be ${MAX_NAME_LENGTH} characters or fewer` });
+    }
 
     const dest = path.join(PROJECTS_ROOT, name);
     // Defense in depth: even though NAME_RE forbids separators, confirm the
@@ -82,20 +109,13 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       await fs.mkdir(dest);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
-      if (err.code === 'EEXIST') return reply.status(409).send({ error: `already exists: ${dest}` });
-      return reply.status(500).send({ error: `mkdir failed: ${err.message}` });
+      if (err.code === 'EEXIST') return reply.status(409).send({ error: `already exists: ${name}` });
+      return reply.status(500).send({ error: `mkdir failed: ${err.code || err.message}` });
     }
 
     if (gitUrl) {
       try {
-        // git clone refuses a non-empty target, so clone into a temp sibling
-        // and move its contents in — keeps `dest` as the stable project root.
-        const tmp = path.join(dest, '.macaron-clone');
-        await runGitClone(gitUrl, tmp);
-        for (const entry of await fs.readdir(tmp)) {
-          await fs.rename(path.join(tmp, entry), path.join(dest, entry));
-        }
-        await fs.rmdir(tmp);
+        await runGitClone(gitUrl, dest);
       } catch (e) {
         await fs.rm(dest, { recursive: true, force: true }); // don't leave a half-cloned dir behind
         return reply.status(422).send({ error: `git clone failed: ${(e as Error).message}` });
@@ -104,7 +124,7 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
 
     // Register the real cwd so the (lossy) project→cwd decode in the session
     // route resolves correctly for this brand-new, session-less directory.
-    const project = registerProjectCwd(dest);
+    const project = await registerProjectCwd(dest);
     return { project, cwd: dest, name };
   });
 }

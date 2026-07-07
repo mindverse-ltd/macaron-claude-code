@@ -22,6 +22,7 @@ export function NewProjectModal({
 
   useEffect(() => {
     queueMicrotask(() => firstInputRef.current?.focus());
+    setError('');
   }, [mode]);
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export function NewProjectModal({
                 placeholder="https://github.com/owner/repo.git"
                 value={gitUrl}
                 onChange={(e) => setGitUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
+                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && submit()}
                 disabled={busy}
                 spellCheck={false}
                 autoCapitalize="off"
@@ -113,7 +114,7 @@ export function NewProjectModal({
               placeholder={mode === 'create' ? 'my-project' : 'repo'}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && submit()}
               disabled={busy}
               spellCheck={false}
               autoCapitalize="off"

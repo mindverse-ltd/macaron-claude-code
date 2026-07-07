@@ -36,7 +36,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     // A just-created project has no sessions yet — fall back to the cwd the
     // wizard registered so the canvas header shows the real path + name
     // instead of the lossy-encoded project slug.
-    const freshCwd = lookupProjectCwd(params.project) || '';
+    const freshCwd = (await lookupProjectCwd(params.project)) || '';
     const meta =
       groupWorkspaces(mine)[0] || {
         project: params.project,
@@ -67,7 +67,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // Derive cwd from any existing session in this project, else the cwd
       // registered by the New-Project wizard, else decode the project name
       // (which mirrors claude-cli's encoding but is lossy for fresh dirs).
-      let cwd = lookupProjectCwd(project) || decodeClaudeProjectName(project);
+      let cwd = (await lookupProjectCwd(project)) || decodeClaudeProjectName(project);
       try {
         const projDir = path.join(CLAUDE_PROJECTS, project);
         const files = await fs.readdir(projDir);

@@ -113,7 +113,7 @@ export function Sidebar() {
       y: e.clientY,
       items: [
         {
-          icon: '＋',
+          icon: '+',
           label: 'New Session',
           onClick: () => navigate(`/w/${encodeURIComponent(w.project)}`),
         },
@@ -205,7 +205,7 @@ export function Sidebar() {
           title="New project (create dir or clone a repo)"
           aria-label="New project"
         >
-          ＋
+          +
         </button>
       </div>
 

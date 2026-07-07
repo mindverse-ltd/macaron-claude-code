@@ -54,7 +54,17 @@ export type ProviderInput = {
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
   const r = await authedFetch(url, init);
-  if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const text = await r.text();
+    let message = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === 'string') message = parsed.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(message || (text ? `http ${r.status}: ${text.slice(0, 200)}` : `http ${r.status}`));
+  }
   return r.json() as Promise<T>;
 }
 
