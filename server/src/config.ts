@@ -15,6 +15,14 @@ export const MACARON_API_BASE = process.env.MACARON_API_BASE || '';
 export const MACARON_API_KEY = process.env.MACARON_API_KEY || '';
 export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
 
+// Speech-to-text backend. Any OpenAI-compatible `/audio/transcriptions`
+// endpoint (OpenAI, Groq, LocalAI, Speaches, a Macaron audio host…). The
+// feature is off until STT_API_KEY is set — the mic button stays hidden.
+export const STT_BASE_URL = (process.env.MACARON_STT_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+export const STT_API_KEY = process.env.MACARON_STT_API_KEY || '';
+export const STT_MODEL = process.env.MACARON_STT_MODEL || 'whisper-1';
+export const STT_LANGUAGE = process.env.MACARON_STT_LANGUAGE || '';
+
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
 

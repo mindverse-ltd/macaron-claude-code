@@ -84,6 +84,10 @@ export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
+// Voice input (speech-to-text). `configured` gates the mic button — false
+// means no STT backend key is set, so the UI hides voice entirely.
+export type VoiceHealthResponse = { configured: boolean };
+export type TranscribeResponse = { text: string };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };

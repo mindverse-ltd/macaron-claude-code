@@ -15,6 +15,8 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  VoiceHealthResponse,
+  TranscribeResponse,
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
@@ -61,6 +63,16 @@ async function req<T>(url: string, init: RequestInit): Promise<T> {
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
   settings: () => getJSON<PublicSettings>('/api/settings'),
+
+  // Voice input. voiceHealth().configured gates the mic button; transcribe
+  // posts base64 audio and gets back the recognised text.
+  voiceHealth: () => getJSON<VoiceHealthResponse>('/api/voice/health'),
+  transcribe: (audio: string, mimeType: string) =>
+    req<TranscribeResponse>('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio, mimeType }),
+    }),
 
   addProvider: (input: ProviderInput) =>
     req<{ id: string; settings: PublicSettings }>('/api/settings/providers', {

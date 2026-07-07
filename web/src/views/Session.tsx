@@ -19,6 +19,7 @@ import { useConfirm } from '../components/Confirm';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { useVoiceInput } from '../lib/useVoiceInput';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -893,6 +894,14 @@ export function Session(props: SessionProps = {}) {
   const [busyCompact, setBusyCompact] = useState(false);
   const [busyRewind, setBusyRewind] = useState(false);
 
+  // Voice input: append the transcript to whatever's already in the composer
+  // (space-joined) rather than replacing it, so dictation can extend a draft.
+  const appendTranscript = useCallback((text: string) => {
+    setInput((cur) => (cur ? `${cur.replace(/\s+$/, '')} ${text}` : text));
+    if (historyIdx !== null) setHistoryIdx(null);
+  }, [historyIdx]);
+  const voice = useVoiceInput(appendTranscript, (msg) => toast(msg));
+
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
     for (const f of Array.from(files)) {
@@ -1738,6 +1747,28 @@ export function Session(props: SessionProps = {}) {
               <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
+          {voice.available && (
+            <button
+              type="button"
+              className={`icon-btn mic-btn${voice.state === 'recording' ? ' recording' : ''}`}
+              title={voice.state === 'recording' ? 'Stop recording' : voice.state === 'transcribing' ? 'Transcribing…' : 'Voice input'}
+              aria-label="Voice input"
+              disabled={sending || voice.state === 'transcribing'}
+              onClick={() => voice.toggle()}
+            >
+              {voice.state === 'transcribing' ? (
+                <svg className="mic-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="2" width="6" height="12" rx="3" />
+                  <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                  <line x1="12" y1="18" x2="12" y2="22" />
+                </svg>
+              )}
+            </button>
+          )}
           <SessionActionsMenu
             disabled={isNew || sending}
             busyCompact={busyCompact}

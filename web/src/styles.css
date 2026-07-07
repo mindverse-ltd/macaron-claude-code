@@ -1407,6 +1407,21 @@ textarea:focus, select:focus, input:focus {
   opacity: 0.35;
   cursor: not-allowed;
 }
+/* Mic button: red pulsing dot while recording, spinning icon while the
+   audio is being transcribed. */
+.mic-btn.recording {
+  color: #fff;
+  background: var(--danger, #e5484d);
+  border-color: var(--danger, #e5484d);
+  animation: mic-pulse 1.3s ease-in-out infinite;
+}
+.mic-btn:disabled { opacity: 0.5; cursor: default; }
+.mic-spin { animation: mic-rotate 0.8s linear infinite; }
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(229, 72, 77, 0); }
+}
+@keyframes mic-rotate { to { transform: rotate(360deg); } }
 /* ---------- multi-tile canvas ---------- */
 .ws-canvas-v2 {
   display: flex;
