@@ -777,6 +777,11 @@ export function Session(props: SessionProps = {}) {
   // skip the 'complete' cue — onDone still runs after a stream error, and a
   // failed turn shouldn't sound like a success.
   const turnErroredRef = useRef(false);
+  // Set while a user-initiated Stop is in flight. Stop aborts the SDK
+  // stream, which claude-runner's catch surfaces as an onError (it doesn't
+  // filter AbortError) — so without this the deliberate Stop would play the
+  // 'error' cue as if the turn had actually failed.
+  const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -989,6 +994,11 @@ export function Session(props: SessionProps = {}) {
   // the existing `done` handler.
   const handleStop = useCallback(async () => {
     if (!sid) return;
+    // Mark the abort as user-initiated before requesting it, so the error
+    // that comes back over the SSE is recognised as a Stop, not a failure,
+    // and its cue is suppressed. (turnErroredRef still trips, so the
+    // trailing completion effect stays silent too.)
+    stoppingRef.current = true;
     try {
       await api.stopSession(project, sid);
       toast('Stop requested');
@@ -1244,6 +1254,10 @@ export function Session(props: SessionProps = {}) {
       setLiveUserImages(sentImages);
       setLiveTurn([]);
       setOutputTokens(-1);
+      // Fresh turn: clear the Stop latch so a prior Stop can't suppress
+      // this turn's error cue. (turnErroredRef is cleared by the completion
+      // effect when the previous turn settled.)
+      stoppingRef.current = false;
 
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
@@ -1396,7 +1410,10 @@ export function Session(props: SessionProps = {}) {
           },
           onError: (err) => {
             turnErroredRef.current = true;
-            playSound('error');
+            // A user Stop surfaces here as an error — suppress the error cue
+            // in that case (turnErroredRef above already keeps the trailing
+            // completion effect silent, so the Stop makes no sound at all).
+            if (!stoppingRef.current) playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               const chunk = `\n[error] ${err}`;
