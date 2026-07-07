@@ -8,6 +8,9 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  HooksResponse,
+  HookHandlerView,
+  HookScope,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +18,7 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  HooksResponse,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -91,6 +95,12 @@ export const api = {
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
+  // Read-only hooks view. Pass an encoded project to include that workspace's
+  // project + local settings.json; omit it for user-scope hooks only.
+  hooks: (project?: string) =>
+    getJSON<HooksResponse>(
+      project ? `/api/hooks?project=${encodeURIComponent(project)}` : '/api/hooks',
+    ),
   session: (project: string, sid: string) =>
     getJSON<SessionDetail>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,

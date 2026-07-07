@@ -296,6 +296,11 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
+      <Link className="sb-settings-link" to="/hooks">
+        <span>⚡</span>
+        <span>Hooks</span>
+      </Link>
+
       <Link className="sb-settings-link" to="/settings">
         <span>⚙</span>
         <span>Settings</span>

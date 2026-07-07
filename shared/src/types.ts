@@ -86,3 +86,38 @@ export type HealthResponse = { ok: boolean; model: string };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };
+
+// ---- Hooks viewer ------------------------------------------------------
+// Read-only projection of the `hooks` block in a settings.json, flattened
+// from Claude Code's three-level nesting (event → matcher group → handlers)
+// into one row per handler so the WebUI can render a plain table. See
+// https://code.claude.com/docs/en/hooks for the source schema.
+
+// Which settings.json a hook came from. Scope decides precedence and lets
+// the UI tag each row with where to edit it.
+export type HookScope = 'user' | 'project' | 'local';
+
+export type HookHandlerView = {
+  // Event that triggers the hook, e.g. 'PreToolUse', 'PostToolUse', 'Stop'.
+  event: string;
+  // Matcher that narrows when it fires (tool name / glob). '' or '*' means
+  // "every occurrence of the event".
+  matcher: string;
+  scope: HookScope;
+  // Absolute path of the settings.json this handler was read from.
+  source: string;
+  // Handler kind: 'command' | 'http' | 'prompt' | 'agent' | future kinds.
+  type: string;
+  // The command line (command hooks), URL (http hooks), or a short label for
+  // other kinds — whatever best identifies what runs.
+  run: string;
+  // Optional `if` sub-command filter that gates a single handler.
+  condition?: string;
+};
+
+export type HooksResponse = {
+  handlers: HookHandlerView[];
+  // Which scopes were actually found on disk, so the UI can explain an empty
+  // result ("no project settings.json") instead of just showing nothing.
+  sources: Array<{ scope: HookScope; path: string; present: boolean }>;
+};
