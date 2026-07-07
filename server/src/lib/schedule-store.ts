@@ -89,8 +89,15 @@ export async function updateSchedule(id: string, patch: Partial<ScheduleInput>):
   const nextPattern = patch.pattern ?? s.pattern;
   const nextOneShot = patch.oneShot ?? s.oneShot;
   const needsRearm = patch.pattern !== undefined || patch.oneShot !== undefined;
-  const nextRunAt = needsRearm && s.status === 'active' ? computeNextRun(nextPattern) : s.nextRunAt;
-  if (needsRearm && s.status === 'active' && nextOneShot && nextRunAt === null) throw new Error('one-time schedule is in the past');
+  // Validate a changed pattern regardless of status — croner throws on a
+  // syntactically invalid pattern so the route can 400. Gating this on
+  // status === 'active' let a paused/done schedule persist a bad pattern with a
+  // 200, which then threw a 500 the instant it was resumed and wedged the
+  // schedule. A valid-but-past one-shot yields null (not a throw); we only
+  // reject that as "in the past" for an active schedule, so a paused past
+  // one-shot still resolves to 'done' on resume.
+  const recomputed = needsRearm ? computeNextRun(nextPattern) : s.nextRunAt;
+  if (needsRearm && s.status === 'active' && nextOneShot && recomputed === null) throw new Error('one-time schedule is in the past');
   if (patch.name !== undefined) s.name = patch.name;
   if (patch.prompt !== undefined) s.prompt = patch.prompt;
   if (patch.engine !== undefined) s.engine = patch.engine;
@@ -98,8 +105,9 @@ export async function updateSchedule(id: string, patch: Partial<ScheduleInput>):
   if (needsRearm) {
     s.pattern = nextPattern;
     s.oneShot = nextOneShot;
-    // Re-arm from the new pattern; a still-active schedule gets a fresh slot.
-    s.nextRunAt = s.status === 'active' ? nextRunAt : null;
+    // Only a still-active schedule re-arms; paused/done keep nextRunAt = null
+    // and recompute on resume.
+    s.nextRunAt = s.status === 'active' ? recomputed : null;
   }
   s.updatedAt = Date.now();
   await persist();

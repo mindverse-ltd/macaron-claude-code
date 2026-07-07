@@ -116,7 +116,13 @@ export async function fireSchedule(schedule: Schedule, advance = true): Promise<
   } catch (err) {
     const msg = (err as Error).message;
     console.error(`[scheduler] fire failed for ${schedule.id}:`, msg);
-    await recordRun(schedule.id, { sessionId: null, ok: false }, advance);
+    // recordRun can itself throw (e.g. computeNextRun on a corrupt stored
+    // pattern). The tick calls this as `void fireSchedule(s)`, so a throw here
+    // would be an unhandled rejection and, with no process-level handler, exit
+    // the server. Swallow it so fireSchedule honours its "never throws" contract.
+    await recordRun(schedule.id, { sessionId: null, ok: false }, advance).catch((e) =>
+      console.error(`[scheduler] recordRun failed for ${schedule.id}:`, (e as Error).message),
+    );
     return { ok: false, sessionId: null, error: msg };
   } finally {
     inFlight.delete(schedule.id);
