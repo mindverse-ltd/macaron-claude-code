@@ -44,6 +44,7 @@ export type PublicSettings = {
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
   yoloMode: boolean;
+  followupSuggestions: boolean;
 };
 
 export type ProviderInput = {
@@ -97,7 +98,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }),
-
+  setFollowupSuggestions: (enabled: boolean) =>
+    req<PublicSettings>('/api/settings/followups', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
   commands: () => getJSON<CommandsResponse>('/api/commands'),
   createCommand: (name: string, input: CommandInput) =>
     req<SavedCommand>('/api/commands', {

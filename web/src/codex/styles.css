@@ -417,6 +417,87 @@ body {
   white-space: pre-wrap;
 }
 
+/* ---------- GenUI (render_ui) cards ---------- */
+
+.cx-genui {
+  margin: 12px 0 12px 44px;
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-lg);
+  background: var(--cx-surface);
+  overflow: hidden;
+  box-shadow: var(--cx-shadow-1);
+}
+.cx-genui-head {
+  padding: 9px 12px;
+  background: var(--cx-sidebar);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--cx-border);
+  font-size: 12.5px;
+}
+.cx-genui-glyph {
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  background: linear-gradient(135deg, #C96442, #b45533);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.cx-genui-name {
+  font-weight: 500;
+  color: var(--cx-text);
+}
+.cx-genui-status {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cx-active);
+  color: var(--cx-muted);
+}
+.cx-genui-status.err { background: rgba(192, 82, 74, 0.14); color: #a04037; }
+.cx-genui-loading {
+  padding: 32px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--cx-muted);
+}
+.cx-genui-details {
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  color: var(--cx-muted);
+  border-top: 1px solid var(--cx-border);
+}
+.cx-genui-details summary { cursor: pointer; padding: 4px 0; }
+.cx-genui-details pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--cx-code);
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--cx-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+/* Preview iframe styling — same restraint as Claude side's GenUI host. */
+.cx-genui .genui-host {
+  padding: 12px;
+  background: var(--cx-bg, var(--cx-surface));
+}
+.cx-genui .genui-status {
+  padding: 6px 12px 8px;
+  font-size: 10.5px;
+  color: var(--cx-muted);
+  letter-spacing: 0.3px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.cx-genui .genui-status.ok { color: #4a8b4a; }
+.cx-genui .genui-status.err { color: #c0524a; }
+
 /* ---------- Tool cards ---------- */
 
 .cx-tool {
@@ -567,14 +648,55 @@ body {
 .cx-send:disabled { background: var(--cx-border-strong); cursor: not-allowed; color: #fff; transform: none; }
 .cx-send.stop { background: var(--cx-bad); font-size: 10.5px; }
 .cx-send.stop:hover:not(:disabled) { background: #a12e2e; }
-.cx-composer-hint {
+.cx-composer-foot {
   max-width: 820px;
   margin: 10px auto 0;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cx-composer-hint {
   font-size: 11px;
   color: var(--cx-muted-2);
   letter-spacing: 0.1px;
+  flex-shrink: 0;
 }
+
+/* --- Provider chip in the composer footer --- */
+.cx-provider-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: 999px;
+  background: var(--cx-surface);
+  color: var(--cx-text-2, var(--cx-muted));
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms, color 100ms;
+  max-width: 260px;
+}
+.cx-provider-chip:hover { background: var(--cx-active); color: var(--cx-text); border-color: var(--cx-text); }
+.cx-provider-chip.busy { opacity: 0.6; cursor: progress; }
+.cx-provider-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.cx-provider-chip-caret { opacity: 0.6; }
+.cx-provider-chip-select {
+  /* Invisible native <select> that owns the click + keyboard menu. */
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.cx-provider-chip.busy .cx-provider-chip-select { pointer-events: none; }
 
 /* ---------- Home ---------- */
 
@@ -602,12 +724,225 @@ body {
 /* ---------- Settings ---------- */
 
 .cx-settings {
-  max-width: 780px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 28px 28px 80px;
   overflow-y: auto;
   height: 100%;
   width: 100%;
+}
+.cx-settings-head { margin-bottom: 20px; }
+.cx-settings-loading {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--cx-muted);
+  font-size: 13px;
+}
+.cx-settings-grid {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.cx-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--cx-surface);
+  border: 1px solid var(--cx-border);
+  border-radius: 12px;
+  position: sticky;
+  top: 20px;
+}
+.cx-settings-list-label {
+  padding: 10px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--cx-muted);
+  text-transform: uppercase;
+}
+.cx-plist-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--cx-text);
+  transition: background 100ms, border-color 100ms;
+}
+.cx-plist-row:hover { background: var(--cx-active); }
+.cx-plist-row.selected {
+  background: var(--cx-active);
+  border-color: var(--cx-border-strong);
+}
+.cx-plist-row.active { box-shadow: inset 3px 0 0 var(--cx-text); }
+.cx-plist-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cx-plist-row-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--cx-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.cx-plist-active-badge,
+.cx-plist-warn {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.cx-plist-active-badge {
+  background: var(--cx-text);
+  color: var(--cx-surface);
+}
+.cx-plist-warn {
+  background: rgba(184, 138, 58, 0.15);
+  color: #8a6626;
+}
+.cx-plist-row-sub {
+  font-size: 11.5px;
+  color: var(--cx-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-plist-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--cx-muted);
+  font-style: italic;
+}
+.cx-plist-add {
+  margin-top: 6px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px dashed var(--cx-border-strong);
+  border-radius: 8px;
+  color: var(--cx-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 100ms, border-color 100ms;
+}
+.cx-plist-add:hover { color: var(--cx-text); border-color: var(--cx-text); }
+.cx-settings-pane { display: flex; flex-direction: column; gap: 16px; }
+.cx-settings-empty {
+  padding: 32px;
+  border: 1px dashed var(--cx-border);
+  border-radius: 12px;
+  color: var(--cx-muted);
+  text-align: center;
+  font-size: 13px;
+}
+.cx-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.cx-section-head h2 { margin: 0; }
+.cx-section-body {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--cx-text-2, var(--cx-muted));
+  line-height: 1.55;
+}
+.cx-section-note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--cx-muted);
+  line-height: 1.5;
+}
+.cx-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.cx-active-pill {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--cx-text);
+  color: var(--cx-surface);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.cx-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--cx-border-strong);
+  background: var(--cx-surface);
+  color: var(--cx-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms, color 100ms;
+}
+.cx-btn:hover:not(:disabled) { border-color: var(--cx-text); }
+.cx-btn:disabled { color: var(--cx-muted); cursor: not-allowed; }
+.cx-btn.primary {
+  background: var(--cx-text);
+  color: var(--cx-surface);
+  border-color: var(--cx-text);
+}
+.cx-btn.primary:hover:not(:disabled) { background: #000; border-color: #000; }
+.cx-btn.danger {
+  border-color: rgba(192, 82, 74, 0.4);
+  color: #a04037;
+}
+.cx-btn.danger:hover { background: rgba(192, 82, 74, 0.08); border-color: #a04037; }
+.cx-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  margin: 8px 0 0;
+}
+.cx-kv dt {
+  font-size: 12px;
+  color: var(--cx-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.cx-kv dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cx-text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.cx-kv dd em { color: var(--cx-muted); font-style: normal; }
+.cx-settings-flash {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  padding: 10px 16px;
+  background: var(--cx-text);
+  color: var(--cx-surface);
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  z-index: 90;
 }
 .cx-settings h1 {
   font-weight: 600;
@@ -746,6 +1081,14 @@ body {
   align-items: baseline;
   gap: 12px;
   margin-bottom: 20px;
+}
+/* Inner title wraps name + meta; without its own gap the two spans jam
+   together ("linfan1 pinned · 12 in workspace"). */
+.cx-canvas-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 .cx-canvas-name {
   font-size: 19px;
