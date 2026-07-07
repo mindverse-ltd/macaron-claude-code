@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, basename, fmtAgo, type Workspace, type SessionListItem } from '../lib/api';
+import { subscribeSystemEvents } from '../lib/systemEvents';
 
 type WsWithSessions = Workspace & { sessions: SessionListItem[] };
 
@@ -12,24 +13,33 @@ export function Dashboard() {
   const [workspaces, setWorkspaces] = useState<WsWithSessions[] | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    api
-      .workspaces()
-      .then(async (d) => {
-        const results = await Promise.all(
-          d.workspaces.map(async (w) => {
-            try {
-              const detail = await api.workspace(w.project);
-              return { ...w, sessions: detail.sessions };
-            } catch {
-              return { ...w, sessions: [] as SessionListItem[] };
-            }
-          }),
-        );
-        setWorkspaces(results);
-      })
-      .catch((e) => setError((e as Error).message));
+  const load = useCallback(async () => {
+    try {
+      const d = await api.workspaces();
+      const results = await Promise.all(
+        d.workspaces.map(async (w) => {
+          try {
+            const detail = await api.workspace(w.project);
+            return { ...w, sessions: detail.sessions };
+          } catch {
+            return { ...w, sessions: [] as SessionListItem[] };
+          }
+        }),
+      );
+      setWorkspaces(results);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+    // Live-refresh when a claude session changes on disk — including runs
+    // started outside the WebUI in a terminal. No interval poll needed here.
+    return subscribeSystemEvents((ev) => {
+      if (ev.engine === 'claude') void load();
+    });
+  }, [load]);
 
   return (
     <section className="view">

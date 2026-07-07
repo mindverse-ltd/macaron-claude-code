@@ -5,6 +5,7 @@ import { HOST, PORT, WEB_DIST } from './config.js';
 import { warmSettingsCache } from './lib/settings-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { checkGenUI } from './lib/genui-check.js';
+import { startSessionWatcher } from './lib/session-watcher.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
 // for complex UIs can take 30-120s, so raise the ceiling to 5 min.
@@ -68,6 +69,7 @@ if (existsSync(WEB_DIST)) {
 try {
   await warmSettingsCache();
   await warmCodexConfigCache();
+  await startSessionWatcher();
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
   // Pre-warm the render_ui TS check: the first diagnose pays full program construction. Do it now,

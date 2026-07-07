@@ -21,3 +21,10 @@ export type SessionStreamEvent =
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number; error?: string }
   | { type: 'live-end'; reason?: string };
+
+// System-wide event stream (GET /api/events). The server watches the claude
+// and codex jsonl trees and pushes a debounced nudge whenever a transcript
+// file changes on disk — including sessions started outside the WebUI in a
+// terminal. Clients refetch their workspace list on receipt, so external
+// sessions surface live instead of on the next slow poll.
+export type SystemEvent = { type: 'sessions-changed'; engine: 'claude' | 'codex' };
