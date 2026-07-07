@@ -80,6 +80,21 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// Git/PR state for the current session's cwd, used to prefill and gate the
+// "Create PR" action. `ahead` = commits on `branch` not on `defaultBranch`;
+// `existingPrUrl` is set when a PR already exists for this branch.
+export type PrContext = {
+  branch: string;
+  defaultBranch: string;
+  ahead: number;
+  dirty: boolean;
+  hasRemote: boolean;
+  existingPrUrl?: string;
+};
+export type CreatePrRequest = { title: string; body: string; draft: boolean };
+// `created` is false when we short-circuited to an already-open PR.
+export type CreatePrResult = { url: string; created: boolean };
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };

@@ -8,6 +8,9 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +18,9 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -140,6 +146,19 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      },
+    ),
+  prContext: (project: string, sid: string) =>
+    getJSON<PrContext>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr-context`,
+    ),
+  createPr: (project: string, sid: string, input: CreatePrRequest) =>
+    req<CreatePrResult>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
       },
     ),
 };
