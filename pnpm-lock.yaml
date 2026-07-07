@@ -763,7 +763,7 @@ packages:
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
   '@genui/diagnostics@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556':
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556}
+    resolution: {integrity: sha512-T0MwNqaj0VsCFWm0fyY/AJ4DYXLfz71Y+emOdHQtGl54UZy2MTSNuNyLB7dEq4yLbt36jEWozPGOCLYQAdmQ1w==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556}
     version: 0.0.1
     engines: {node: '>=20'}
     peerDependencies:
@@ -2674,18 +2674,18 @@ packages:
     engines: {node: '>= 0.8'}
 
   partial-react@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556:
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556}
+    resolution: {integrity: sha512-H6aJbzDzIlKBPZTBOantTxqushx5rZLuNFFLqLfvhOZ5fyOCf9wqbvSR2EdwouBsZ33j2rW2TJ8yb7djBUf0XQ==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556}
     version: 0.0.1
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
 
   partial-tsx@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c00556:
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c00556}
+    resolution: {integrity: sha512-10DVQtkhvVLLdsveOsdTti/uFpKoHyoifCougBmkwkCxbGCGnd5M6tmfSKQfOlaCtpEyaBzu+0AmkNY5XHgSBQ==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c00556}
     version: 0.0.1
 
   partial-tsx@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c005567d2f7b564eae1bc40d1d7a10ab23a1b47:
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c005567d2f7b564eae1bc40d1d7a10ab23a1b47}
+    resolution: {integrity: sha512-10DVQtkhvVLLdsveOsdTti/uFpKoHyoifCougBmkwkCxbGCGnd5M6tmfSKQfOlaCtpEyaBzu+0AmkNY5XHgSBQ==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c005567d2f7b564eae1bc40d1d7a10ab23a1b47}
     version: 0.0.1
 
   path-key@3.1.1:
