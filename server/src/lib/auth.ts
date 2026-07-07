@@ -38,7 +38,7 @@ function isExemptPath(url: string): boolean {
   return url === '/api/health' || url.startsWith('/api/auth/');
 }
 
-function extractToken(req: FastifyRequest): string {
+export function extractToken(req: FastifyRequest): string {
   const header = req.headers.authorization;
   if (header?.startsWith('Bearer ')) return header.slice(7);
   const q = (req.query as Record<string, unknown> | undefined)?.token;
