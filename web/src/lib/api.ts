@@ -8,6 +8,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  DirEntry,
+  DirListing,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +17,7 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  DirListing,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -96,6 +99,8 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  listDirs: (path?: string) =>
+    getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>

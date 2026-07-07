@@ -26,6 +26,7 @@ import {
   type TileGeom,
 } from '../lib/canvas';
 import { Session } from './Session';
+import { peekPendingCwd } from '../lib/newSession';
 
 // One row cell in the canvas grid (px). CSS grid-auto-rows uses this; a
 // tile's rowSpan is a multiplier. Kept in sync with `.ws-canvas-grid-v2`
@@ -84,6 +85,15 @@ export function Workspace() {
     canvas.focus(sidFromUrl);
     navigate(`/w/${encodeURIComponent(project)}`, { replace: true });
   }, [sidFromUrl, project, canvas, navigate]);
+
+  // Landed here from the directory picker: a cwd is staged for this project
+  // but no session exists yet. Auto-open a draft tile so the chosen folder
+  // drops straight into a composer. The existing-draft check keeps it to one.
+  useEffect(() => {
+    if (!peekPendingCwd(project)) return;
+    if (canvas.tiles.some((t) => isDraftSid(t.sid))) return;
+    canvas.addDraft();
+  }, [project, canvas]);
 
   const name = workspace?.name || basename(workspace?.cwd || '') || project;
 

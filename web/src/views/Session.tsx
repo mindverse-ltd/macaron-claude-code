@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { peekPendingCwd, takePendingCwd } from '../lib/newSession';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import {
   THINKING_VERBS,
@@ -1298,6 +1299,9 @@ export function Session(props: SessionProps = {}) {
             text,
             permissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
+            // Directory-picker path: start this brand-new session in the chosen
+            // folder. Undefined for sessions opened inside an existing workspace.
+            cwd: takePendingCwd(project),
           });
           if (onCreated) {
             // Canvas draft-tile path: hand the real sid to the parent so it
@@ -1626,7 +1630,12 @@ export function Session(props: SessionProps = {}) {
         )}
         {data && total === 0 && !polling && !liveUser && <div className="placeholder">No messages yet.</div>}
         {isNew && !liveUser && !sending && (
-          <div className="placeholder">Start a new session — set permissions below and send your first message.</div>
+          <div className="placeholder">
+            Start a new session — set permissions below and send your first message.
+            {peekPendingCwd(project) && (
+              <div className="new-session-cwd">in <code>{peekPendingCwd(project)}</code></div>
+            )}
+          </div>
         )}
         {/* Only show "Loading…" if we truly have nothing to render — hide it
             when live buffers or completed turns already show content, since

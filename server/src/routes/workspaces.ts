@@ -20,6 +20,10 @@ type NewSessionBody = {
   model?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   images?: AttachedImage[];
+  // Absolute directory to start the session in. Set by the directory picker
+  // for brand-new workspaces; when present it wins over deriving cwd from the
+  // (lossy) project name, so a session can begin in any folder on disk.
+  cwd?: string;
 };
 
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -59,21 +63,29 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const { model, env: providerEnv } = getActiveProviderEnv();
 
       // Derive cwd from any existing session in this project, else decode the
-      // project name (which mirrors claude-cli's encoding).
+      // project name (which mirrors claude-cli's encoding). An explicit cwd
+      // from the request body (directory picker) short-circuits both — it's
+      // the only way to start a session in a directory that has no project
+      // dir yet, since decodeClaudeProjectName is lossy.
       let cwd = decodeClaudeProjectName(project);
-      try {
-        const projDir = path.join(CLAUDE_PROJECTS, project);
-        const files = await fs.readdir(projDir);
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const meta = await readSessionSummary(path.join(projDir, f));
-          if (meta?.cwd) {
-            cwd = meta.cwd;
-            break;
+      const explicitCwd = String(req.body?.cwd || '').trim();
+      if (explicitCwd) {
+        cwd = explicitCwd;
+      } else {
+        try {
+          const projDir = path.join(CLAUDE_PROJECTS, project);
+          const files = await fs.readdir(projDir);
+          for (const f of files) {
+            if (!f.endsWith('.jsonl')) continue;
+            const meta = await readSessionSummary(path.join(projDir, f));
+            if (meta?.cwd) {
+              cwd = meta.cwd;
+              break;
+            }
           }
+        } catch {
+          /* no sessions yet — fall back to decoded name */
         }
-      } catch {
-        /* no sessions yet — fall back to decoded name */
       }
 
       try {

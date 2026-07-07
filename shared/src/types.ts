@@ -80,6 +80,9 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+export type DirEntry = { name: string; path: string };
+export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };

@@ -117,6 +117,9 @@ export type NewSessionOptions = {
   text: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   images?: Array<{ mimeType: string; dataUrl: string }>;
+  // Absolute directory to start in — set by the directory picker for a
+  // brand-new workspace. Omitted for sessions started inside an existing one.
+  cwd?: string;
 };
 
 /**
@@ -136,6 +139,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
         text,
         permissionMode: opts.permissionMode,
         images: opts.images,
+        cwd: opts.cwd,
       }),
     })
       .then(async (resp) => {
