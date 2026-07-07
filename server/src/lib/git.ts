@@ -132,12 +132,14 @@ export async function status(cwd: string): Promise<GitStatus> {
     .then(() => true)
     .catch(() => false);
 
-  const branchRaw = (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => 'HEAD')).trim();
-  const detached = branchRaw === 'HEAD';
-  let branch = branchRaw;
-  if (detached && hasCommits) {
-    branch = (await git(cwd, ['rev-parse', '--short', 'HEAD']).catch(() => 'HEAD')).trim();
-  }
+  // `symbolic-ref` yields the branch name whenever HEAD is on one — including an
+  // unborn branch (fresh `git init`, no commit yet), where `rev-parse --abbrev-ref
+  // HEAD` errors and its 'HEAD' fallback would make a normal repo look detached.
+  // It fails only when HEAD is genuinely detached, so an empty result is the signal.
+  const onBranch = (await git(cwd, ['symbolic-ref', '--short', 'HEAD']).catch(() => '')).trim();
+  const detached = !onBranch;
+  let branch = onBranch;
+  if (detached) branch = hasCommits ? (await git(cwd, ['rev-parse', '--short', 'HEAD']).catch(() => 'HEAD')).trim() : 'HEAD';
 
   let ahead = 0;
   let behind = 0;
