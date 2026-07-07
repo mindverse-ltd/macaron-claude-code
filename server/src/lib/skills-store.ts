@@ -34,8 +34,10 @@ function parseSkillMd(text: string): { fm: Record<string, string>; body: string 
     if (c < 0) continue;
     const key = line.slice(0, c).trim();
     let val = line.slice(c + 1).trim();
+    const quotedWithSingle = val.startsWith("'");
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
       val = val.slice(1, -1);
+      if (quotedWithSingle) val = val.replace(/''/g, "'");
     }
     if (key) fm[key] = val;
   }
@@ -68,6 +70,10 @@ function readOverrides(settings: Record<string, unknown>): Overrides {
 // A skill is "enabled" (Claude can invoke it) unless its override is "off".
 function isEnabled(overrides: Overrides, dir: string): boolean {
   return overrides[dir] !== 'off';
+}
+
+function yamlScalar(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 async function readEntryInfo(dir: string, isSymlink: boolean, overrides: Overrides): Promise<SkillInfo | null> {
@@ -193,7 +199,7 @@ export async function createSkill(
   }
   const body = (input.body || '').trim();
   const content =
-    `---\nname: ${dir}\ndescription: ${description}\n---\n\n` +
+    `---\nname: ${dir}\ndescription: ${yamlScalar(description)}\n---\n\n` +
     (body ? body + '\n' : `# ${dir}\n\n${description}\n`);
   await fs.mkdir(skillDir, { recursive: true });
   // wx = fail if SKILL.md already appeared (race with a concurrent create).
