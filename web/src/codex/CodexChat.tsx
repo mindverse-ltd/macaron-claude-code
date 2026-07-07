@@ -3,18 +3,35 @@
 // look. Every visual detail — background, borders, tool cards, code
 // blocks — is tuned to match the claude WebUI's palette (see styles.css).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
 import { sendCodexMessage, startCodexThread } from './stream';
 import { CodexComposer } from './CodexComposer';
+import { notify } from '../lib/notify';
+
+// GenuiPreview + its vendored runtime (~500KB gzip) is behind a lazy
+// import so the default codex bundle stays small. First render_ui in a
+// thread triggers the load; subsequent ones use the cached chunk.
+const GenuiPreview = lazy(() =>
+  import('../genui-runtime').then((m) => ({ default: m.GenuiPreview })),
+);
+
+const RENDER_UI_TOOL_NAME = 'mcp:macaron/render_ui';
+const isRenderUiTool = (name: string): boolean =>
+  name === RENDER_UI_TOOL_NAME || name === 'mcp__macaron__render_ui';
 
 type Item =
   | { id: string; kind: 'user'; text: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'reasoning'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean };
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
+  // GenUI render_ui tool call. Codex hands us the full `code` at
+  // tool_use time (arguments are already aggregated by the CLI), so we
+  // render immediately — no pending phase in practice. The tool_result
+  // (checkGenUI diagnostics) may flip `status` to 'error' with details.
+  | { id: string; kind: 'genui'; toolUseId: string; code: string; status: 'ready' | 'error'; error?: string };
 
 function toolInputToCmd(name: string, input: unknown): string {
   if (name === 'Bash') {
@@ -48,12 +65,29 @@ function historyToItems(detail: SessionDetail): Item[] {
       } else if (b.kind === 'thinking' && b.text.trim()) {
         out.push({ id: next(), kind: 'reasoning', text: b.text });
       } else if (b.kind === 'tool_use') {
-        out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input });
+        if (isRenderUiTool(b.name)) {
+          const code = String((b.input as { code?: unknown } | null)?.code || '');
+          out.push({
+            id: `genui-${b.id}`,
+            kind: 'genui',
+            toolUseId: b.id,
+            code,
+            status: 'ready',
+          });
+        } else {
+          out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input });
+        }
       } else if (b.kind === 'tool_result') {
         const target = [...out].reverse().find(
-          (it) => it.kind === 'tool' && it.result === undefined && (b.toolUseId ? it.id === b.toolUseId : true),
+          (it) =>
+            (it.kind === 'tool' && it.result === undefined && (b.toolUseId ? it.id === b.toolUseId : true))
+            || (it.kind === 'genui' && it.toolUseId === b.toolUseId),
         );
-        if (target && target.kind === 'tool') target.result = b.text;
+        if (target?.kind === 'tool') target.result = b.text;
+        else if (target?.kind === 'genui') {
+          const flagged = b.text.startsWith('Rendered inline, but the TSX has issues');
+          if (flagged) { target.status = 'error'; target.error = b.text; }
+        }
       }
     }
   };
@@ -114,9 +148,31 @@ function ToolCard({ it }: { it: Extract<Item, { kind: 'tool' }> }) {
   );
 }
 
+function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
+  return (
+    <div className="cx-genui">
+      <div className="cx-genui-head">
+        <span className="cx-genui-glyph">◈</span>
+        <span className="cx-genui-name">Rendered UI</span>
+        {it.status === 'error' && <span className="cx-genui-status err">diagnostics failed</span>}
+      </div>
+      <Suspense fallback={<div className="cx-genui-loading">Loading GenUI runtime…</div>}>
+        <GenuiPreview code={it.code} done />
+      </Suspense>
+      {it.status === 'error' && it.error && (
+        <details className="cx-genui-details">
+          <summary>Show diagnostics</summary>
+          <pre>{it.error}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function MessageRow({ it }: { it: Item }) {
   if (it.kind === 'reasoning') return <Reasoning text={it.text} />;
   if (it.kind === 'tool') return <ToolCard it={it} />;
+  if (it.kind === 'genui') return <GenuiCard it={it} />;
   const isUser = it.kind === 'user';
   return (
     <div className={'cx-msg ' + (isUser ? 'user' : 'assistant')}>
@@ -157,8 +213,34 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // True after the user actually kicked off a turn on THIS mount, so the
+  // done-notification only fires for turns they submitted (not the initial
+  // jsonl replay). Mirrors the Claude-side `streamedRef` in Session.tsx.
+  const streamedRef = useRef(false);
 
   useEffect(() => { onSendingChange?.(sending); }, [sending, onSendingChange]);
+
+  // In-app notification when a turn finishes — matches the Claude side
+  // (NotifyStack is mounted in CodexApp). Click routes to the thread's
+  // canvas view so the user lands on the right tile.
+  useEffect(() => {
+    if (sending) {
+      streamedRef.current = true;
+      return;
+    }
+    if (!streamedRef.current) return;
+    streamedRef.current = false;
+    if (!sid) return;
+    const project = detail?.project;
+    notify({
+      title: 'Macaron · thread ready',
+      body: `${sid.slice(0, 8)} finished a turn`,
+      tag: `codex-done-${sid}`,
+      href: project
+        ? `/w/${encodeURIComponent(project)}/t/${encodeURIComponent(sid)}`
+        : `/t/${encodeURIComponent(sid)}`,
+    });
+  }, [sending, sid, detail?.project]);
 
   useEffect(() => {
     if (isNew) { setDetail(null); setLive([]); setError(''); return; }
@@ -186,12 +268,34 @@ export function CodexChat(props: CodexChatProps = {}) {
     });
   };
   const appendTool = (id: string, name: string, input: unknown) => {
-    setLive((cur) => [...cur, { id, kind: 'tool', name, input }]);
+    setLive((cur) => {
+      if (isRenderUiTool(name)) {
+        const code = String((input as { code?: unknown } | null)?.code || '');
+        return [
+          ...cur,
+          {
+            id: `genui-${id}`,
+            kind: 'genui',
+            toolUseId: id,
+            code,
+            status: 'ready',
+          },
+        ];
+      }
+      return [...cur, { id, kind: 'tool', name, input }];
+    });
   };
   const applyToolResult = (toolUseId: string, text: string, isError: boolean) => {
-    setLive((cur) => cur.map((it) =>
-      it.kind === 'tool' && it.id === toolUseId ? { ...it, result: text, isError } : it,
-    ));
+    setLive((cur) => cur.map((it) => {
+      if (it.kind === 'tool' && it.id === toolUseId) return { ...it, result: text, isError };
+      if (it.kind === 'genui' && it.toolUseId === toolUseId) {
+        const flagged = isError || text.startsWith('Rendered inline, but the TSX has issues');
+        return flagged
+          ? { ...it, status: 'error' as const, error: text }
+          : it;
+      }
+      return it;
+    }));
   };
 
   const stop = useCallback(async () => {
@@ -296,7 +400,7 @@ export function CodexChat(props: CodexChatProps = {}) {
             onStop={stop}
             disabled={sending}
             running={sending && !isNew}
-            placeholder={sending ? 'Codex is working…' : undefined}
+            placeholder={sending ? 'Draft next message…' : undefined}
           />
         </div>
       </div>
