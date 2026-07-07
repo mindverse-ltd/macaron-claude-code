@@ -16,9 +16,13 @@ function resolveDir(input: string): string {
 }
 
 export async function registerFsRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { path?: string } }>('/api/fs/dirs', async ({ query }): Promise<DirListing> => {
+  app.get<{ Querystring: { path?: string | string[] } }>('/api/fs/dirs', async ({ query }): Promise<DirListing> => {
     const home = os.homedir();
-    const resolved = resolveDir(query.path ?? '');
+    // A repeated `?path=` makes Fastify hand us an array; take the first so a
+    // malformed request still degrades to an empty listing instead of throwing
+    // inside resolveDir (which would 500, breaking the never-500 contract).
+    const raw = Array.isArray(query.path) ? query.path[0] ?? '' : query.path ?? '';
+    const resolved = resolveDir(raw);
     const parent = path.dirname(resolved);
     const base = { path: resolved, parent: parent === resolved ? null : parent, home };
     try {
