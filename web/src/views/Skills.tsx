@@ -90,8 +90,8 @@ export function Skills() {
       <header>
         <h1>Skills</h1>
         <p>
-          Browse, enable, and author Claude Code skills under <code>~/.claude/skills</code>. Toggling writes
-          a non-destructive <code>skillOverrides</code> entry to <code>~/.claude/settings.json</code> — the skill files stay put.
+          Browse, enable, and author user-scope Claude Code skills under <code>~/.claude/skills</code>. Toggling writes
+          a non-destructive user-scope <code>skillOverrides</code> entry to <code>~/.claude/settings.json</code> — the skill files stay put.
         </p>
       </header>
 

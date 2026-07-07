@@ -109,7 +109,7 @@ export async function listSkills(): Promise<SkillInfo[]> {
           isDir = false;
         }
       }
-      if (!isDir) return null;
+      if (!isDir || !SLUG_RE.test(e.name)) return null;
       return readEntryInfo(e.name, e.isSymbolicLink(), overrides);
     }),
   );
