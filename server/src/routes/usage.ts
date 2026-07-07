@@ -24,7 +24,10 @@ export async function registerUsageRoutes(app: FastifyInstance): Promise<void> {
     '/api/usage',
     async ({ query }): Promise<UsageResponse> => {
       const requestedWindow = firstParam(query.window) || '30d';
-      const window = requestedWindow === 'all' || WINDOWS[requestedWindow] ? requestedWindow : '30d';
+      // hasOwn, not truthiness: `WINDOWS[requestedWindow]` would accept inherited
+      // keys ('constructor', 'toString', '__proto__'…), which make `defaultSince`
+      // NaN and defeat the mtime prune + row filter into a full-history scan.
+      const window = requestedWindow === 'all' || Object.hasOwn(WINDOWS, requestedWindow) ? requestedWindow : '30d';
       const until = numberParam(query.until, Date.now());
       const defaultSince = window === 'all' ? 0 : until - WINDOWS[window]!;
       const since = numberParam(query.since, defaultSince);
