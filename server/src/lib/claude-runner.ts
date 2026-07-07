@@ -344,7 +344,6 @@ export async function* runFollowup(opts: FollowupOptions): AsyncGenerator<string
     },
   });
   let got = false;
-  let cacheRead = -1;
   for await (const m of stream as AsyncIterable<SDKMessage>) {
     if (m.type === 'stream_event') {
       const ev = m.event;
@@ -355,11 +354,8 @@ export async function* runFollowup(opts: FollowupOptions): AsyncGenerator<string
           yield d.text;
         }
       }
-    } else if (m.type === 'result') {
-      const u = (m as { usage?: { cache_read_input_tokens?: number } }).usage;
-      if (typeof u?.cache_read_input_tokens === 'number') cacheRead = u.cache_read_input_tokens;
     }
   }
-  console.log(`[claude-runner] followup  resume=${opts.resume.slice(0, 8)}  text=${got ? 'ok' : 'empty'}  cache_read=${cacheRead < 0 ? '?' : cacheRead}`);
+  console.log(`[claude-runner] followup  resume=${opts.resume.slice(0, 8)}  text=${got ? 'ok' : 'empty'}`);
 }
 
