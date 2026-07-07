@@ -40,7 +40,10 @@ export function isConfigFileId(id: string): id is ConfigFileId {
 // using newer keys never gets blocked by a stale schema here.
 const SettingsSchema = z.looseObject({
   model: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  // Claude Code tolerates non-string env values (it fixed a crash on numeric
+  // env values upstream), so type the value as unknown — otherwise a valid
+  // file like {"env":{"PORT":8080}} would be blocked on Save by a stale schema.
+  env: z.record(z.string(), z.unknown()).optional(),
   permissions: z
     .looseObject({
       allow: z.array(z.string()).optional(),
