@@ -13,7 +13,7 @@ function printHelp() {
 
 Options:
   --host <host>     Bind address (default: 127.0.0.1)
-  --port <port>     Port (default: 7878)
+  --port <port>     Port (default: 7979 — offset from mcc's 7878 so both can run)
   --version, -v     Print version and exit
   --help, -h        Show this help
 
@@ -64,6 +64,8 @@ try {
 
 // The one env flag that flips the SPA served at `/` from index.html to codex.html.
 process.env.MACARON_ENGINE = 'codex';
+// Codex-side default port is 7979 (mcc uses 7878) so both can run at once.
+process.env.MACARON_PORT ??= '7979';
 process.env.NODE_ENV ??= 'production';
 
 await import('../server/dist/index.js');
