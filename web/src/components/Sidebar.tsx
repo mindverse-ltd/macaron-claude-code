@@ -198,7 +198,7 @@ export function Sidebar() {
         type="button"
         className="sb-search"
         onClick={() => window.dispatchEvent(new CustomEvent('macaron:open-search'))}
-        title="Search all sessions (⌘K)"
+        title="Search Claude sessions (⌘K)"
       >
         <span className="sb-search-icon">⌕</span>
         <span className="sb-search-label">Search sessions</span>

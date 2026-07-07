@@ -138,7 +138,7 @@ export function SearchPalette() {
         <input
           ref={inputRef}
           className="search-input"
-          placeholder="Search all sessions…"
+          placeholder="Search Claude sessions…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -147,13 +147,13 @@ export function SearchPalette() {
         />
         <div className="search-results">
           {!enabled && (
-            <div className="search-empty">Search is disabled (MACARON_SEARCH=0).</div>
+            <div className="search-empty">Search is unavailable in this runtime or disabled by MACARON_SEARCH=0.</div>
           )}
           {enabled && query.trim() && !loading && hits.length === 0 && (
             <div className="search-empty">No matches for “{query.trim()}”.</div>
           )}
           {enabled && !query.trim() && (
-            <div className="search-empty">Type to search across every session's messages.</div>
+            <div className="search-empty">Type to search across Claude session messages.</div>
           )}
           {hits.map((h, i) => (
             <button

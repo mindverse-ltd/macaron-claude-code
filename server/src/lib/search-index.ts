@@ -2,36 +2,62 @@
 // full-text index. The JSONL under ~/.claude/projects stays the source of
 // truth; this DB is a rebuildable cache that powers cross-session search.
 //
-// Driver: node's built-in `node:sqlite` (DatabaseSync) — zero native deps, so
-// the bundled `npx`/`bunx` distribution keeps working with no compile step
-// (unlike better-sqlite3). FTS5 + bm25() + snippet() ship with the amalgamation
-// Node links against.
+// Driver: Node's built-in `node:sqlite` when the current runtime supports it.
+// It is lazy-loaded so unsupported runtimes can still boot and simply report
+// search unavailable instead of crashing during module evaluation.
 //
 // On by default; set MACARON_SEARCH=0 (or false/off) to disable — the index is
 // then never opened and the /api/search routes report it as disabled.
 
 import { promises as fs } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
-import { SEARCH_HL_OPEN, SEARCH_HL_CLOSE, type SearchHit } from '@macaron/shared';
+import type { SearchHit } from '@macaron/shared';
 import { CLAUDE_PROJECTS, HOME } from '../config.js';
 
 export const DB_PATH = path.join(HOME, '.claude', 'macaron-index.db');
+const SEARCH_HL_OPEN = '\u0002';
+const SEARCH_HL_CLOSE = '\u0003';
+const FTS_SCHEMA_VERSION = 2;
+const require = createRequire(import.meta.url);
+
+type DatabaseSync = {
+  exec(sql: string): void;
+  prepare(sql: string): {
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+    run(...params: unknown[]): unknown;
+  };
+};
 
 export function isSearchEnabled(): boolean {
   const v = (process.env.MACARON_SEARCH || '').toLowerCase();
-  return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
+  return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no' && sqliteModule() !== null;
 }
 
 export type { SearchHit };
 
 let db: DatabaseSync | null = null;
+let sqlite: { DatabaseSync: new (path: string) => DatabaseSync } | null | undefined;
+
+function sqliteModule(): { DatabaseSync: new (path: string) => DatabaseSync } | null {
+  if (sqlite !== undefined) return sqlite;
+  try {
+    sqlite = require('node:sqlite') as { DatabaseSync: new (path: string) => DatabaseSync };
+  } catch {
+    sqlite = null;
+  }
+  return sqlite;
+}
 
 function getDb(): DatabaseSync {
   if (db) return db;
-  const d = new DatabaseSync(DB_PATH);
+  const mod = sqliteModule();
+  if (!mod) throw new Error('node:sqlite is unavailable in this runtime');
+  const d = new mod.DatabaseSync(DB_PATH);
   d.exec('PRAGMA journal_mode = WAL');
   d.exec('PRAGMA synchronous = NORMAL');
+  d.exec('PRAGMA busy_timeout = 5000');
   d.exec(`
     CREATE TABLE IF NOT EXISTS files (
       file_path  TEXT PRIMARY KEY,
@@ -41,9 +67,20 @@ function getDb(): DatabaseSync {
       mtime_ms   INTEGER NOT NULL,
       size       INTEGER NOT NULL,
       msg_count  INTEGER NOT NULL DEFAULT 0,
+      fts_version INTEGER NOT NULL DEFAULT 0,
       indexed_at INTEGER NOT NULL
     )
   `);
+  try {
+    d.exec('ALTER TABLE files ADD COLUMN fts_version INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    /* already migrated */
+  }
+  const version = (d.prepare('SELECT fts_version FROM files LIMIT 1').get() as { fts_version: number } | undefined)?.fts_version ?? FTS_SCHEMA_VERSION;
+  if (version < FTS_SCHEMA_VERSION) {
+    d.exec('DROP TABLE IF EXISTS messages');
+    d.exec('UPDATE files SET fts_version = 0');
+  }
   // text is column 0 so snippet(messages, 0, …) targets it. Everything else is
   // UNINDEXED — stored for retrieval but kept out of the full-text index.
   d.exec(`
@@ -56,7 +93,7 @@ function getDb(): DatabaseSync {
       role UNINDEXED,
       uuid UNINDEXED,
       ts UNINDEXED,
-      tokenize = 'porter unicode61'
+      tokenize = 'unicode61'
     )
   `);
   db = d;
@@ -111,9 +148,9 @@ async function syncFile(filePath: string, project: string, sessionId: string): P
   }
   const d = getDb();
   const prev = d
-    .prepare('SELECT mtime_ms, size FROM files WHERE file_path = ?')
-    .get(filePath) as { mtime_ms: number; size: number } | undefined;
-  if (prev && prev.mtime_ms === st.mtimeMs && prev.size === st.size) return false;
+    .prepare('SELECT mtime_ms, size, fts_version FROM files WHERE file_path = ?')
+    .get(filePath) as { mtime_ms: number; size: number; fts_version: number } | undefined;
+  if (prev && prev.mtime_ms === st.mtimeMs && prev.size === st.size && prev.fts_version === FTS_SCHEMA_VERSION) return false;
 
   let raw: string;
   try {
@@ -146,13 +183,13 @@ async function syncFile(filePath: string, project: string, sessionId: string): P
       insert.run(r.text, filePath, project, sessionId, cwd, r.role, r.uuid, r.ts);
     }
     d.prepare(
-      `INSERT INTO files(file_path, project, session_id, cwd, mtime_ms, size, msg_count, indexed_at)
-       VALUES (?,?,?,?,?,?,?,?)
+      `INSERT INTO files(file_path, project, session_id, cwd, mtime_ms, size, msg_count, fts_version, indexed_at)
+       VALUES (?,?,?,?,?,?,?,?,?)
        ON CONFLICT(file_path) DO UPDATE SET
          project=excluded.project, session_id=excluded.session_id, cwd=excluded.cwd,
-         mtime_ms=excluded.mtime_ms, size=excluded.size, msg_count=excluded.msg_count,
+         mtime_ms=excluded.mtime_ms, size=excluded.size, msg_count=excluded.msg_count, fts_version=excluded.fts_version,
          indexed_at=excluded.indexed_at`,
-    ).run(filePath, project, sessionId, cwd, st.mtimeMs, st.size, rows.length, Date.now());
+    ).run(filePath, project, sessionId, cwd, st.mtimeMs, st.size, rows.length, FTS_SCHEMA_VERSION, Date.now());
     d.exec('COMMIT');
   } catch (e) {
     d.exec('ROLLBACK');

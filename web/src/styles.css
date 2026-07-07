@@ -2875,6 +2875,7 @@ textarea:focus, select:focus, input:focus {
 }
 .search-hit-role.role-user { color: var(--accent); }
 .search-hit-role.role-assistant { color: var(--good); }
+.search-hit-role.role-summary { color: var(--muted-2); }
 .search-hit-cwd { font-size: 11.5px; color: var(--muted-2); }
 .search-hit-snippet {
   font-size: 13px;
