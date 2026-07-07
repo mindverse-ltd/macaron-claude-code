@@ -58,3 +58,12 @@ test('string-form and array text-block content are tallied identically', async (
   assert.equal(strCb.messages, arrCb.messages);
   assert.equal(strCb.system, arrCb.system);
 });
+
+test('tail-truncated sessions keep the flat context bar instead of estimating a stale split', async () => {
+  const hugeHead = { type: 'user', message: { role: 'user', content: 'x'.repeat(9 * 1024 * 1024) }, timestamp: '2026-07-07T00:00:00Z', uuid: 'huge' };
+  await writeSession('trunc', [hugeHead, assistantLine]);
+  const detail = await readSessionMessages(PROJECT, 'trunc');
+  assert.equal(detail.truncated, true);
+  assert.ok(detail.latestUsage, 'usage should still drive the flat Context bar');
+  assert.equal(detail.contextBreakdown, undefined);
+});

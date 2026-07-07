@@ -477,7 +477,10 @@ export async function readSessionMessages(project: string, sid: string): Promise
     countMcpServers(),
   ]);
 
-  const contextBreakdown = buildContextBreakdown(latestUsage, {
+  // Tail reads intentionally drop the oldest bytes, so the measured visible
+  // transcript can no longer explain the aggregate usage. Keep the accurate
+  // flat Context bar instead of showing a misleading all-system residual.
+  const contextBreakdown = truncated ? undefined : buildContextBreakdown(latestUsage, {
     msgChars,
     thinkChars,
     toolCallChars,
