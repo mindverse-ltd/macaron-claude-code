@@ -22,12 +22,11 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import {
-  Codex,
-  type CodexOptions,
-  type ThreadEvent,
-  type ThreadItem,
-  type ThreadOptions,
+import type {
+  CodexOptions,
+  ThreadEvent,
+  ThreadItem,
+  ThreadOptions,
 } from '@openai/codex-sdk';
 import { getCodexConfig } from './codex-config.js';
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
@@ -286,6 +285,10 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
   void (async () => {
     let sessionEmitted = false;
     try {
+      // Lazy-import so the default (claude) engine never loads @openai/codex-sdk
+      // — the bundled tarball (server/dist/index.js only) has no node_modules, so
+      // a top-level import would crash boot with ERR_MODULE_NOT_FOUND.
+      const { Codex } = await import('@openai/codex-sdk');
       const codex = new Codex(codexOpts);
       const thread = opts.resume
         ? codex.resumeThread(opts.resume, { ...threadOpts, workingDirectory: opts.cwd })
