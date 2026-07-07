@@ -121,6 +121,8 @@ export function FileExplorer() {
 
   const openFile = useCallback(
     (path: string) => {
+      if (path === openPath) return;
+      if (dirty && !window.confirm('Discard unsaved changes?')) return;
       setOpenPath(path);
       setLoadingFile(true);
       setOpenError('');
@@ -137,7 +139,7 @@ export function FileExplorer() {
         })
         .finally(() => setLoadingFile(false));
     },
-    [project],
+    [project, openPath, dirty],
   );
 
   const save = useCallback(() => {
