@@ -30,4 +30,6 @@ jobs:
       # runs `npm pack`, which fires the root `prepack` hook (build shared →
       # bundle server → build web), so the tarball ships prebuilt server/dist +
       # web/dist and runs without Vite at runtime — no separate build step needed.
-      - run: bun run pkg-pr-new publish
+      # Force long-form URLs because compact URLs require npm repository metadata;
+      # `mcc` is only published through pkg.pr.new, and --bin shows a CLI command.
+      - run: bun run pkg-pr-new publish --no-compact --bin
