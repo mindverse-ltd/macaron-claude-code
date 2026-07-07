@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, basename, type Workspace, type SessionListItem } from '../lib/api';
 import { useToast } from './Toast';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { NewProjectModal } from './NewProjectModal';
 import {
   getCanvasSids,
   toggleCanvasSid,
@@ -22,6 +23,7 @@ export function Sidebar() {
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
   const [model, setModel] = useState('');
   const [ctxMenu, setCtxMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
   // Per-workspace set of canvas-pinned sids, so the session rows can show
   // + / ✓ toggles. Re-reads from localStorage whenever a canvas changes.
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
@@ -196,6 +198,15 @@ export function Sidebar() {
 
       <div className="sb-label">
         <span>WORKSPACES</span>
+        <button
+          type="button"
+          className="sb-new-project"
+          onClick={() => setShowNewProject(true)}
+          title="New project (create dir or clone a repo)"
+          aria-label="New project"
+        >
+          ＋
+        </button>
       </div>
 
       <div className="sb-ws-list">
@@ -317,6 +328,17 @@ export function Sidebar() {
           x={ctxMenu.x}
           y={ctxMenu.y}
           onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onCreated={(project) => {
+            setShowNewProject(false);
+            loadData();
+            navigate(`/w/${encodeURIComponent(project)}`);
+          }}
         />
       )}
     </aside>

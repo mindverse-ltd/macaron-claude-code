@@ -97,6 +97,12 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  createProject: (input: { name?: string; gitUrl?: string }) =>
+    req<{ project: string; cwd: string; name: string }>('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>

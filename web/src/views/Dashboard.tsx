@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, basename, fmtAgo, type Workspace, type SessionListItem } from '../lib/api';
+import { NewProjectModal } from '../components/NewProjectModal';
 
 type WsWithSessions = Workspace & { sessions: SessionListItem[] };
 
@@ -11,6 +12,8 @@ function sessStatus(mtime: number): 'completed' | 'running' {
 export function Dashboard() {
   const [workspaces, setWorkspaces] = useState<WsWithSessions[] | null>(null);
   const [error, setError] = useState('');
+  const [showNewProject, setShowNewProject] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     api
@@ -36,12 +39,19 @@ export function Dashboard() {
       <header>
         <h1>Dashboard</h1>
         <p>All workspaces at a glance</p>
+        <button className="primary small dash-new-project" onClick={() => setShowNewProject(true)}>
+          + New Project
+        </button>
       </header>
       {error && <div className="placeholder">Error: {error}</div>}
       {!workspaces && !error && <div className="muted">Loading…</div>}
       {workspaces && workspaces.length === 0 && (
         <div className="placeholder">
-          No workspaces yet. Run <code>claude</code> in any project to create one.
+          No workspaces yet. Run <code>claude</code> in any project to create one, or{' '}
+          <button className="link-btn" onClick={() => setShowNewProject(true)}>
+            create a new project
+          </button>
+          .
         </div>
       )}
       {workspaces && workspaces.length > 0 && (
@@ -79,6 +89,15 @@ export function Dashboard() {
             );
           })}
         </div>
+      )}
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onCreated={(project) => {
+            setShowNewProject(false);
+            navigate(`/w/${encodeURIComponent(project)}`);
+          }}
+        />
       )}
     </section>
   );
