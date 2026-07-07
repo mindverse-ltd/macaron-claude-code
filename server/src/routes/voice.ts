@@ -8,14 +8,22 @@ import { STT_BASE_URL, STT_API_KEY, STT_MODEL, STT_LANGUAGE } from '../config.js
 
 type TranscribeBody = { audio?: string; mimeType?: string };
 
-// Cap decoded audio at ~8 MB. The route's own bodyLimit already bounds the
-// base64 payload; this is a second guard against a malformed giant blob.
+// Cap decoded audio at ~8 MB. Base64 inflates the payload by 4/3, so the
+// per-route bodyLimit below is what actually lets an ~8 MB clip reach this
+// handler: without it the global 2 MB bodyLimit (server/src/index.ts) would
+// reject anything past ~1.5 MB of decoded audio with a generic 413 before we
+// run. This decoded-size check is the real ceiling and returns a friendly 413.
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+// Raw request-body ceiling for the transcribe route. Base64 of 8 MB is
+// ~10.7 MB; 12 MB leaves headroom for the JSON envelope. Overrides the app's
+// global 2 MB bodyLimit so MAX_AUDIO_BYTES is the effective cap, not Fastify's.
+const TRANSCRIBE_BODY_LIMIT = 12 * 1024 * 1024;
 
 export async function registerVoiceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/voice/health', async () => ({ configured: Boolean(STT_API_KEY) }));
 
-  app.post<{ Body: TranscribeBody }>('/api/voice/transcribe', async (req, reply) => {
+  app.post<{ Body: TranscribeBody }>('/api/voice/transcribe', { bodyLimit: TRANSCRIBE_BODY_LIMIT }, async (req, reply) => {
     if (!STT_API_KEY) return reply.status(503).send({ error: 'voice input not configured' });
     const audioB64 = String(req.body?.audio || '');
     const mimeType = String(req.body?.mimeType || 'audio/webm');
