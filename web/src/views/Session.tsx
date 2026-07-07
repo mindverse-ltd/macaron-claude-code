@@ -811,6 +811,11 @@ export function Session(props: SessionProps = {}) {
   const [followupRaw, setFollowupRaw] = useState('');
   const followupGen = useRef(0);
   const followups = useMemo(() => parseFollowups(followupRaw), [followupRaw]);
+  // The row keeps a reserved slot (so streaming chips don't shove the thread
+  // up) ONLY while the feature is on — when it's off there's nothing to wait
+  // for, so we collapse the space entirely. Fetched once on mount.
+  const [followupsEnabled, setFollowupsEnabled] = useState(false);
+  useEffect(() => { api.settings().then((s) => setFollowupsEnabled(s.followupSuggestions)).catch(() => {}); }, []);
   // Clear the chips and invalidate any deltas still streaming from a superseded
   // follow-up query, atomically. Returns the new generation so a producer can
   // capture it as its token; call sites that only need to reset ignore it.
@@ -1554,11 +1559,13 @@ export function Session(props: SessionProps = {}) {
       */}
       <div className="thread tui" ref={threadRef}>
         {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
-        {/* Suggested follow-ups from the post-turn throwaway query. Rendered
+        {/* Suggested follow-ups from the throwaway cache-hit query. Rendered
             ABOVE liveTurn in DOM (so BELOW it visually — column-reverse)
             i.e. just above the input area, right under the latest reply.
-            Clicking fills the textarea (setInput), doesn't auto-send. */}
-        {followups.length > 0 && (
+            Clicking fills the textarea (setInput), doesn't auto-send. The row
+            stays mounted (reserving its height) whenever the feature is on so
+            chips streaming in never shift the thread; off ⇒ no slot at all. */}
+        {followupsEnabled && !isNew && (
           <div className="ti-followups">
             {followups.map((q, i) => (
               <button
