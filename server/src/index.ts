@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { HOST, PORT, WEB_DIST } from './config.js';
 import { warmSettingsCache } from './lib/settings-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
+import { warmLabelsCache } from './lib/label-store.js';
 import { checkGenUI } from './lib/genui-check.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
@@ -68,6 +69,7 @@ if (existsSync(WEB_DIST)) {
 try {
   await warmSettingsCache();
   await warmCodexConfigCache();
+  await warmLabelsCache();
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
   // Pre-warm the render_ui TS check: the first diagnose pays full program construction. Do it now,

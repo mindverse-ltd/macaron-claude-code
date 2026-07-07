@@ -38,6 +38,14 @@ export async function getLabels(): Promise<LabelMap> {
   return load();
 }
 
+// Warm the cache at boot (before app.listen), like warmSettingsCache. Without
+// this, two concurrent load()s in the cold-cache window each assign a fresh
+// object to `cache` — the reader's overwrites the writer's, orphaning a
+// just-persisted label. Warming makes `cache` non-null before any request.
+export async function warmLabelsCache(): Promise<void> {
+  await load();
+}
+
 // Set (or, for a blank name, clear) the label for a session. Returns the
 // stored label ('' when cleared) so the route can echo it back.
 export async function setLabel(sid: string, name: string): Promise<string> {
