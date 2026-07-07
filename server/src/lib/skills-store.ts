@@ -44,12 +44,20 @@ function parseSkillMd(text: string): { fm: Record<string, string>; body: string 
 
 type Overrides = Record<string, string>;
 
+// Reads ~/.claude/settings.json — Claude Code's user-scope config, not ours; it
+// also holds env, permissions, mcpServers, hooks, etc. A missing file is normal
+// (start fresh → {}). Any OTHER failure (malformed JSON, EACCES, a partial read
+// of a mid-write file) MUST throw so a mutation aborts instead of serializing
+// {} back over the file and wiping every other user setting.
 async function readSettings(): Promise<Record<string, unknown>> {
+  let raw: string;
   try {
-    return JSON.parse(await fs.readFile(SETTINGS_PATH, 'utf8')) as Record<string, unknown>;
-  } catch {
-    return {};
+    raw = await fs.readFile(SETTINGS_PATH, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw e;
   }
+  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 function readOverrides(settings: Record<string, unknown>): Overrides {
@@ -169,6 +177,13 @@ export async function createSkill(
   }
   const description = input.description.trim();
   if (!description) return { error: 'description is required' };
+  // description goes into the frontmatter as a single-line scalar and is read
+  // back line-by-line (parseSkillMd). A newline would silently truncate it on
+  // read; a `---` on its own line would end the frontmatter early. Rejecting
+  // newlines rules out both — the docs treat description as a short scalar.
+  if (/[\r\n]/.test(description)) {
+    return { error: 'description must be a single line (no line breaks)' };
+  }
   const skillDir = path.join(SKILLS_DIR, dir);
   try {
     await fs.access(skillDir);
