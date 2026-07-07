@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
+import type { Diagnostic } from '@macaron/shared';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
@@ -52,7 +53,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; diagnostics?: Diagnostic[] }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -412,7 +413,7 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
 
 const PREVIEW_LINES = 2;
 
-function ToolItem({ name, input, result }: { name: string; input: unknown; result?: string }) {
+function ToolItem({ name, input, result, diagnostics }: { name: string; input: unknown; result?: string; diagnostics?: Diagnostic[] }) {
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
   const resultText = (result ?? '').replace(/\n+$/, '');
@@ -441,6 +442,18 @@ function ToolItem({ name, input, result }: { name: string; input: unknown; resul
                 {open ? '↑ collapse' : `… +${extra} ${extra === 1 ? 'line' : 'lines'} (expand)`}
               </button>
             )}
+          </div>
+        </div>
+      )}
+      {diagnostics && diagnostics.length > 0 && (
+        <div className="ti-tool-out ti-diags">
+          <span className="ti-rail">└</span>
+          <div className="ti-tool-body">
+            {diagnostics.map((d, i) => (
+              <div key={i} className={d.severity === 'error' ? 'ti-diag ti-diag-err' : 'ti-diag ti-diag-warn'}>
+                {d.severity === 'error' ? 'ERROR' : 'WARN'} [{d.line}:{d.col}] {d.message}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -624,7 +637,7 @@ function ItemView({
     case 'thinking':
       return <ThinkingItem text={it.text} />;
     case 'tool':
-      return <ToolItem name={it.name} input={it.input} result={it.result} />;
+      return <ToolItem name={it.name} input={it.input} result={it.result} diagnostics={it.diagnostics} />;
     case 'todo':
       return <TodoItem todos={it.todos} />;
     case 'system_event':
@@ -1112,6 +1125,7 @@ export function Session(props: SessionProps = {}) {
               name: t.name,
               input: t.input,
               result: t.result,
+              diagnostics: t.diagnostics,
             };
           }
           return {
@@ -1433,6 +1447,13 @@ export function Session(props: SessionProps = {}) {
                 }
                 return t;
               }),
+            );
+          },
+          onDiagnostics: ({ toolUseId, diagnostics }) => {
+            setLiveTurn((cur) =>
+              cur.map((t) =>
+                t.kind === 'tool' && t.id === `live-${toolUseId}` ? { ...t, diagnostics } : t,
+              ),
             );
           },
           onUsage: ({ outputTokens: ot }) => {

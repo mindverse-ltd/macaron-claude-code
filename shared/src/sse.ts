@@ -3,6 +3,10 @@
 // /api/sessions/.../message (POST) and /api/sessions/.../live (GET) match one
 // of these shapes.
 
+// One language-server diagnostic on an edited file. Errors and warnings only;
+// line/col are 1-based (editor coordinates).
+export type Diagnostic = { severity: 'error' | 'warning'; line: number; col: number; message: string };
+
 export type SessionStreamEvent =
   | { type: 'meta'; cwd: string; sessionId: string }
   | { type: 'starting'; cwd: string }
@@ -12,6 +16,7 @@ export type SessionStreamEvent =
   | { type: 'tool_input_delta'; id: string; name: string; partial_json: string; accumulated: string }
   | { type: 'tool_input_done'; id: string; name: string; final_json: string }
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
+  | { type: 'diagnostics'; file: string; toolUseId: string; diagnostics: Diagnostic[] }
   | { type: 'permission_request'; id: string; toolName: string; input: unknown }
   | { type: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }

@@ -305,6 +305,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
             safeSend({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
           }
           else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
+          else if (ev.kind === 'diagnostics') safeSend({ type: 'diagnostics', file: ev.file, toolUseId: ev.toolUseId, diagnostics: ev.diagnostics });
           else if (ev.kind === 'permission_request') safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input });
           else if (ev.kind === 'permission_resolved') safeSend({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
           else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });

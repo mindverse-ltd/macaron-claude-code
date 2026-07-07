@@ -135,6 +135,10 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             const payload = { type: 'tool_result' as const, tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError };
             safeSend(payload);
             if (capturedSid) livePush(capturedSid, payload);
+          } else if (ev.kind === 'diagnostics') {
+            const payload = { type: 'diagnostics' as const, file: ev.file, toolUseId: ev.toolUseId, diagnostics: ev.diagnostics };
+            safeSend(payload);
+            if (capturedSid) livePush(capturedSid, payload);
           } else if (ev.kind === 'permission_request') {
             const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input };
             safeSend(payload);

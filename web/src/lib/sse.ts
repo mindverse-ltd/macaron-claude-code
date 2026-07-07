@@ -73,6 +73,7 @@ export async function streamOpenAI(
 }
 
 // Parse our session-message protocol ({type:'delta'|'meta'|'event'|'error'|'done'}).
+import type { Diagnostic } from '@macaron/shared';
 export type SessionStreamHandlers = {
   onDelta?: (text: string) => void;
   onMeta?: (m: { cwd: string; sessionId: string }) => void;
@@ -82,6 +83,7 @@ export type SessionStreamHandlers = {
   onToolInputDelta?: (t: { id: string; name: string; partial_json: string; accumulated: string }) => void;
   onToolInputDone?: (t: { id: string; name: string; final_json: string }) => void;
   onToolResult?: (t: { tool_use_id: string; text: string; isError: boolean }) => void;
+  onDiagnostics?: (d: { file: string; toolUseId: string; diagnostics: Diagnostic[] }) => void;
   onPermissionRequest?: (p: { id: string; toolName: string; input: unknown }) => void;
   onPermissionResolved?: (p: { id: string; decision: 'allow' | 'deny' }) => void;
   onUsage?: (u: { outputTokens: number; thinkingTokens?: number }) => void;
@@ -141,6 +143,7 @@ export async function streamSession(
         else if (p.type === 'tool_input_delta') h.onToolInputDelta?.(p);
         else if (p.type === 'tool_input_done') h.onToolInputDone?.(p);
         else if (p.type === 'tool_result') h.onToolResult?.(p);
+        else if (p.type === 'diagnostics') h.onDiagnostics?.(p);
         else if (p.type === 'permission_request') h.onPermissionRequest?.(p);
         else if (p.type === 'permission_resolved') h.onPermissionResolved?.(p);
         else if (p.type === 'usage') h.onUsage?.(p);
