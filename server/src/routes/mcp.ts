@@ -18,19 +18,38 @@ type Body = {
   headers?: Record<string, string>;
 };
 
+// A string map must be a plain object whose every value is a string; anything
+// else is rejected rather than coerced, so a raw API call can't smuggle arrays
+// or objects into the user's real ~/.claude.json (e.g. {"env":{"TOKEN":["x"]}}).
+// `undefined` (field absent) is allowed and means "leave unchanged".
+function parseStringMap(v: unknown, field: string): { value: Record<string, string> } | { error: string } {
+  if (v === undefined) return { value: {} };
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return { error: `${field} must be an object` };
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (typeof val !== 'string') return { error: `${field}.${k} must be a string` };
+    out[k] = val;
+  }
+  return { value: out };
+}
+
 function parseBody(b: Body): McpServerInput | { error: string } {
   const transport = String(b.transport || '') as McpTransport;
   if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
     return { error: 'transport must be stdio, http, or sse' };
   }
+  const env = parseStringMap(b.env, 'env');
+  if ('error' in env) return env;
+  const headers = parseStringMap(b.headers, 'headers');
+  if ('error' in headers) return headers;
   return {
     name: String(b.name || ''),
     transport,
     command: typeof b.command === 'string' ? b.command : undefined,
     args: Array.isArray(b.args) ? b.args.map(String) : undefined,
     url: typeof b.url === 'string' ? b.url : undefined,
-    env: b.env && typeof b.env === 'object' ? b.env : undefined,
-    headers: b.headers && typeof b.headers === 'object' ? b.headers : undefined,
+    env: Object.keys(env.value).length ? env.value : undefined,
+    headers: Object.keys(headers.value).length ? headers.value : undefined,
   };
 }
 
