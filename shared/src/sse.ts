@@ -20,4 +20,5 @@ export type SessionStreamEvent =
   | { type: 'warn'; text: string }
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number; error?: string }
+  | { type: 'followup_delta'; text: string }
   | { type: 'live-end'; reason?: string };

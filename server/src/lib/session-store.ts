@@ -244,6 +244,19 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
   return summary;
 }
 
+// Resolve a session's working directory. The project name IS the cwd (encoded
+// by claude-cli), so it's the safe default — the jsonl's head read is capped at
+// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
+// the decoded name and only override with the embedded cwd when we got one.
+export async function resolveSessionCwd(project: string, sid: string): Promise<string> {
+  let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+  try {
+    const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+    if (head?.cwd) cwd = head.cwd;
+  } catch { /* fall back to decoded project name */ }
+  return cwd;
+}
+
 export async function listAllSessions(): Promise<SessionListItem[]> {
   let projects;
   try {

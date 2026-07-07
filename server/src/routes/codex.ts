@@ -20,10 +20,15 @@ import {
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
 import {
-  getCodexConfig,
+  CODEX_SYSTEM_PROVIDER_ID,
+  createCodexProvider,
+  deleteCodexProvider,
   readPublicCodexSettings,
+  setActiveCodexProvider,
   updateCodexProvider,
-  type CodexProviderConfig,
+  updateCodexRuntime,
+  type CodexCustomProvider,
+  type CodexRuntimeOptions,
 } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
@@ -188,27 +193,78 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/codex/config', async () => readPublicCodexSettings());
 
-  app.put<{ Body: Partial<CodexProviderConfig> }>('/api/codex/config', async (req, reply) => {
-    const patch: Partial<CodexProviderConfig> = {};
-    const b = req.body || {};
-    const stringKeys: (keyof CodexProviderConfig)[] = [
-      'name', 'baseUrl', 'model', 'wireApi', 'modelProvider', 'reasoningEffort',
-      'sandboxMode', 'approvalPolicy',
-    ];
-    for (const k of stringKeys) {
-      if (typeof b[k] === 'string') (patch as Record<string, unknown>)[k] = b[k];
+  // Switch the active provider (system or a customProviders[].id).
+  app.put<{ Body: { providerId?: string } }>('/api/codex/config/active', async (req, reply) => {
+    const id = String(req.body?.providerId || '').trim();
+    if (!id) return reply.status(400).send({ error: 'providerId required' });
+    try {
+      await setActiveCodexProvider(id);
+    } catch (e) {
+      return reply.status(404).send({ error: (e as Error).message });
     }
+    return reply.send(await readPublicCodexSettings());
+  });
+
+  // Runtime knobs (sandbox / approval) — apply to system + custom alike.
+  app.put<{ Body: Partial<CodexRuntimeOptions> }>('/api/codex/config/runtime', async (req, reply) => {
+    const patch: Partial<CodexRuntimeOptions> = {};
+    const b = req.body || {};
+    if (typeof b.sandboxMode === 'string') patch.sandboxMode = b.sandboxMode;
+    if (typeof b.approvalPolicy === 'string') patch.approvalPolicy = b.approvalPolicy;
+    await updateCodexRuntime(patch);
+    return reply.send(await readPublicCodexSettings());
+  });
+
+  // Create a new custom provider.
+  app.post<{ Body: Partial<CodexCustomProvider> }>('/api/codex/config/providers', async (req, reply) => {
+    const created = await createCodexProvider(pickCustomProviderPatch(req.body || {}));
+    return reply.send({ id: created.id, settings: await readPublicCodexSettings() });
+  });
+
+  // Update an existing custom provider (partial patch — omitted fields keep
+  // their current value; apiKey is only overwritten if non-empty).
+  app.put<{ Params: { id: string }; Body: Partial<CodexCustomProvider> }>(
+    '/api/codex/config/providers/:id',
+    async (req, reply) => {
+      const id = req.params.id;
+      if (id === CODEX_SYSTEM_PROVIDER_ID) {
+        return reply.status(400).send({ error: 'system provider is not editable' });
+      }
+      try {
+        await updateCodexProvider(id, pickCustomProviderPatch(req.body || {}));
+      } catch (e) {
+        return reply.status(404).send({ error: (e as Error).message });
+      }
+      return reply.send(await readPublicCodexSettings());
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/codex/config/providers/:id', async (req, reply) => {
+    if (req.params.id === CODEX_SYSTEM_PROVIDER_ID) {
+      return reply.status(400).send({ error: 'system provider cannot be deleted' });
+    }
+    await deleteCodexProvider(req.params.id);
+    return reply.send(await readPublicCodexSettings());
+  });
+
+  // --- Engine banner -----------------------------------------------------
+
+  function pickCustomProviderPatch(b: Partial<CodexCustomProvider>): Partial<CodexCustomProvider> {
+    const patch: Partial<CodexCustomProvider> = {};
+    if (typeof b.name === 'string') patch.name = b.name;
+    if (typeof b.baseUrl === 'string') patch.baseUrl = b.baseUrl;
+    if (typeof b.model === 'string') patch.model = b.model;
+    if (typeof b.modelProvider === 'string') patch.modelProvider = b.modelProvider;
+    if (b.wireApi === 'responses' || b.wireApi === 'chat') patch.wireApi = b.wireApi;
+    if (typeof b.reasoningEffort === 'string') patch.reasoningEffort = b.reasoningEffort;
     if (typeof b.apiKey === 'string' && b.apiKey.length > 0) patch.apiKey = b.apiKey;
     if (typeof b.webSearchEnabled === 'boolean') patch.webSearchEnabled = b.webSearchEnabled;
     if (typeof b.disableResponseStorage === 'boolean') patch.disableResponseStorage = b.disableResponseStorage;
     if (typeof b.contextWindow === 'number') patch.contextWindow = b.contextWindow;
     if (typeof b.autoCompactTokenLimit === 'number') patch.autoCompactTokenLimit = b.autoCompactTokenLimit;
-    await updateCodexProvider(patch);
-    void getCodexConfig(); // touch cache
-    return reply.send(readPublicCodexSettings());
-  });
+    return patch;
+  }
 
-  // --- Engine banner -----------------------------------------------------
 
   app.get('/api/engine', async () => ({
     engine: process.env.MACARON_ENGINE === 'codex' ? 'codex' : 'claude',

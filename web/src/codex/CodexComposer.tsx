@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { CodexProviderPicker } from './CodexProviderPicker';
 
 export function CodexComposer({
   value,
@@ -41,7 +42,6 @@ export function CodexComposer({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={key}
           placeholder={placeholder ?? 'Message Codex…'}
-          disabled={disabled}
           rows={1}
         />
         {running && onStop ? (
@@ -56,7 +56,10 @@ export function CodexComposer({
           >↑</button>
         )}
       </div>
-      <div className="cx-composer-hint">Enter to send · Shift+Enter for newline</div>
+      <div className="cx-composer-foot">
+        <CodexProviderPicker />
+        <span className="cx-composer-hint">Enter to send · Shift+Enter for newline</span>
+      </div>
     </div>
   );
 }

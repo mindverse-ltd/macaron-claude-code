@@ -137,6 +137,18 @@ export function Settings() {
     }
   };
 
+  const toggleFollowups = async (next: boolean) => {
+    setBusy(true);
+    try {
+      setSettings(await api.setFollowupSuggestions(next));
+      toast(next ? 'follow-up suggestions on' : 'follow-up suggestions off');
+    } catch (e) {
+      toast(`error: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (error) {
     return (
       <section className="view">
@@ -276,6 +288,31 @@ export function Settings() {
             </div>
             <div className="prov-card-sub">
               Off (default): each session's permission picker (<kbd>Shift</kbd>+<kbd>Tab</kbd>) is respected.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-row-head">
+          <h2 className="sec-title">Suggestions</h2>
+        </div>
+        <label className={`prov-card${settings.followupSuggestions ? ' active' : ''}`}>
+          <input
+            type="checkbox"
+            checked={settings.followupSuggestions}
+            onChange={(e) => void toggleFollowups(e.target.checked)}
+            disabled={busy}
+          />
+          <div className="prov-card-body">
+            <div className="prov-card-head">
+              <span className="prov-name">Follow-up questions</span>
+              <span className={`prov-tag ${settings.followupSuggestions ? 'ok' : 'bad'}`}>
+                {settings.followupSuggestions ? 'on' : 'off'}
+              </span>
+            </div>
+            <div className="prov-card-sub">
+              After a clean Claude turn, run one extra throwaway model call to suggest next questions. Off by default because it spends tokens.
             </div>
           </div>
         </label>
