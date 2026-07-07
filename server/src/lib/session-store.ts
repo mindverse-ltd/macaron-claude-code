@@ -415,6 +415,7 @@ export async function readSessionMessages(project: string, sid: string): Promise
         const c = o.message?.content;
         if (typeof c === 'string') {
           blocks.push({ kind: 'text', text: c });
+          msgChars += c.length;
         } else if (Array.isArray(c)) {
           for (const b of c) {
             if (b.type === 'text' && b.text) { blocks.push({ kind: 'text', text: b.text }); msgChars += b.text.length; }
