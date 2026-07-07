@@ -292,6 +292,25 @@ export async function resolveSessionCwd(project: string, sid: string): Promise<s
   return cwd;
 }
 
+// Resolve a claude project name to its working directory. The name itself is
+// claude-cli's cwd encoding, but a big first-line paste can push `cwd` past
+// HEAD_BYTES, so prefer the cwd embedded in an actual jsonl when we can read
+// one and fall back to decoding the name.
+export async function resolveProjectCwd(project: string): Promise<string> {
+  let cwd = decodeClaudeProjectName(project);
+  try {
+    const projDir = path.join(CLAUDE_PROJECTS, project);
+    for (const f of await fs.readdir(projDir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      const meta = await readSessionSummary(path.join(projDir, f));
+      if (meta?.cwd) return meta.cwd;
+    }
+  } catch {
+    /* no sessions yet — fall back to decoded name */
+  }
+  return cwd;
+}
+
 export async function listAllSessions(): Promise<SessionListItem[]> {
   let projects;
   try {
