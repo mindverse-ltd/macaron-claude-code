@@ -342,7 +342,12 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
 const SESSION_TAIL_BYTES = 8 * 1024 * 1024;
 
 export async function readSessionMessages(project: string, sid: string): Promise<SessionDetail> {
-  const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+  const base = path.resolve(CLAUDE_PROJECTS);
+  const filePath = path.resolve(base, project, `${sid}.jsonl`);
+  // project/sid reach this sink from a JSON body via the share route, where a
+  // `..` segment passes freely; assert the resolved path stays inside the
+  // projects dir so a traversal can't read an arbitrary *.jsonl off disk.
+  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
   const st = await fs.stat(filePath);
   let raw: string;
   let truncated = false;

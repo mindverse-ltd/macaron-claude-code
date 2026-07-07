@@ -86,8 +86,9 @@ export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
 
 // Share links: a session is published behind an unguessable token. The token
-// is the capability — possession grants read access, no login. The real
-// project/sid stay private on the server side of the token mapping.
+// is the capability — possession grants read access, no login. The token URL
+// never leaks the on-disk project/sid, but resolving it returns the full
+// SessionDetail (sid, project, absolute cwd) to whoever holds the link.
 export type CreateShareResponse = { token: string };
 export type SharedSessionResponse = { sessionId: string; createdAt: number; detail: SessionDetail };
 export type ConfigResponse = {

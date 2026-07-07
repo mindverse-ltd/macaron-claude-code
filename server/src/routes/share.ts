@@ -33,9 +33,11 @@ export async function registerShareRoutes(app: FastifyInstance): Promise<void> {
     try {
       const detail = await readSessionMessages(entry.project, entry.sid);
       return { sessionId: entry.sid, createdAt: entry.createdAt, detail };
-    } catch (e) {
-      // Token still maps, but the underlying session was deleted/moved.
-      return reply.status(404).send({ error: (e as Error).message });
+    } catch {
+      // Token still maps, but the underlying session was deleted/moved (or the
+      // stored ref failed path containment). Don't echo the internal error —
+      // its message carries the absolute on-disk path + username.
+      return reply.status(404).send({ error: 'share not found' });
     }
   });
 }
