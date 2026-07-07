@@ -163,6 +163,9 @@ export async function forkSession(
       outLines.push(line);
     }
   }
+  if (!outLines.some((l) => l.trim())) {
+    throw new Error('nothing to fork before the first message');
+  }
   let next = outLines.join('\n');
   if (next && !next.endsWith('\n')) next += '\n';
   // wx = fail if a file with this uuid already exists (astronomically rare)
