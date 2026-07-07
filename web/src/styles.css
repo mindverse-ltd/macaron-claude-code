@@ -776,6 +776,56 @@ textarea:focus, select:focus, input:focus {
   font-size: 12px;
 }
 
+/* Suggested follow-up question chips, shown under the latest reply. One row
+   only: chips never wrap, overflow scrolls horizontally, and a soft gradient
+   mask fades both edges so a clipped chip trails off instead of hard-cutting.
+   The scroll padding matches the fade width so first/last chips can scroll
+   clear of the fade. */
+.ti-followups {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 6px 14px;
+  /* Reserve the row even while empty so chips fading in never push the thread
+     up — 40px is the height with a chip present (chip box + 6px×2 padding),
+     so the slot is identical whether 0 or N chips are showing. */
+  min-height: 40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+.ti-followups::-webkit-scrollbar { display: none; }
+.ti-followup-chip {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  /* Each chip is a fresh node when its question finishes streaming, so this
+     plays once on mount — new chips fade in one by one, settled ones don't. */
+  animation: chip-in 0.18s ease both;
+}
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ti-followup-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
 /* ---------- Settings page ---------- */
 .settings-view header p { color: var(--muted); margin-top: 4px; }
 .settings-section {

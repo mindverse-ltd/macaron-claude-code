@@ -45,6 +45,7 @@ export type PublicSettings = {
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
   yoloMode: boolean;
+  followupSuggestions: boolean;
 };
 
 export type ProviderInput = {
@@ -92,7 +93,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }),
-
+  setFollowupSuggestions: (enabled: boolean) =>
+    req<PublicSettings>('/api/settings/followups', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
   skills: () => getJSON<{ skills: SkillInfo[] }>('/api/skills'),
   skill: (dir: string) => getJSON<SkillDetail>(`/api/skills/${encodeURIComponent(dir)}`),
   setSkillEnabled: (dir: string, enabled: boolean) =>
