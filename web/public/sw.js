@@ -15,11 +15,16 @@ self.addEventListener('push', (event) => {
   }
   const title = payload.title || 'Macaron';
   event.waitUntil(
-    // If a client is focused/visible, the in-app NotifyStack already shows this
-    // event — skip the system notification so a focused tab isn't told twice.
+    // Dedupe against a focused tab: the in-app NotifyStack already shows this
+    // event, so skip the redundant system notification. But only for the
+    // low-stakes "session ready" ping — a permission gate (requireInteraction)
+    // is issue #18's headline "a backgrounded session needs input", and the
+    // in-app card only fires for a session whose tile is currently mounted on
+    // the viewed canvas. Suppressing on any focused window would silently drop
+    // the gate for a background session whenever an unrelated tab is focused.
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       const active = clientList.some((c) => c.focused || c.visibilityState === 'visible');
-      if (active) return undefined;
+      if (active && !payload.requireInteraction) return undefined;
       return self.registration.showNotification(title, {
         body: payload.body || '',
         icon: '/icons/icon-192.png',
