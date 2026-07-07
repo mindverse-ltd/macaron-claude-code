@@ -165,6 +165,34 @@ export function Sidebar() {
             }
           },
         },
+        {
+          icon: '🔗',
+          label: 'Copy share link',
+          onClick: async () => {
+            try {
+              const { token } = await api.createShare(w.project, s.sessionId);
+              // Build the URL from the browser's own origin so it works over
+              // LAN/tunnel, not just the server's 127.0.0.1 bind.
+              const url = `${window.location.origin}/#/share/${token}`;
+              await navigator.clipboard.writeText(url);
+              toast('share link copied');
+            } catch (err) {
+              toast(`share failed: ${(err as Error).message}`);
+            }
+          },
+        },
+        {
+          icon: '🚫',
+          label: 'Unshare',
+          onClick: async () => {
+            try {
+              const { ok } = await api.revokeShare(w.project, s.sessionId);
+              toast(ok ? 'share link revoked' : 'was not shared');
+            } catch (err) {
+              toast(`unshare failed: ${(err as Error).message}`);
+            }
+          },
+        },
         'separator',
         {
           icon: '✕',

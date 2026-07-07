@@ -84,6 +84,12 @@ export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
+
+// Share links: a session is published behind an unguessable token. The token
+// is the capability — possession grants read access, no login. The real
+// project/sid stay private on the server side of the token mapping.
+export type CreateShareResponse = { token: string };
+export type SharedSessionResponse = { sessionId: string; createdAt: number; detail: SessionDetail };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };

@@ -8,6 +8,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +17,8 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
@@ -143,6 +147,20 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
       },
     ),
+  createShare: (project: string, sid: string) =>
+    req<CreateShareResponse>('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  revokeShare: (project: string, sid: string) =>
+    req<{ ok: boolean }>('/api/share/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  sharedSession: (token: string) =>
+    getJSON<SharedSessionResponse>(`/api/share/${encodeURIComponent(token)}`),
 };
 
 export function basename(p: string): string {
