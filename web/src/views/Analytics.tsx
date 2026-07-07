@@ -45,6 +45,7 @@ export function Analytics() {
     let live = true;
     setLoading(true);
     setError('');
+    setData(null);
     api
       .usage(window)
       .then((d) => { if (live) { setData(d); setLoading(false); } })

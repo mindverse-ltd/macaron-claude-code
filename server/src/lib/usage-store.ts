@@ -53,6 +53,7 @@ async function mapPool<T, R>(
 async function parseFileUsage(filePath: string, project: string, sessionId: string): Promise<FileUsage> {
   const raw = await fs.readFile(filePath, 'utf8');
   const rows: UsageRow[] = [];
+  const seenMessageIds = new Set<string>();
   for (const line of raw.split('\n')) {
     // Cheap pre-filter — most lines have no usage; skip the JSON.parse.
     if (!line.includes('"usage"')) continue;
@@ -61,6 +62,12 @@ async function parseFileUsage(filePath: string, project: string, sessionId: stri
       if (o.type !== 'assistant') continue;
       const u = o.message?.usage;
       if (!u) continue;
+      const messageId = typeof o.message?.id === 'string' ? o.message.id : '';
+      if (messageId) {
+        // Claude CLI writes one jsonl row per content block but repeats the same turn-level usage and message.id on each row.
+        if (seenMessageIds.has(messageId)) continue;
+        seenMessageIds.add(messageId);
+      }
       const cc = u.cache_creation || {};
       rows.push({
         ts: o.timestamp ? Date.parse(o.timestamp) : 0,
@@ -88,9 +95,22 @@ async function readFileUsage(filePath: string, project: string, sessionId: strin
   }
   const cached = usageCache.get(filePath);
   if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.usage;
-  const usage = await parseFileUsage(filePath, project, sessionId);
+  let usage;
+  try {
+    usage = await parseFileUsage(filePath, project, sessionId);
+  } catch {
+    return null;
+  }
   usageCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, usage });
   return usage;
+}
+
+function localDateKey(ts: number): string {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const emptyTotals = (): UsageTotals => ({
@@ -152,7 +172,7 @@ export async function collectUsage(sinceMs: number, untilMs: number): Promise<Us
   for (const fu of files) {
     if (!fu) continue;
     for (const r of fu.rows) {
-      if (r.ts < sinceMs || r.ts > untilMs) continue;
+      if (!Number.isFinite(r.ts) || r.ts <= 0 || r.ts < sinceMs || r.ts > untilMs) continue;
       const { rates, known } = rateFor(r.model);
       const cost = costOf(
         { input: r.input, output: r.output, cacheWrite: r.cacheWrite, cacheRead: r.cacheRead, ephemeral5m: r.ephemeral5m, ephemeral1h: r.ephemeral1h },
@@ -166,7 +186,7 @@ export async function collectUsage(sinceMs: number, untilMs: number): Promise<Us
       totals.costUsd += cost;
       totals.messageCount += 1;
 
-      const day = new Date(r.ts).toISOString().slice(0, 10);
+      const day = localDateKey(r.ts);
       let d = daily.get(day);
       if (!d) {
         d = { date: day, inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0, messageCount: 0 };
@@ -207,7 +227,7 @@ export async function collectUsage(sinceMs: number, untilMs: number): Promise<Us
   });
 
   const dailyArr = Array.from(daily.values()).sort((a, b) => a.date.localeCompare(b.date));
-  const byModelArr = sessionArr.length ? Array.from(byModel.values()).sort((a, b) => b.costUsd - a.costUsd) : [];
+  const byModelArr = Array.from(byModel.values()).sort((a, b) => b.costUsd - a.costUsd);
   sessionArr.sort((a, b) => b.costUsd - a.costUsd);
 
   return { window: '', since: sinceMs, until: untilMs, totals, daily: dailyArr, byModel: byModelArr, bySession: sessionArr };

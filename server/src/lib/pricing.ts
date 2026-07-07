@@ -17,15 +17,18 @@ export type ModelRates = {
 };
 
 // Ordered most-specific-substring-first: the first key contained in the
-// lowercased model string wins, so `opus-4.1` (legacy $15/$75) must precede
-// the generic `opus` (current $5/$25), and `haiku-3` must precede `haiku`.
+// lowercased model string wins, so legacy Opus 4.0/4.1 ($15/$75) must precede
+// the generic `opus` (current $5/$25), and `3-5-haiku` must precede `haiku`.
 const RATE_TABLE: Array<[string, ModelRates]> = [
   ['fable', { input: 10, output: 50, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1.0 }],
   ['opus-4.1', { input: 15, output: 75, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5 }],
   ['opus-4-1', { input: 15, output: 75, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5 }],
+  ['opus-4.0', { input: 15, output: 75, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5 }],
+  ['opus-4-0', { input: 15, output: 75, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5 }],
+  ['opus-4-20250514', { input: 15, output: 75, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5 }],
   ['opus', { input: 5, output: 25, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5 }],
   ['sonnet', { input: 3, output: 15, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3 }],
-  ['haiku-3', { input: 0.8, output: 4, cacheWrite5m: 1.0, cacheWrite1h: 1.6, cacheRead: 0.08 }],
+  ['3-5-haiku', { input: 0.8, output: 4, cacheWrite5m: 1.0, cacheWrite1h: 1.6, cacheRead: 0.08 }],
   ['haiku', { input: 1, output: 5, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1 }],
 ];
 
