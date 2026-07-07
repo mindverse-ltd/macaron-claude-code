@@ -1251,6 +1251,13 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   flex-direction: column;
 }
+/* The clip above drives the focus collapse/expand animation, but it also
+   traps the slash palette (which floats above the composer). Only while the
+   palette is present, let the container overflow so the menu is visible; the
+   tile ancestors stay overflow:hidden, so nothing escapes the tile itself. */
+.session-input-inner:has(.slash-palette) {
+  overflow: visible;
+}
 .session-input-area.collapsed {
   grid-template-rows: 0fr;
   opacity: 0;
@@ -1269,6 +1276,7 @@ textarea:focus, select:focus, input:focus {
   border-radius: 14px;
   background: var(--surface);
   transition: border-color 0.15s ease, background 0.15s ease;
+  position: relative;
 }
 .session-input.drag-over {
   border-color: var(--accent);
@@ -1291,6 +1299,68 @@ textarea:focus, select:focus, input:focus {
   gap: 8px;
 }
 .session-input-spacer { flex: 1; }
+
+/* Slash-command palette: floats above the composer, anchored to the input's
+   top edge. Mirrors .ctx-menu's surface/border/shadow so it reads as the same
+   design language. Scrolls when the command list is long. */
+.slash-palette {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 6px 20px rgba(61, 57, 41, 0.12);
+  z-index: 20;
+  animation: ctx-in 0.12s ease-out;
+}
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 7px;
+  text-align: left;
+}
+.slash-item.active { background: var(--surface-2); }
+.slash-name { font-weight: 600; color: var(--accent); white-space: nowrap; }
+.slash-ns {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.slash-hint { font-size: 12px; color: var(--muted-2); font-style: italic; white-space: nowrap; }
+.slash-desc {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.slash-source {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-left: auto;
+}
 
 /* Chip-style picker used for provider & permission-mode selectors on the
    input toolbar. A native <select> sits invisibly on top of the pill so we

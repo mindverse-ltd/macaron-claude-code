@@ -8,6 +8,7 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  SlashCommand,
 } from '@macaron/shared';
 
 import type {
@@ -15,6 +16,7 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  CommandsResponse,
 } from '@macaron/shared';
 
 export async function getJSON<T>(url: string): Promise<T> {
@@ -94,6 +96,10 @@ export const api = {
   session: (project: string, sid: string) =>
     getJSON<SessionDetail>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,
+    ),
+  commands: (project: string) =>
+    getJSON<CommandsResponse>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/commands`,
     ),
   deleteSession: async (project: string, sid: string): Promise<void> => {
     const r = await fetch(

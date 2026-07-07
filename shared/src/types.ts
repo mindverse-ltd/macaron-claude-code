@@ -80,9 +80,23 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// A slash command surfaced in the composer palette. `name` is the bare
+// command (no leading slash). `builtin` = a CLI command worth listing;
+// `project`/`user` come from `.claude/commands/**/*.md` (cwd / $HOME). A
+// subdirectory becomes `namespace` for display only — it does NOT change the
+// command name the SDK expands.
+export type SlashCommand = {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: 'builtin' | 'project' | 'user';
+  namespace?: string;
+};
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };
+export type CommandsResponse = { commands: SlashCommand[] };

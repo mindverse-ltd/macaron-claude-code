@@ -16,6 +16,7 @@ import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
 import { getActiveProviderEnv, getActiveProviderRaw } from '../lib/settings-store.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
+import { listSlashCommands } from '../lib/slash-commands.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -33,6 +34,18 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       return reply.status(404).send({ error: (e as Error).message });
     }
   });
+
+  // List slash commands available for this session's cwd: curated built-ins
+  // plus project (`<cwd>/.claude/commands`) and user (`~/.claude/commands`)
+  // custom commands. Read-only, best-effort — never 500 on a missing dir.
+  // The palette only *lists*; the SDK already expands `/name` prompts itself.
+  app.get<{ Params: { project: string } }>(
+    '/api/sessions/claude/:project/commands',
+    async ({ params }) => {
+      const cwd = decodeClaudeProjectName(params.project) || process.env.HOME || '';
+      return { commands: await listSlashCommands(cwd) };
+    },
+  );
 
   app.delete<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {

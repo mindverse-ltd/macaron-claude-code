@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api, basename, type Message, type SessionDetail } from '../lib/api';
+import { api, basename, type Message, type SessionDetail, type SlashCommand } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
 import { extractPartialCode } from '../lib/partialJson';
+import { SlashPalette } from '../components/SlashPalette';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -840,12 +841,26 @@ export function Session(props: SessionProps = {}) {
   // lazily so each new mount picks up entries appended by sibling tiles.
   const [history, setHistory] = useState<string[]>(() => loadHistory(project));
   useEffect(() => { setHistory(loadHistory(project)); }, [project]);
+  // Fetch the slash-command list once per project (built-ins + custom
+  // `.claude/commands`). Best-effort — a failure just leaves the palette empty.
+  useEffect(() => {
+    if (!project) return;
+    let alive = true;
+    api.commands(project).then((r) => { if (alive) setCommands(r.commands); }).catch(() => {});
+    return () => { alive = false; };
+  }, [project]);
   // Navigation state. null = user is composing a fresh draft; otherwise
   // 0 = latest sent, 1 = one before, … history.length-1 = oldest. When we
   // enter history navigation we stash the draft so ArrowDown-past-latest
   // can restore it.
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const draftInputRef = useRef<string>('');
+  // Slash-command palette. `commands` is fetched once per session; the palette
+  // opens while the input is a bare `/name` (no space yet) and `slashIdx`
+  // tracks the keyboard-highlighted row. The SDK expands the picked `/name` on
+  // send, so this is purely a discoverability helper.
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [slashIdx, setSlashIdx] = useState(0);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   // Shift+Tab cycles through permission modes globally on the Session view
@@ -1410,7 +1425,64 @@ export function Session(props: SessionProps = {}) {
     [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
 
+  // ---- Slash palette derivation + keyboard reconciliation ----------------
+  // Open only while the input is a bare `/word` — leading slash, no space yet
+  // (still typing the command name). `slashQuery` is everything after the `/`.
+  const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null;
+  const filteredCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.toLowerCase();
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.namespace ?? '').toLowerCase().includes(q),
+    );
+  }, [commands, slashQuery]);
+  const paletteOpen = slashQuery !== null && filteredCommands.length > 0;
+  // Clamp / reset the highlight whenever the filtered set changes.
+  useEffect(() => { setSlashIdx(0); }, [slashQuery]);
+
+  const pickCommand = useCallback((cmd: SlashCommand) => {
+    // Insert `/name ` (trailing space) and keep focus. The SDK expands it on
+    // send; the trailing space both closes the palette and readies args.
+    setInput(`/${cmd.name} `);
+    setHistoryIdx(null);
+  }, []);
+
+  // Returns true if the palette consumed the key (so the composer's own
+  // handler must not also act on it). Only called while the palette is open.
+  const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (e.nativeEvent.isComposing || composingRef.current) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.min(i + 1, filteredCommands.length - 1));
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.max(i - 1, 0));
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const cmd = filteredCommands[slashIdx];
+      if (cmd) {
+        e.preventDefault();
+        pickCommand(cmd);
+        return true;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Closing without a pick: append a space so the palette-open predicate
+      // (bare `/word`) goes false while keeping what the user typed.
+      setInput((v) => (v.startsWith('/') && !v.includes(' ') ? v + ' ' : v));
+      return true;
+    }
+    return false;
+  };
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Palette intercepts ↑/↓/Enter/Esc FIRST when open, then falls through
+    // untouched — history-nav + send keep their exact behaviour when closed.
+    if (paletteOpen && handlePaletteKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1600,6 +1672,14 @@ export function Session(props: SessionProps = {}) {
               </div>
             ))}
           </div>
+        )}
+        {paletteOpen && (
+          <SlashPalette
+            commands={filteredCommands}
+            activeIndex={slashIdx}
+            onPick={pickCommand}
+            onHover={setSlashIdx}
+          />
         )}
         <textarea
           rows={2}
