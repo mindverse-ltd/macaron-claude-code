@@ -1218,6 +1218,7 @@ export function Session(props: SessionProps = {}) {
       const text = input.trim();
       if ((!text && images.length === 0) || sending) return;
       const sentImages = images;
+      mention.close();
       setInput('');
       setImages([]);
       // Persist to prompt history + reset navigation state.
@@ -1412,12 +1413,10 @@ export function Session(props: SessionProps = {}) {
         },
       );
     },
-    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
+    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history, mention.close],
   );
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Mention popup gets first dibs on ↑/↓/Enter/Tab/Esc while it's open.
-    if (mention.onKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1426,6 +1425,10 @@ export function Session(props: SessionProps = {}) {
         e.preventDefault();
         return;
       }
+    }
+    // Mention popup handles ↑/↓/Enter/Tab/Esc after the IME Enter guard above.
+    if (mention.onKeyDown(e)) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
       return;

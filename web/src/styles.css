@@ -1290,13 +1290,11 @@ textarea:focus, select:focus, input:focus {
    at the bottom of the viewport), so the list opens upward. */
 .mention-anchor { position: relative; }
 .mention-popup {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
+  position: fixed;
+  transform: translateY(-100%);
   max-height: 260px;
   overflow-y: auto;
-  z-index: 20;
+  z-index: 80;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--surface);

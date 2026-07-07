@@ -249,20 +249,23 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
 // cwd embedded in any existing session's jsonl, else decode the encoded name
 // (which mirrors claude-cli's dir encoding). Same logic the new-session route
 // uses to pick a spawn cwd.
-export async function resolveProjectCwd(project: string): Promise<string> {
-  let cwd = decodeClaudeProjectName(project);
+async function cwdFromProjectSessions(project: string, files?: string[]): Promise<string | null> {
   try {
     const projDir = path.join(CLAUDE_PROJECTS, project);
-    const files = await fs.readdir(projDir);
-    for (const f of files) {
+    const names = files ?? await fs.readdir(projDir);
+    for (const f of names) {
       if (!f.endsWith('.jsonl')) continue;
       const meta = await readSessionSummary(path.join(projDir, f));
       if (meta?.cwd) return meta.cwd;
     }
   } catch {
-    /* no sessions yet — fall back to decoded name */
+    /* no sessions yet */
   }
-  return cwd;
+  return null;
+}
+
+export async function resolveProjectCwd(project: string): Promise<string> {
+  return (await cwdFromProjectSessions(project)) ?? decodeClaudeProjectName(project);
 }
 
 // Directories never worth walking for an @-mention: build output, vendored
@@ -299,7 +302,7 @@ async function walkFiles(root: string, dir: string, needle: string, out: string[
     if (e.name.startsWith('.')) continue;
     if (FILE_SEARCH_SKIP_DIRS.has(e.name)) continue;
     const full = path.join(dir, e.name);
-    const rel = full.slice(root.length + 1);
+    const rel = path.relative(root, full).split(path.sep).join('/');
     if (e.isDirectory()) {
       // `ignore` does no fs.stat — a trailing slash tells it `rel` is a dir, so
       // a `foo/` rule matches. Skipping here also prunes the whole subtree.
@@ -317,7 +320,15 @@ async function walkFiles(root: string, dir: string, needle: string, out: string[
 // repo's root `.gitignore` excludes; bounded by depth, per-dir entry count, and
 // a hard result cap. Powers the composer's @-mention autocomplete.
 export async function searchProjectFiles(project: string, needle: string, limit: number): Promise<{ cwd: string; results: string[] }> {
-  const cwd = await resolveProjectCwd(project);
+  const projDir = path.join(CLAUDE_PROJECTS, project);
+  let files: string[];
+  try {
+    files = await fs.readdir(projDir);
+  } catch {
+    throw new Error('project not found');
+  }
+  const cwd = await cwdFromProjectSessions(project, files);
+  if (!cwd) throw new Error('project has no sessions');
   const results: string[] = [];
   const ig = await loadGitignore(cwd);
   await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0, ig);

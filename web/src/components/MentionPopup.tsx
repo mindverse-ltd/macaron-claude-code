@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { api, basename } from '../lib/api';
 
 // Find an active @-mention token immediately before the caret. Matches an `@`
@@ -22,6 +23,7 @@ export function detectMention(value: string, caret: number): { start: number; qu
 }
 
 type MentionState = { start: number; query: string } | null;
+type PopupAnchor = { left: number; top: number; width: number };
 
 export function useFileMention(opts: {
   project: string;
@@ -36,9 +38,18 @@ export function useFileMention(opts: {
   const [mention, setMention] = useState<MentionState>(null);
   const [results, setResults] = useState<string[]>([]);
   const [active, setActive] = useState(0);
+  const [anchor, setAnchor] = useState<PopupAnchor | null>(null);
   const reqSeq = useRef(0);
 
   const open = mention !== null;
+  const query = mention?.query ?? null;
+
+  const updateAnchor = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const rect = ta.getBoundingClientRect();
+    setAnchor({ left: rect.left, top: rect.top - 6, width: rect.width });
+  }, [textareaRef]);
 
   // Re-detect the mention token from the textarea's live DOM value + caret.
   // Reading the element directly (not the closure `value`) avoids lagging one
@@ -48,16 +59,18 @@ export function useFileMention(opts: {
     if (!ta) return;
     const m = detectMention(ta.value, ta.selectionStart ?? ta.value.length);
     setMention(m);
-    if (!m) setResults([]);
-  }, [textareaRef]);
+    if (m) updateAnchor();
+    else { setResults([]); setAnchor(null); }
+  }, [textareaRef, updateAnchor]);
 
   // Debounced fetch whenever the mention query changes.
   useEffect(() => {
-    if (!mention) return;
+    if (query === null) return;
     const seq = ++reqSeq.current;
+    setResults([]);
     const t = setTimeout(() => {
       api
-        .searchFiles(project, mention.query, 50)
+        .searchFiles(project, query, 50)
         .then((r) => {
           if (seq !== reqSeq.current) return; // a newer query superseded us
           setResults(r.results);
@@ -68,11 +81,23 @@ export function useFileMention(opts: {
         });
     }, 120);
     return () => clearTimeout(t);
-  }, [project, mention]);
+  }, [project, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    updateAnchor();
+    window.addEventListener('resize', updateAnchor);
+    window.addEventListener('scroll', updateAnchor, true);
+    return () => {
+      window.removeEventListener('resize', updateAnchor);
+      window.removeEventListener('scroll', updateAnchor, true);
+    };
+  }, [open, updateAnchor]);
 
   const close = useCallback(() => {
     setMention(null);
     setResults([]);
+    setAnchor(null);
     reqSeq.current++;
   }, []);
 
@@ -80,8 +105,11 @@ export function useFileMention(opts: {
     (rel: string) => {
       if (!mention) return;
       const ta = textareaRef.current;
-      const caret = ta?.selectionStart ?? value.length;
-      const next = value.slice(0, mention.start) + '@' + rel + ' ' + value.slice(caret);
+      const liveValue = ta?.value ?? value;
+      const caret = ta?.selectionStart ?? liveValue.length;
+      let end = caret;
+      while (end < liveValue.length && !/\s/.test(liveValue[end]!)) end++;
+      const next = liveValue.slice(0, mention.start) + '@' + rel + ' ' + liveValue.slice(end);
       setValue(next);
       close();
       // Restore the caret just past the inserted "@path ".
@@ -98,13 +126,16 @@ export function useFileMention(opts: {
   // key was consumed so the composer's own onKey should bail.
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-      if (!open || results.length === 0) return false;
-      // Enter/Tab mid-IME-composition confirm a CJK candidate — don't hijack
-      // them to insert a file. Mirror the composer's guard and let it through.
-      if ((e.key === 'Enter' || e.key === 'Tab') && (e.nativeEvent.isComposing || composingRef.current || e.keyCode === 229)) return false;
-      if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % results.length); return true; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + results.length) % results.length); return true; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(results[active]!); return true; }
+      if (!open) return false;
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (results.length) setActive((i) => (i + 1) % results.length); return true; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); if (results.length) setActive((i) => (i - 1 + results.length) % results.length); return true; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (e.key === 'Enter' && e.shiftKey) return false;
+        if (e.nativeEvent.isComposing || composingRef.current || e.keyCode === 229) return false;
+        e.preventDefault();
+        if (results.length) choose(results[Math.min(active, results.length - 1)]!);
+        return true;
+      }
       if (e.key === 'Escape') { e.preventDefault(); close(); return true; }
       return false;
     },
@@ -112,9 +143,9 @@ export function useFileMention(opts: {
   );
 
   const popup = useMemo(() => {
-    if (!open || results.length === 0) return null;
-    return (
-      <div className="mention-popup" role="listbox" aria-label="File mentions">
+    if (!open || results.length === 0 || !anchor) return null;
+    return createPortal(
+      <div className="mention-popup" role="listbox" aria-label="File mentions" style={{ left: anchor.left, top: anchor.top, width: anchor.width }}>
         {results.map((rel, i) => (
           <button
             key={rel}
@@ -129,9 +160,10 @@ export function useFileMention(opts: {
             <span className="mention-path">{rel}</span>
           </button>
         ))}
-      </div>
+      </div>,
+      document.body,
     );
-  }, [open, results, active, choose]);
+  }, [open, results, active, choose, anchor]);
 
-  return { popup, onKeyDown, refresh, open };
+  return { popup, onKeyDown, refresh, close, open };
 }

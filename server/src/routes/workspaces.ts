@@ -20,6 +20,18 @@ type NewSessionBody = {
   images?: AttachedImage[];
 };
 
+function firstQuery(v: unknown): string | undefined {
+  if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
+  return typeof v === 'string' ? v : undefined;
+}
+
+function numberQuery(v: unknown, fallback: number): number {
+  const raw = firstQuery(v);
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/workspaces', async () => {
     const sessions = await listAllSessions();
@@ -48,8 +60,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
     '/api/workspaces/:project/files',
     async (req, reply) => {
       try {
-        const limit = Number(req.query?.limit) || 50;
-        return await searchProjectFiles(req.params.project, req.query?.q ?? '', limit);
+        const limit = numberQuery(req.query?.limit, 50);
+        return await searchProjectFiles(req.params.project, firstQuery(req.query?.q) ?? '', limit);
       } catch (e) {
         return reply.status(400).send({ error: (e as Error).message });
       }
