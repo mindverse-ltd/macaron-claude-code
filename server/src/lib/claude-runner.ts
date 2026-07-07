@@ -305,7 +305,7 @@ Rules:
 - Use THE SAME LANGUAGE and tone as the user's most recent message.
 
 Output ONLY a JSON array of strings, nothing else. Example:
-["how does caching actually work here?","can you show a smaller example?","what breaks if I skip persistSession?"]`;
+["how does caching work","show a smaller example","what if I skip persistSession"]`;
 
 export type FollowupOptions = {
   resume: string;
