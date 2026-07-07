@@ -17,6 +17,12 @@ importers:
       '@genui/diagnostics':
         specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556
         version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556(typescript@5.9.3)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      '@openai/codex-sdk':
+        specifier: ^0.142.5
+        version: 0.142.5
       fastify:
         specifier: ^5.2.0
         version: 5.10.0
