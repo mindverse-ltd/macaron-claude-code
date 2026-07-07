@@ -59,6 +59,8 @@ export function getSchedule(id: string): Schedule | undefined {
 export async function createSchedule(input: ScheduleInput): Promise<Schedule> {
   const list = await readSchedules();
   const now = Date.now();
+  const nextRunAt = computeNextRun(input.pattern);
+  if (input.oneShot && nextRunAt === null) throw new Error('one-time schedule is in the past');
   const sched: Schedule = {
     id: randomUUID(),
     name: input.name,
@@ -67,8 +69,8 @@ export async function createSchedule(input: ScheduleInput): Promise<Schedule> {
     cwd: input.cwd,
     pattern: input.pattern,
     oneShot: input.oneShot,
-    status: 'active',
-    nextRunAt: computeNextRun(input.pattern), // throws on bad pattern → 400
+    status: nextRunAt === null ? 'done' : 'active',
+    nextRunAt, // throws on bad pattern → 400
     lastRunAt: null,
     lastStatus: null,
     lastSessionId: null,
@@ -84,16 +86,21 @@ export async function updateSchedule(id: string, patch: Partial<ScheduleInput>):
   const list = await readSchedules();
   const s = list.find((x) => x.id === id);
   if (!s) return null;
+  const nextPattern = patch.pattern ?? s.pattern;
+  const nextOneShot = patch.oneShot ?? s.oneShot;
+  const needsRearm = patch.pattern !== undefined || patch.oneShot !== undefined;
+  const nextRunAt = needsRearm && s.status === 'active' ? computeNextRun(nextPattern) : s.nextRunAt;
+  if (needsRearm && s.status === 'active' && nextOneShot && nextRunAt === null) throw new Error('one-time schedule is in the past');
   if (patch.name !== undefined) s.name = patch.name;
   if (patch.prompt !== undefined) s.prompt = patch.prompt;
   if (patch.engine !== undefined) s.engine = patch.engine;
   if (patch.cwd !== undefined) s.cwd = patch.cwd;
-  if (patch.pattern !== undefined) {
-    s.pattern = patch.pattern;
+  if (needsRearm) {
+    s.pattern = nextPattern;
+    s.oneShot = nextOneShot;
     // Re-arm from the new pattern; a still-active schedule gets a fresh slot.
-    s.nextRunAt = s.status === 'active' ? computeNextRun(patch.pattern) : null;
+    s.nextRunAt = s.status === 'active' ? nextRunAt : null;
   }
-  if (patch.oneShot !== undefined) s.oneShot = patch.oneShot;
   s.updatedAt = Date.now();
   await persist();
   return s;
@@ -111,8 +118,9 @@ export async function deleteSchedule(id: string): Promise<boolean> {
 export async function setScheduleStatus(id: string, status: Schedule['status']): Promise<Schedule | null> {
   const s = (await readSchedules()).find((x) => x.id === id);
   if (!s) return null;
-  s.status = status;
-  s.nextRunAt = status === 'active' ? computeNextRun(s.pattern) : null;
+  const nextRunAt = status === 'active' ? computeNextRun(s.pattern) : null;
+  s.status = status === 'active' && s.oneShot && nextRunAt === null ? 'done' : status;
+  s.nextRunAt = s.status === 'active' ? nextRunAt : null;
   s.updatedAt = Date.now();
   await persist();
   return s;
@@ -120,13 +128,18 @@ export async function setScheduleStatus(id: string, status: Schedule['status']):
 
 // Called by the scheduler after a fire. Advances nextRunAt from the pattern;
 // null (one-shot done / recurrence exhausted) flips the schedule to 'done'.
-export async function recordRun(id: string, result: { sessionId: string | null; ok: boolean }): Promise<void> {
+export async function recordRun(id: string, result: { sessionId: string | null; ok: boolean }, advanceNext = true): Promise<void> {
   const s = (await readSchedules()).find((x) => x.id === id);
   if (!s) return;
   const now = Date.now();
   s.lastRunAt = now;
   s.lastStatus = result.ok ? 'ok' : 'error';
   if (result.sessionId) s.lastSessionId = result.sessionId;
+  if (!advanceNext) {
+    s.updatedAt = now;
+    await persist();
+    return;
+  }
   // +1s so a recurring cron doesn't recompute the slot we just fired and
   // re-fire it on the next tick. A run slower than ~55s on a per-minute cron
   // could skip a slot; acceptable for v1.

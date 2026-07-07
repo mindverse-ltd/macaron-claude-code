@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import type { ScheduleInput, SessionKind } from '@macaron/shared';
 import {
   readSchedules,
@@ -12,6 +14,12 @@ import { fireSchedule } from '../lib/scheduler.js';
 
 type IdParams = { id: string };
 type Body = Partial<ScheduleInput>;
+
+async function assertRunnableCwd(cwd: string): Promise<void> {
+  if (!path.isAbsolute(cwd)) throw new Error('cwd must be an absolute path');
+  const st = await fs.stat(cwd).catch(() => null);
+  if (!st?.isDirectory()) throw new Error('cwd must be an existing directory');
+}
 
 function normalizeInput(b: Body): ScheduleInput | null {
   const name = String(b.name || '').trim();
@@ -36,27 +44,41 @@ export async function registerScheduleRoutes(app: FastifyInstance): Promise<void
     const input = normalizeInput(req.body || {});
     if (!input) return reply.status(400).send({ error: 'name, prompt, cwd and pattern are required' });
     try {
+      await assertRunnableCwd(input.cwd);
       return await createSchedule(input);
     } catch (e) {
-      return reply.status(400).send({ error: `invalid pattern: ${(e as Error).message}` });
+      return reply.status(400).send({ error: (e as Error).message });
     }
   });
 
   app.put<{ Params: IdParams; Body: Body }>('/api/schedules/:id', async (req, reply) => {
     const b = req.body || {};
     const patch: Body = {};
-    if (typeof b.name === 'string') patch.name = b.name.trim();
-    if (typeof b.prompt === 'string') patch.prompt = b.prompt.trim();
-    if (typeof b.cwd === 'string') patch.cwd = b.cwd.trim();
-    if (typeof b.pattern === 'string') patch.pattern = b.pattern.trim();
+    if (typeof b.name === 'string') {
+      patch.name = b.name.trim();
+      if (!patch.name) return reply.status(400).send({ error: 'name required' });
+    }
+    if (typeof b.prompt === 'string') {
+      patch.prompt = b.prompt.trim();
+      if (!patch.prompt) return reply.status(400).send({ error: 'prompt required' });
+    }
+    if (typeof b.cwd === 'string') {
+      patch.cwd = b.cwd.trim();
+      if (!patch.cwd) return reply.status(400).send({ error: 'cwd required' });
+    }
+    if (typeof b.pattern === 'string') {
+      patch.pattern = b.pattern.trim();
+      if (!patch.pattern) return reply.status(400).send({ error: 'pattern required' });
+    }
     if (b.engine === 'claude' || b.engine === 'codex') patch.engine = b.engine;
     if (typeof b.oneShot === 'boolean') patch.oneShot = b.oneShot;
     try {
+      if (patch.cwd !== undefined) await assertRunnableCwd(patch.cwd);
       const updated = await updateSchedule(req.params.id, patch);
       if (!updated) return reply.status(404).send({ error: 'schedule not found' });
       return updated;
     } catch (e) {
-      return reply.status(400).send({ error: `invalid pattern: ${(e as Error).message}` });
+      return reply.status(400).send({ error: (e as Error).message });
     }
   });
 
@@ -83,7 +105,8 @@ export async function registerScheduleRoutes(app: FastifyInstance): Promise<void
   app.post<{ Params: IdParams }>('/api/schedules/:id/run-now', async ({ params }, reply) => {
     const s = getSchedule(params.id);
     if (!s) return reply.status(404).send({ error: 'schedule not found' });
-    void fireSchedule(s, false);
-    return { ok: true };
+    const result = await fireSchedule(s, false);
+    if (!result.ok) return reply.status(result.error === 'schedule already running' ? 409 : 500).send({ error: result.error || 'schedule run failed' });
+    return { ok: true, sessionId: result.sessionId };
   });
 }

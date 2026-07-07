@@ -18,55 +18,76 @@ const TICK_MS = 30_000;
 // next tick arrives (and against run-now racing the tick).
 const inFlight = new Set<string>();
 
+type FireResult = { ok: boolean; sessionId: string | null; error?: string };
+
 // Drain a runner stream to completion. For claude, mirror the live-registry
 // wiring from routes/workspaces.ts so an open Session tile streams the fired
-// run live and it lands where the WebUI reads sessions. Returns the sid.
-async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): Promise<string> {
+// run live and it lands where the WebUI reads sessions. Returns the sid plus
+// whether the runner actually completed cleanly.
+async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): Promise<FireResult> {
   const isClaude = schedule.engine === 'claude';
   let sid = '';
-  for await (const ev of stream) {
-    if (ev.kind === 'session' && !sid) {
-      sid = ev.sessionId;
-      if (isClaude) {
-        liveStart(sid, { cwd: schedule.cwd });
-        livePush(sid, { type: 'user-text', text: schedule.prompt });
+  let ok = true;
+  let sawDone = false;
+  try {
+    for await (const ev of stream) {
+      if (ev.kind === 'session' && !sid) {
+        sid = ev.sessionId;
+        if (isClaude) {
+          liveStart(sid, { cwd: schedule.cwd });
+          livePush(sid, { type: 'user-text', text: schedule.prompt });
+        }
+      } else if (!isClaude) {
+        if (ev.kind === 'error') ok = false;
+        else if (ev.kind === 'done') {
+          sawDone = true;
+          if (ev.exitCode !== 0) ok = false;
+          if (sid) endRun(sid);
+        }
+        continue; // codex rollout file is picked up on refresh — no live wiring
+      } else if (ev.kind === 'delta') {
+        if (sid) livePush(sid, { type: 'delta', text: ev.text });
+      } else if (ev.kind === 'tool_use') {
+        if (sid) livePush(sid, { type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
+      } else if (ev.kind === 'tool_input_delta') {
+        if (sid) livePush(sid, { type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
+      } else if (ev.kind === 'tool_input_done') {
+        if (sid) livePush(sid, { type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
+      } else if (ev.kind === 'tool_result') {
+        if (sid) livePush(sid, { type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
+      } else if (ev.kind === 'usage') {
+        if (sid) livePush(sid, { type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
+      } else if (ev.kind === 'message') {
+        if (sid) livePush(sid, { type: 'event', event: 'system', subtype: ev.subtype });
+      } else if (ev.kind === 'error') {
+        ok = false;
+        if (sid) livePush(sid, { type: 'error', error: ev.error });
+      } else if (ev.kind === 'done') {
+        sawDone = true;
+        if (ev.exitCode !== 0) ok = false;
+        if (sid) { liveEnd(sid, { type: 'done', exitCode: ev.exitCode }); endRun(sid); }
       }
-    } else if (!isClaude) {
-      continue; // codex rollout file is picked up on refresh — no live wiring
-    } else if (ev.kind === 'delta') {
-      if (sid) livePush(sid, { type: 'delta', text: ev.text });
-    } else if (ev.kind === 'tool_use') {
-      if (sid) livePush(sid, { type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
-    } else if (ev.kind === 'tool_input_delta') {
-      if (sid) livePush(sid, { type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
-    } else if (ev.kind === 'tool_input_done') {
-      if (sid) livePush(sid, { type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
-    } else if (ev.kind === 'tool_result') {
-      if (sid) livePush(sid, { type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-    } else if (ev.kind === 'usage') {
-      if (sid) livePush(sid, { type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-    } else if (ev.kind === 'message') {
-      if (sid) livePush(sid, { type: 'event', event: 'system', subtype: ev.subtype });
-    } else if (ev.kind === 'error') {
-      if (sid) livePush(sid, { type: 'error', error: ev.error });
-    } else if (ev.kind === 'done') {
-      if (sid) { liveEnd(sid, { type: 'done', exitCode: ev.exitCode }); endRun(sid); }
+    }
+  } finally {
+    if (sid && !sawDone) {
+      if (isClaude) liveEnd(sid, { type: 'done', exitCode: -1 });
+      endRun(sid);
     }
   }
-  return sid;
+  return { ok, sessionId: sid || null };
 }
 
 // Fire a schedule now. Shared by the tick and the run-now route. Never throws —
 // records lastStatus and advances nextRunAt via recordRun.
-export async function fireSchedule(schedule: Schedule, advance = true): Promise<void> {
-  if (inFlight.has(schedule.id)) return;
+export async function fireSchedule(schedule: Schedule, advance = true): Promise<FireResult> {
+  if (inFlight.has(schedule.id)) return { ok: false, sessionId: null, error: 'schedule already running' };
   inFlight.add(schedule.id);
   try {
     // cwd may have been deleted/renamed since the schedule was created.
     const st = await fs.stat(schedule.cwd).catch(() => null);
     if (!st?.isDirectory()) {
-      if (advance) await recordRun(schedule.id, { sessionId: null, ok: false });
-      return;
+      await recordRun(schedule.id, { sessionId: null, ok: false }, advance);
+      return { ok: false, sessionId: null, error: 'working directory not found' };
     }
     const abortController = new AbortController();
     let stream: AsyncGenerator<RunnerEvent>;
@@ -89,11 +110,14 @@ export async function fireSchedule(schedule: Schedule, advance = true): Promise<
         yield ev;
       }
     })();
-    const sid = await drain(schedule, wrapped);
-    if (advance) await recordRun(schedule.id, { sessionId: sid || null, ok: true });
+    const result = await drain(schedule, wrapped);
+    await recordRun(schedule.id, { sessionId: result.sessionId, ok: result.ok }, advance);
+    return result;
   } catch (err) {
-    console.error(`[scheduler] fire failed for ${schedule.id}:`, (err as Error).message);
-    if (advance) await recordRun(schedule.id, { sessionId: null, ok: false });
+    const msg = (err as Error).message;
+    console.error(`[scheduler] fire failed for ${schedule.id}:`, msg);
+    await recordRun(schedule.id, { sessionId: null, ok: false }, advance);
+    return { ok: false, sessionId: null, error: msg };
   } finally {
     inFlight.delete(schedule.id);
   }
