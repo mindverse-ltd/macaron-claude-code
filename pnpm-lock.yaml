@@ -171,6 +171,9 @@ importers:
       motion:
         specifier: ^12.42.0
         version: 12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      partial-json:
+        specifier: ^0.1.7
+        version: 0.1.7
       partial-react:
         specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556
         version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -2672,6 +2675,9 @@ packages:
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
+
+  partial-json@0.1.7:
+    resolution: {integrity: sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==}
 
   partial-react@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556:
     resolution: {integrity: sha512-H6aJbzDzIlKBPZTBOantTxqushx5rZLuNFFLqLfvhOZ5fyOCf9wqbvSR2EdwouBsZ33j2rW2TJ8yb7djBUf0XQ==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556}
@@ -5839,6 +5845,8 @@ snapshots:
       is-hexadecimal: 2.0.1
 
   parseurl@1.3.3: {}
+
+  partial-json@0.1.7: {}
 
   partial-react@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
