@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
-import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
+import { makeAuthHook, redactTokenInUrl, resolveToken, setArmedToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { checkGenUI } from './lib/genui-check.js';
@@ -63,13 +63,15 @@ process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
 // Gate the API/relay behind a shared token when the server is reachable from
 // the network. resolveToken auto-generates one when bound to a non-loopback
-// host with no token set, so an exposed server is never wide open.
+// host with no token set; seed it into the module-level armed slot so the hook
+// and a later tunnel-start share one live secret.
 const { token: authToken, generated: authGenerated } = resolveToken(HOST, AUTH_TOKEN);
-app.addHook('onRequest', makeAuthHook(authToken));
+setArmedToken(authToken);
+app.addHook('onRequest', makeAuthHook());
 
 await app.register(async (instance) => {
   await registerHealthRoutes(instance);
-  await registerAuthRoutes(instance, authToken);
+  await registerAuthRoutes(instance);
   await registerSettingsRoutes(instance);
   await registerRelayRoutes(instance);
   await registerTunnelRoutes(instance);

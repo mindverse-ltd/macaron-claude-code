@@ -99,4 +99,8 @@ export type TunnelState = {
   url: string | null;
   startedAt: number | null;
   error: string | null;
+  // The access token the tunnel armed, so the UI can build a ?token= share link
+  // that unlocks on first load. null when auth was already configured out-of-band
+  // (env token) — the operator shares that secret themselves.
+  token: string | null;
 };

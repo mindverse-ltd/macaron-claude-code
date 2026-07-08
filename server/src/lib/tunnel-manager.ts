@@ -11,6 +11,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import type { TunnelProvider, TunnelState } from '@macaron/shared';
 import { PORT } from '../config.js';
+import { ensureArmedToken, getArmedToken } from './auth.js';
 
 type ProviderSpec = {
   bin: string;
@@ -67,10 +68,15 @@ function resolveBinary(bin: string): string | null {
 }
 
 let proc: ChildProcess | null = null;
-let state: TunnelState = { status: 'stopped', provider: null, url: null, startedAt: null, error: null };
+// Internal state omits `token` — it's derived from the live armed token only
+// when running, so getTunnelState() is the single place that attaches it.
+type TunnelCore = Omit<TunnelState, 'token'>;
+let state: TunnelCore = { status: 'stopped', provider: null, url: null, startedAt: null, error: null };
 
 export function getTunnelState(): TunnelState {
-  return { ...state };
+  // Surface the armed token alongside a live URL so the UI can build a ?token=
+  // share link that unlocks on first load; nothing to share when not running.
+  return { ...state, token: state.status === 'running' ? getArmedToken() || null : null };
 }
 
 export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
@@ -83,6 +89,12 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
     state = { status: 'error', provider, url: null, startedAt: null, error: `${spec.bin} not found — install it (${spec.installUrl}) and retry` };
     return Promise.reject(new Error(state.error!));
   }
+
+  // Arm a token before the port is exposed: a tunnel forwards public traffic to
+  // localhost, which the auth hook would otherwise wave through as loopback, so
+  // exposing an auth-off server would be wide open. ensureArmedToken generates
+  // one only if none is configured; an existing (env / auto-gen) token is kept.
+  ensureArmedToken();
 
   state = { status: 'starting', provider, url: null, startedAt: Date.now(), error: null };
 
@@ -118,7 +130,7 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
       settled = true;
       clearTimeout(timer);
       state = { status: 'running', provider, url, startedAt: state.startedAt, error: null };
-      resolve({ ...state });
+      resolve(getTunnelState());
     };
     child.stdout?.on('data', onChunk);
     child.stderr?.on('data', onChunk);
@@ -160,7 +172,7 @@ export function startTunnel(provider: TunnelProvider): Promise<TunnelState> {
 export function stopTunnel(): TunnelState {
   shutdownTunnel();
   state = { status: 'stopped', provider: null, url: null, startedAt: null, error: null };
-  return { ...state };
+  return getTunnelState();
 }
 
 export function shutdownTunnel(): void {

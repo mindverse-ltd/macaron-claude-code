@@ -398,6 +398,11 @@ function RemoteAccess() {
   const status = state?.status ?? 'stopped';
   const live = status === 'running' && state?.url;
   const starting = status === 'starting';
+  // The tunnel arms an access token; fold it into the shared URL as ?token= so
+  // the first load unlocks itself (consumeTokenFromUrl strips it after storing).
+  const shareUrl = live && state?.url
+    ? (state.token ? `${state.url}/?token=${encodeURIComponent(state.token)}` : state.url)
+    : '';
 
   return (
     <div className="settings-section">
@@ -445,20 +450,22 @@ function RemoteAccess() {
           {live && state?.url && (
             <div className="tunnel-live">
               <div className="tunnel-url-row">
-                <a className="tunnel-url" href={state.url} target="_blank" rel="noreferrer">{state.url}</a>
+                <a className="tunnel-url" href={shareUrl} target="_blank" rel="noreferrer">{state.url}</a>
                 <button
                   type="button"
                   className="ghost small"
-                  onClick={() => { navigator.clipboard.writeText(state.url!); toast('URL copied'); }}
+                  onClick={() => { navigator.clipboard.writeText(shareUrl); toast('URL copied'); }}
                 >
                   Copy
                 </button>
               </div>
               <div className="tunnel-qr">
-                <QRCodeSVG value={state.url} size={148} marginSize={2} />
+                <QRCodeSVG value={shareUrl} size={148} marginSize={2} />
               </div>
-              <div className="settings-hint bad">
-                <strong>Anyone with this URL can drive your Claude Code sessions.</strong> There is no auth on the tunnel yet — only share it with people you trust, and stop it when you're done.
+              <div className="settings-hint">
+                {state.token
+                  ? <><strong>This link embeds an access token</strong> — anyone you share it with can drive your Claude Code sessions. Share it only with people you trust, and stop the tunnel when you're done.</>
+                  : <><strong>This server already requires its access token.</strong> Share the URL together with that token, and stop the tunnel when you're done.</>}
               </div>
             </div>
           )}
