@@ -8,13 +8,13 @@ Start the Macaron WebUI server. The port defaults to 7878; the user may pass an 
 
 The plugin ships prebuilt (`web/dist/` and `server/dist/` are committed). `start.sh` handles port collisions, installs runtime deps only if missing (~10s one-off), and prints the URL. **Do NOT** rm node_modules, run npm install, run npm run build, or otherwise "prepare" the plugin before invoking `start.sh` — it does everything it needs internally. Just call it.
 
-Run exactly this and nothing else:
+Run exactly this and nothing else. `MACARON_ENGINE=claude` is explicit so a stray shell export (e.g. from a prior Codex-side session) can't flip the WebUI to the wrong engine:
 
 ```bash
-MACARON_PORT="${1:-7878}" bash "${CLAUDE_PLUGIN_ROOT}/start.sh"
+MACARON_ENGINE=claude MACARON_PORT="${1:-7878}" bash "${CLAUDE_PLUGIN_ROOT}/start.sh"
 ```
 
-If `$1` is empty, run `bash "${CLAUDE_PLUGIN_ROOT}/start.sh"`.
+If `$1` is empty, run `MACARON_ENGINE=claude bash "${CLAUDE_PLUGIN_ROOT}/start.sh"`.
 
 After the server prints `Macaron WebUI (engine=claude): http://localhost:<port>`, run `open "http://localhost:<port>"` to launch the browser, then quote the URL verbatim to the user (don't paraphrase it) and briefly summarize what's there:
 
