@@ -47,7 +47,7 @@ function frontmatterValue(value: string): string {
 // Split a raw .md into { frontmatter lines, body }. Missing/blank frontmatter
 // yields empty maps so a hand-written file without `---` fences still loads
 // (body-only = system prompt with no metadata).
-function parse(raw: string, name: string): AgentFile {
+export function parse(raw: string, name: string): AgentFile {
   const fm: Record<string, string> = {};
   const lists: Record<string, string[]> = {};
   let body = raw;
@@ -75,21 +75,32 @@ function parse(raw: string, name: string): AgentFile {
     .map((t) => t.trim().replace(/^["']|["']$/g, ''))
     .filter(Boolean);
   const tools = lists.tools?.length ? lists.tools.filter(Boolean) : inlineTools;
+  // Any scalar frontmatter key the UI doesn't own (e.g. permissionMode) is kept
+  // verbatim so a UI edit round-trips it instead of silently dropping it. Raw
+  // value, not readScalar()'d, so serialize() re-emits it byte-for-byte.
+  const known = new Set(['name', 'description', 'tools', 'model']);
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fm)) if (!known.has(k)) extra[k] = v;
   return {
     name,
     description: readScalar(fm.description),
     tools,
     model: readScalar(fm.model),
     prompt: body.replace(/^\r?\n/, ''),
+    ...(Object.keys(extra).length ? { extra } : {}),
   };
 }
 
-// Re-emit frontmatter + body. Only writes keys the UI owns; `tools` is dropped
-// when empty so the agent inherits all tools (Claude Code's default).
-function serialize(a: AgentFile): string {
+// Re-emit frontmatter + body. Writes the UI-owned keys plus any passthrough
+// keys parse() kept; `tools` is dropped when empty so the agent inherits all
+// tools (Claude Code's default).
+export function serialize(a: AgentFile): string {
   const lines = ['---', `name: ${a.name}`, `description: ${frontmatterValue(a.description)}`];
   if (a.tools.length) lines.push(`tools: ${a.tools.join(', ')}`);
   if (a.model) lines.push(`model: ${frontmatterValue(a.model)}`);
+  // Re-emit any passthrough keys the UI doesn't own, verbatim, so an edit that
+  // touches only known fields never drops them (e.g. permissionMode).
+  for (const [k, v] of Object.entries(a.extra ?? {})) lines.push(`${k}: ${v}`);
   lines.push('---', '');
   // Normalise both ends of the body so a no-op re-save is idempotent.
   // Without trimming the trailing newline, every save appends one more

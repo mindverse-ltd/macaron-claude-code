@@ -71,6 +71,7 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       tools: b.tools === undefined ? cur.tools : normalizeTools(b.tools),
       model: typeof b.model === 'string' ? b.model.trim() : cur.model,
       prompt: typeof b.prompt === 'string' ? b.prompt : cur.prompt,
+      extra: cur.extra,
     };
     try {
       await writeAgent(next);

@@ -96,6 +96,9 @@ export type AgentFile = {
   tools: string[];
   model: string;
   prompt: string;
+  // Frontmatter keys the UI doesn't model (e.g. permissionMode), preserved
+  // verbatim across an edit so a UI save never silently drops them.
+  extra?: Record<string, string>;
 };
 
 export type AgentsResponse = { agents: AgentFile[] };
