@@ -71,4 +71,11 @@ export type RunOptions = {
     envOverrides?: Record<string, string> | null;
 };
 export declare function runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent>;
+export type FollowupOptions = {
+    resume: string;
+    cwd: string;
+    model?: string;
+    envOverrides?: Record<string, string> | null;
+};
+export declare function runFollowup(opts: FollowupOptions): AsyncGenerator<string>;
 //# sourceMappingURL=claude-runner.d.ts.map

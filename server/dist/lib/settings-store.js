@@ -44,6 +44,7 @@ function makeDefaults() {
         // switch to it, or delete it. Same UX as any other custom provider.
         customProviders: [seedMacaronProvider()],
         yoloMode: false,
+        followupSuggestions: false,
     };
 }
 function normalizeActiveId(id) {
@@ -61,6 +62,7 @@ function migrateIfLegacy(raw) {
             activeProviderId: normalizeActiveId(legacy.activeProviderId || SYSTEM_PROVIDER_ID),
             customProviders: legacy.customProviders.map(sanitizeProvider),
             yoloMode: Boolean(legacy.yoloMode),
+            followupSuggestions: Boolean(legacy.followupSuggestions),
         };
     }
     // Legacy: rebuild
@@ -76,6 +78,7 @@ function migrateIfLegacy(raw) {
         activeProviderId: wasMacaronActive ? macaron.id : SYSTEM_PROVIDER_ID,
         customProviders: [macaron],
         yoloMode: Boolean(legacy?.yoloMode),
+        followupSuggestions: Boolean(legacy?.followupSuggestions),
     };
 }
 function sanitizeProvider(p) {
@@ -136,6 +139,7 @@ export async function readPublicSettings() {
             configured: Boolean(p.apiKey),
         })),
         yoloMode: s.yoloMode,
+        followupSuggestions: s.followupSuggestions,
     };
 }
 // ---------- CRUD --------------------------------------------------------
@@ -257,6 +261,14 @@ export function getYoloMode() {
 export async function setYoloMode(enabled) {
     const s = await readSettings();
     s.yoloMode = Boolean(enabled);
+    await persist();
+}
+export function getFollowupSuggestionsEnabled() {
+    return (cache ?? makeDefaults()).followupSuggestions ?? false;
+}
+export async function setFollowupSuggestionsEnabled(enabled) {
+    const s = await readSettings();
+    s.followupSuggestions = Boolean(enabled);
     await persist();
 }
 export function getActiveProviderEnv() {

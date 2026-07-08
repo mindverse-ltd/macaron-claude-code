@@ -1,10 +1,8 @@
-import path from 'node:path';
-import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, deleteSession, duplicateSession, readSessionMessages, readSessionSummary, rewindSession, writeCompactedSession, } from '../lib/session-store.js';
+import { deleteSession, duplicateSession, readSessionMessages, resolveSessionCwd, rewindSession, writeCompactedSession, } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveGet } from '../lib/live-registry.js';
-import { runClaude } from '../lib/claude-runner.js';
-import { getActiveProviderEnv, getActiveProviderRaw } from '../lib/settings-store.js';
+import { runClaude, runFollowup } from '../lib/claude-runner.js';
+import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
 export async function registerSessionRoutes(app) {
@@ -191,6 +189,38 @@ export async function registerSessionRoutes(app) {
         ls.subs.add(reply);
         reply.raw.on('close', () => ls.subs.delete(reply));
     });
+    // Proactive follow-ups for an already-idle session: resume + runFollowup
+    // with NO main turn, so merely opening a finished conversation surfaces
+    // suggestions too — not only the instant a turn ends. Same cache-hit prefix
+    // as the post-turn path. Best-effort; gated on the global toggle.
+    app.post('/api/sessions/claude/:project/:sid/followups', async ({ params }, reply) => {
+        const { project, sid } = params;
+        startSSE(reply);
+        if (!getFollowupSuggestionsEnabled()) {
+            sseDone(reply);
+            return;
+        }
+        const cwd = await resolveSessionCwd(project, sid);
+        const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
+        let clientGone = false;
+        reply.raw.on('close', () => { clientGone = true; });
+        try {
+            for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+                if (clientGone)
+                    break;
+                try {
+                    sseSend(reply, { type: 'followup_delta', text: delta });
+                }
+                catch {
+                    clientGone = true;
+                    break;
+                }
+            }
+        }
+        catch { /* swallow: follow-up is enrichment, never fatal */ }
+        if (!clientGone)
+            sseDone(reply);
+    });
     // Send a message into an existing session (`claude -p --resume <sid>`).
     app.post('/api/sessions/claude/:project/:sid/message', async (req, reply) => {
         const { project, sid } = req.params;
@@ -201,21 +231,9 @@ export async function registerSessionRoutes(app) {
         if (!text && images.length === 0) {
             return reply.status(400).send({ error: 'text or images required' });
         }
-        // Prefer the cwd embedded in the jsonl's first `user`/etc line, but
-        // that read is capped at HEAD_BYTES — a big paste on the first line
-        // pushes cwd out of range and we'd silently fall back to $HOME, which
-        // makes the SDK look under the wrong project dir and error with "No
-        // conversation found". The project name IS the cwd (encoded by
-        // claude-cli), so use it as the safe default.
-        let cwd = decodeClaudeProjectName(project) || process.env.HOME || '/tmp';
-        try {
-            const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
-            if (head?.cwd)
-                cwd = head.cwd;
-        }
-        catch {
-            /* fall back to decoded project name */
-        }
+        // Prefer the cwd embedded in the jsonl's first line, else the decoded
+        // project name (which claude-cli derives from the cwd).
+        const cwd = await resolveSessionCwd(project, sid);
         startSSE(reply);
         sseSend(reply, { type: 'meta', cwd, sessionId: sid });
         let clientGone = false;
@@ -266,6 +284,27 @@ export async function registerSessionRoutes(app) {
                 else if (ev.kind === 'done') {
                     safeSend({ type: 'done', exitCode: ev.exitCode });
                     endRun(sid);
+                    // After the main turn: stream a throwaway follow-up-suggestions
+                    // query resuming the same session (shared prefix → provider cache
+                    // hit, near-free). persistSession:false keeps it off disk. Each
+                    // text delta is forwarded as a `followup_delta` event; the WebUI
+                    // accumulates + parses incrementally with partial-json. Best-effort
+                    // — any failure is swallowed, never blocks the turn's close.
+                    // Only on a clean finish (exitCode 0): a Stop (abort → -1) or a
+                    // mid-turn error must stay byte-identical to pre-feature behavior,
+                    // never spinning up a follow-up query on an aborted transcript.
+                    if (!clientGone && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+                        try {
+                            for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+                                if (clientGone)
+                                    break;
+                                safeSend({ type: 'followup_delta', text: delta });
+                            }
+                        }
+                        catch {
+                            /* swallow: follow-up is enrichment, never fatal */
+                        }
+                    }
                     if (!clientGone)
                         sseDone(reply);
                 }

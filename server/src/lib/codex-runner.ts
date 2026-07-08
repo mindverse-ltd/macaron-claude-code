@@ -130,6 +130,13 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
     // global bypass) so only our stdio bridge gets the pass, not any
     // third-party MCP the user might add elsewhere.
     'mcp_servers.macaron.default_tools_approval_mode': 'approve',
+    // Enable network egress from the codex process. Under `workspace-write`
+    // (our default) codex disables outbound network by default; that broke
+    // any exec_command that needed curl/wget/git fetch, including the
+    // GenUI-builder skill's optional `curl https://genui.macaron.im/...`
+    // probe. Users can still lock this down by setting the runtime
+    // sandboxMode to `read-only`, which supersedes this key.
+    network_access: 'enabled',
   } satisfies CodexOptions['config'];
 
   if (!p) {
@@ -155,7 +162,7 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
       // Flattened into `--config key=value` args by the SDK. Mirrors what
       // the user would put in ~/.codex/config.toml for CLI use.
       config: {
-        ...mcpConfig,
+        ...mcpConfig, // network_access + macaron MCP already in here
         model_provider: p.modelProvider,
         model: p.model,
         review_model: p.model,
@@ -163,7 +170,6 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
         model_context_window: p.contextWindow,
         model_auto_compact_token_limit: p.autoCompactTokenLimit,
         disable_response_storage: p.disableResponseStorage,
-        network_access: 'enabled',
         // The bearer_token pathway; the SDK also sets OPENAI_API_KEY.
         [`model_providers.${p.modelProvider}.name`]: p.modelProvider,
         [`model_providers.${p.modelProvider}.base_url`]: p.baseUrl,
