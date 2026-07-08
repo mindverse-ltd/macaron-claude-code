@@ -160,7 +160,7 @@ export const api = {
       body: JSON.stringify({ project, sid }),
     }),
   sharedSession: (token: string) =>
-    getJSON<SharedSessionResponse>(`/api/share/${encodeURIComponent(token)}`),
+    getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
 };
 
 export function basename(p: string): string {

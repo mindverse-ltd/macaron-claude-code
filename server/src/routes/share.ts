@@ -25,9 +25,10 @@ export async function registerShareRoutes(app: FastifyInstance): Promise<void> {
     return { ok };
   });
 
-  // Public read: resolve token → session snapshot. No gating — the token IS
-  // the capability, and the server is 127.0.0.1-bound.
-  app.get<{ Params: TokenParams }>('/api/share/:token', async ({ params }, reply) => {
+  // Public read: resolve token → session snapshot. Lives under /api/public/ so
+  // the auth gate lets it through unauthenticated — the token IS the capability.
+  // Create/revoke above stay on /api/share and remain gated (owner-only).
+  app.get<{ Params: TokenParams }>('/api/public/share/:token', async ({ params }, reply) => {
     const entry = await resolveShare(params.token);
     if (!entry) return reply.status(404).send({ error: 'share not found' });
     try {
