@@ -156,8 +156,9 @@ export async function streamSession(
           // (it's idempotent).
           else if (p.type === 'done') h.onDone?.();
           else if (p.type === 'followup_delta') h.onFollowupDelta?.(p.text);
-      } catch {
-        /* ignore */
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch (e) {
