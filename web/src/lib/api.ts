@@ -8,6 +8,10 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  ConfigFileId,
+  ConfigFileFormat,
+  ConfigFileMeta,
+  ConfigFile,
   FileEntry,
   FileListResponse,
   FileReadResponse,
@@ -18,6 +22,9 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  ConfigFileId,
+  ConfigFileMeta,
+  ConfigFile,
   FileListResponse,
   FileReadResponse,
 } from '@macaron/shared';
@@ -55,6 +62,27 @@ export type ProviderInput = {
   endpoint: string;
   model: string;
   apiKey?: string;
+};
+
+export type McpTransport = 'stdio' | 'http' | 'sse';
+export type PublicMcpServer = {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  alwaysLoad?: boolean;
+};
+export type McpServerInput = {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
 };
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
@@ -101,6 +129,39 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }),
+  mcpServers: () => getJSON<{ servers: PublicMcpServer[] }>('/api/mcp/servers'),
+  addMcpServer: (input: McpServerInput) =>
+    req<{ servers: PublicMcpServer[] }>('/api/mcp/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateMcpServer: (name: string, input: McpServerInput) =>
+    req<{ servers: PublicMcpServer[] }>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteMcpServer: (name: string) =>
+    req<{ servers: PublicMcpServer[] }>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+  configFiles: () => getJSON<{ files: ConfigFileMeta[] }>('/api/config-files'),
+  configFile: (id: ConfigFileId) => getJSON<ConfigFile>(`/api/config-files/${id}`),
+  saveConfigFile: async (id: ConfigFileId, content: string): Promise<ConfigFile> => {
+    const r = await fetch(`/api/config-files/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!r.ok) {
+      // Surface the server's validation message (e.g. "Invalid JSON: …")
+      // verbatim so the editor can show it inline.
+      const body = (await r.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error || `http ${r.status}`);
+    }
+    return r.json() as Promise<ConfigFile>;
+  },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
