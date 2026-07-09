@@ -11,12 +11,10 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
-import { handleRenderUI, RENDER_UI_TOOL_DESCRIPTION } from './lib/macaron-render-tool.js';
+import { handleRenderUI, RENDER_UI_INSTRUCTIONS, RENDER_UI_TOOL_DESCRIPTION, } from './lib/macaron-render-tool.js';
 const server = new Server({ name: 'macaron', version: '0.2.0' }, {
     capabilities: { tools: {} },
-    instructions: 'Macaron GenUI bridge. The render_ui tool inlines a TSX component into the conversation. ' +
-        'YOU author the code field with a complete TSX module using $macaron/ui. The user already sees ' +
-        'the rendered UI when render_ui returns — do NOT paste, quote, or summarize the code in your reply.',
+    instructions: RENDER_UI_INSTRUCTIONS,
 });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
