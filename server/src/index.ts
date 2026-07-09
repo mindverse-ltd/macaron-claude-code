@@ -18,6 +18,7 @@ import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerHooksRoutes } from './routes/hooks.js';
+import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
@@ -57,6 +58,7 @@ await app.register(async (instance) => {
   await registerAuthRoutes(instance, authToken);
   await registerSettingsRoutes(instance);
   await registerHooksRoutes(instance);
+  await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
