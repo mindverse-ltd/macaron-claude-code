@@ -10,13 +10,16 @@
 import { extractPartialCode } from './partialJson';
 import { authedFetch } from './auth';
 
+const DIFF_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'str_replace', 'str_replace_editor', 'str_replace_based_edit_tool']);
+const isDiffTool = (name: string) => DIFF_TOOLS.has(name);
+
 // A single item on the timeline. Text chunks and tool calls are stored in
 // one ordered list so the UI renders them in the exact interleaved order
 // they arrive (Claude often emits `text → tool → text → tool → text`, and
 // separating them makes the render look re-ordered).
 export type LiveTurnItem =
   | { kind: 'text'; id: string; text: string }
-  | { kind: 'tool'; id: string; name: string; input: unknown; result?: string }
+  | { kind: 'tool'; id: string; name: string; input: unknown; result?: string; isError?: boolean }
   | {
       kind: 'genui';
       id: string;
@@ -223,6 +226,15 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                       notify(sid);
                     }
                   } catch { /* tolerate */ }
+                } else if (s && isDiffTool(p.name)) {
+                  try {
+                    const obj = JSON.parse(p.final_json);
+                    const t = s.timeline.find((x) => x.kind === 'tool' && x.id === `live-${p.id}`);
+                    if (t && t.kind === 'tool') {
+                      t.input = obj;
+                      notify(sid);
+                    }
+                  } catch { /* tolerate */ }
                 }
               } else if (sid && p.type === 'tool_result') {
                 const s = states.get(sid);
@@ -232,7 +244,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                     (x.kind === 'tool' && x.id === `live-${p.tool_use_id}`),
                   );
                   if (t) {
-                    if (t.kind === 'tool') t.result = p.text;
+                    if (t.kind === 'tool') { t.result = p.text; t.isError = Boolean(p.isError); }
                     else if (t.kind === 'genui') {
                       if (p.isError || String(p.text).startsWith('render_ui failed:')) {
                         t.status = 'error';
