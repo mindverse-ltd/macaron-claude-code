@@ -11,6 +11,9 @@ export type {
   Schedule,
   ScheduleInput,
   SessionKind,
+  FileEntry,
+  FileListResponse,
+  FileReadResponse,
 } from '@macaron/shared';
 
 import type {
@@ -21,6 +24,8 @@ import type {
   Schedule,
   ScheduleInput,
   SchedulesResponse,
+  FileListResponse,
+  FileReadResponse,
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
@@ -177,6 +182,28 @@ export const api = {
     req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
   runScheduleNow: (id: string) =>
     req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}/run-now`, { method: 'POST' }),
+  listFiles: (project: string, path = '') =>
+    getJSON<FileListResponse>(
+      `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,
+    ),
+  readFile: async (project: string, path: string): Promise<FileReadResponse> => {
+    const r = await authedFetch(
+      `/api/files/${encodeURIComponent(project)}/read?path=${encodeURIComponent(path)}`,
+    );
+    if (!r.ok) {
+      // Surface the server's reason (e.g. "binary file", "file too large") so
+      // the editor can show a helpful placeholder instead of "http 415".
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || `http ${r.status}`);
+    }
+    return r.json() as Promise<FileReadResponse>;
+  },
+  writeFile: (project: string, path: string, content: string) =>
+    req<{ ok: true; bytes: number }>(`/api/files/${encodeURIComponent(project)}/write`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    }),
 };
 
 export function basename(p: string): string {
