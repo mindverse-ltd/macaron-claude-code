@@ -9,7 +9,12 @@ import { CodexApp } from './CodexApp';
 import { CodexChat } from './CodexChat';
 import { CodexSettings } from './CodexSettings';
 import { CodexWorkspace } from './CodexWorkspace';
+import { AuthGate } from '../components/AuthGate';
+import { consumeTokenFromUrl } from '../lib/auth';
 import './styles.css';
+
+// Pick up a ?token=... bootstrap from a shared link before anything fetches.
+consumeTokenFromUrl();
 
 const router = createHashRouter([
   {
@@ -27,6 +32,8 @@ const router = createHashRouter([
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <AuthGate>
+      <RouterProvider router={router} />
+    </AuthGate>
   </React.StrictMode>,
 );

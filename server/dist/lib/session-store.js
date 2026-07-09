@@ -13,6 +13,7 @@ export function decodeClaudeProjectName(encoded) {
 // File-keyed mtime cache so we only re-parse jsonl when claude appends to it.
 const summaryCache = new Map();
 const HEAD_BYTES = 96 * 1024;
+const CWD_TAIL_BYTES = 64 * 1024;
 export async function deleteSession(project, sid) {
     const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
     await fs.unlink(filePath);
@@ -207,8 +208,61 @@ export async function readSessionSummary(filePath) {
     catch {
         /* swallow */
     }
+    // cwd sits at the END of each jsonl line (after `message`), so a huge first
+    // paste can push the head's only cwd-bearing line past HEAD_BYTES, truncating
+    // it unparseably. The same cwd repeats on every later line, and trailing lines
+    // are usually small — so when the head read came up empty on a truncated file,
+    // recover cwd (and gitBranch) from a tail read instead.
+    if (summary.truncated && !summary.cwd) {
+        try {
+            const fh = await fs.open(filePath, 'r');
+            try {
+                const len = Math.min(st.size, CWD_TAIL_BYTES);
+                const buf = Buffer.alloc(len);
+                await fh.read(buf, 0, len, st.size - len);
+                const text = buf.toString('utf8');
+                const lines = text.split('\n');
+                // Drop the first slice — it's a partial line cut by the seek offset.
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (!line.trim())
+                        continue;
+                    try {
+                        const o = JSON.parse(line);
+                        if (o.cwd)
+                            summary.cwd = o.cwd;
+                        if (!summary.gitBranch && o.gitBranch)
+                            summary.gitBranch = o.gitBranch;
+                    }
+                    catch {
+                        /* skip malformed line */
+                    }
+                }
+            }
+            finally {
+                await fh.close();
+            }
+        }
+        catch {
+            /* swallow — fall back to decoded project name upstream */
+        }
+    }
     summaryCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, summary });
     return summary;
+}
+// Resolve a session's working directory. The project name IS the cwd (encoded
+// by claude-cli), so it's the safe default — the jsonl's head read is capped at
+// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
+// the decoded name and only override with the embedded cwd when we got one.
+export async function resolveSessionCwd(project, sid) {
+    let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+    try {
+        const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+        if (head?.cwd)
+            cwd = head.cwd;
+    }
+    catch { /* fall back to decoded project name */ }
+    return cwd;
 }
 export async function listAllSessions() {
     let projects;
@@ -286,8 +340,10 @@ export function groupWorkspaces(sessions) {
     return arr;
 }
 const SESSION_TAIL_BYTES = 8 * 1024 * 1024;
-export async function readSessionMessages(project, sid) {
-    const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+// Read a transcript file (tail-truncated if huge) and parse each jsonl line
+// into the shared Message[] shape. Shared by the parent session reader and the
+// subagent (child-session) reader — both persist the same block structure.
+async function parseTranscriptFile(filePath) {
     const st = await fs.stat(filePath);
     let raw;
     let truncated = false;
@@ -419,6 +475,11 @@ export async function readSessionMessages(project, sid) {
             /* skip malformed */
         }
     }
+    return { messages, cwd, gitBranch, truncated, totalBytes: st.size, latestUsage };
+}
+export async function readSessionMessages(project, sid) {
+    const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+    const { messages, cwd, gitBranch, truncated, totalBytes, latestUsage } = await parseTranscriptFile(filePath);
     const [claudeMdCount, mcpCount] = await Promise.all([
         countClaudeMd(cwd),
         countMcpServers(),
@@ -431,10 +492,58 @@ export async function readSessionMessages(project, sid) {
         gitBranch,
         messages,
         truncated,
-        totalBytes: st.size,
+        totalBytes,
         latestUsage,
         claudeMdCount,
         mcpCount,
+    };
+}
+// Subagent (child session) transcripts live next to the parent as
+// `<sid>/subagents/agent-<agentId>.jsonl`, each with an `agent-*.meta.json`
+// sidecar linking it back to the parent's `Agent` tool_use via `toolUseId`.
+export async function listSubagents(project, sid) {
+    const dir = path.join(CLAUDE_PROJECTS, project, sid, 'subagents');
+    let files;
+    try {
+        files = await fs.readdir(dir);
+    }
+    catch {
+        return [];
+    }
+    const out = [];
+    for (const f of files) {
+        if (!f.endsWith('.meta.json'))
+            continue;
+        try {
+            const meta = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'));
+            out.push({
+                agentId: f.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
+                agentType: meta.agentType || '',
+                description: meta.description || '',
+                toolUseId: meta.toolUseId || '',
+            });
+        }
+        catch {
+            /* skip malformed sidecar */
+        }
+    }
+    return out;
+}
+export async function readSubagentMessages(project, sid, agentId) {
+    if (!/^[A-Za-z0-9_-]+$/.test(agentId))
+        throw new Error('invalid subagent id');
+    const filePath = path.join(CLAUDE_PROJECTS, project, sid, 'subagents', `agent-${agentId}.jsonl`);
+    const { messages, cwd, gitBranch, truncated, totalBytes, latestUsage } = await parseTranscriptFile(filePath);
+    return {
+        kind: 'claude',
+        sessionId: agentId,
+        project,
+        cwd,
+        gitBranch,
+        messages,
+        truncated,
+        totalBytes,
+        latestUsage,
     };
 }
 async function countClaudeMd(cwd) {

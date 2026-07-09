@@ -1,4 +1,4 @@
-import type { SessionDetail, SessionListItem, Workspace } from '@macaron/shared';
+import type { SessionDetail, SessionListItem, SubagentInfo, Workspace } from '@macaron/shared';
 export declare function basename(p: string): string;
 export declare function decodeClaudeProjectName(encoded: string): string;
 type SessionSummary = {
@@ -23,8 +23,11 @@ export declare function writeCompactedSession(project: string, sid: string, summ
     kept: number;
 }>;
 export declare function readSessionSummary(filePath: string): Promise<SessionSummary | null>;
+export declare function resolveSessionCwd(project: string, sid: string): Promise<string>;
 export declare function listAllSessions(): Promise<SessionListItem[]>;
 export declare function groupWorkspaces(sessions: SessionListItem[]): Workspace[];
 export declare function readSessionMessages(project: string, sid: string): Promise<SessionDetail>;
+export declare function listSubagents(project: string, sid: string): Promise<SubagentInfo[]>;
+export declare function readSubagentMessages(project: string, sid: string, agentId: string): Promise<SessionDetail>;
 export {};
 //# sourceMappingURL=session-store.d.ts.map
