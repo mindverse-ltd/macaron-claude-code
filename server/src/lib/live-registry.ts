@@ -9,6 +9,7 @@ type LiveSession = {
   events: SessionStreamEvent[];
   subs: Set<FastifyReply>;
   ended: boolean;
+  gc?: NodeJS.Timeout;
 };
 
 const LIVE_RING = 4000;
@@ -16,6 +17,10 @@ const KEEP_AROUND_MS = 60_000;
 const sessions = new Map<string, LiveSession>();
 
 export function liveStart(sid: string, meta: { cwd: string }): void {
+  // A resume on a stable sid (the codex route) can re-liveStart while a prior
+  // turn's liveEnd delete timer is still pending — clear it so the fresh entry
+  // isn't reaped mid-turn.
+  clearTimeout(sessions.get(sid)?.gc);
   sessions.set(sid, {
     events: [{ type: 'meta', cwd: meta.cwd, sessionId: sid }],
     subs: new Set(),
@@ -52,7 +57,9 @@ export function liveEnd(sid: string, payload: SessionStreamEvent): void {
     }
   }
   ls.subs.clear();
-  setTimeout(() => sessions.delete(sid), KEEP_AROUND_MS);
+  // Delete only if this exact entry is still current: a later liveStart on the
+  // same sid installs a fresh entry, and that turn must outlive this timer.
+  ls.gc = setTimeout(() => { if (sessions.get(sid) === ls) sessions.delete(sid); }, KEEP_AROUND_MS);
 }
 
 export function liveGet(sid: string): LiveSession | undefined {

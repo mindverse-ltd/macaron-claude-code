@@ -10,6 +10,7 @@ import type {
   Workspace,
 } from '@macaron/shared';
 import { CLAUDE_PROJECTS, HOME } from '../config.js';
+import { getLabels } from './label-store.js';
 
 export function basename(p: string): string {
   if (!p) return '';
@@ -115,6 +116,63 @@ export async function rewindSession(
   summaryCache.delete(filePath);
   const dropped = droppedRaw.split('\n').filter((l) => l.trim()).length;
   return { dropped, backupPath };
+}
+
+// Fork = the non-destructive twin of rewind. Copy every line *before* the
+// picked message (identified by `uuid`) into a brand-new sid, rewriting the
+// embedded `sessionId` the way duplicateSession does so `claude --resume
+// <newSid>` replays only that prefix. The original session is left untouched,
+// so the user keeps the old branch and gets a fresh one to explore a different
+// path from that point. Cut is exclusive: the picked message is not copied, so
+// the fork opens ready for a new alternative to that turn.
+export async function forkSession(
+  project: string,
+  sid: string,
+  uuid: string,
+): Promise<{ newSid: string; kept: number }> {
+  const srcPath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+  const raw = await fs.readFile(srcPath, 'utf8');
+  const lines = raw.split('\n');
+  let cutIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
+    try {
+      if (JSON.parse(line).uuid === uuid) {
+        cutIdx = i;
+        break;
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  if (cutIdx < 0) {
+    throw new Error(`uuid ${uuid} not found in session`);
+  }
+  const newSid = randomUUID();
+  const destPath = path.join(CLAUDE_PROJECTS, project, `${newSid}.jsonl`);
+  const outLines: string[] = [];
+  for (const line of lines.slice(0, cutIdx)) {
+    if (!line.trim()) {
+      outLines.push(line);
+      continue;
+    }
+    try {
+      const o = JSON.parse(line) as Record<string, unknown>;
+      if (typeof o.sessionId === 'string') o.sessionId = newSid;
+      outLines.push(JSON.stringify(o));
+    } catch {
+      outLines.push(line);
+    }
+  }
+  if (!outLines.some((l) => l.trim())) {
+    throw new Error('nothing to fork before the first message');
+  }
+  let next = outLines.join('\n');
+  if (next && !next.endsWith('\n')) next += '\n';
+  // wx = fail if a file with this uuid already exists (astronomically rare)
+  await fs.writeFile(destPath, next, { encoding: 'utf8', flag: 'wx' });
+  return { newSid, kept: outLines.filter((l) => l.trim()).length };
 }
 
 // Compact = replace the transcript up to now with a single `type: "summary"`
@@ -349,6 +407,7 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
     },
   );
 
+  const labels = await getLabels();
   const summaries = await mapPool(targets, 32, async (t): Promise<SessionListItem | null> => {
     const meta = await readSessionSummary(t.file);
     if (!meta) return null;
@@ -359,6 +418,7 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
       gitBranch: meta.gitBranch || undefined,
       sessionId: t.sid,
       preview: (meta.firstUserText || '').slice(0, 220),
+      label: labels[t.sid],
       messageCount: meta.headLines,
       messageCountSuffix: meta.truncated ? '+' : '',
       mtime: meta.mtime,
@@ -405,7 +465,12 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
 const SESSION_TAIL_BYTES = 8 * 1024 * 1024;
 
 export async function readSessionMessages(project: string, sid: string): Promise<SessionDetail> {
-  const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+  const base = path.resolve(CLAUDE_PROJECTS);
+  const filePath = path.resolve(base, project, `${sid}.jsonl`);
+  // project/sid reach this sink from a JSON body via the share route, where a
+  // `..` segment passes freely; assert the resolved path stays inside the
+  // projects dir so a traversal can't read an arbitrary *.jsonl off disk.
+  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
   const st = await fs.stat(filePath);
   let raw: string;
   let truncated = false;
