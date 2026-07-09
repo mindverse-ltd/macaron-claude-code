@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import {
   THINKING_VERBS,
@@ -1054,7 +1055,7 @@ export function Session(props: SessionProps = {}) {
       bypassPermissions: 'Bypass all',
     };
     const onKey = (e: Event) => {
-      if (!focused) return; // canvas tiles only respond when active
+      if (!focused || hasActiveModal()) return; // canvas tiles only respond when active and no modal is covering them
       const ke = e as unknown as { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void };
       if (ke.key !== 'Tab' || !ke.shiftKey || ke.ctrlKey || ke.metaKey || ke.altKey) return;
       ke.preventDefault();
