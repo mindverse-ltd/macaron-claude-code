@@ -33,6 +33,7 @@ import { unoTheme, unoShortcuts, unoRules } from './macaron-vendor/lib/standalon
 import { App } from './App';
 import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
+import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
 import { Analytics } from './views/Analytics';
 import { ToastProvider } from './components/Toast';
@@ -85,6 +86,7 @@ const router = createHashRouter([
       { path: 'usage', element: <Analytics /> },
       { path: 'settings', element: <Settings /> },
       { path: 'w/:project', element: <Workspace /> },
+      { path: 'w/:project/files', element: <FileExplorer /> },
       { path: 'w/:project/s/:sid', element: <Workspace /> },
     ],
   },
