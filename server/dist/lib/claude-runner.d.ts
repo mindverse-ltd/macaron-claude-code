@@ -42,6 +42,9 @@ export type RunnerEvent = {
     id: string;
     toolName: string;
     input: unknown;
+    suggestion?: {
+        label: string;
+    };
 } | {
     kind: 'permission_resolved';
     id: string;

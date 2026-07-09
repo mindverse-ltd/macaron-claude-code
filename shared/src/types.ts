@@ -24,6 +24,9 @@ export type SessionListItem = {
   gitBranch?: string;
   sessionId: string;
   preview: string;
+  // Generated human-readable label. Codex-only for now (see codex-title.ts);
+  // the sidebar prefers it over `preview` when present.
+  title?: string;
   messageCount: number;
   messageCountSuffix?: string;
   mtime: number;

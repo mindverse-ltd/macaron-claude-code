@@ -1,12 +1,13 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, groupWorkspaces, listAllSessions, readSessionSummary, } from '../lib/session-store.js';
+import { basename, decodeClaudeProjectName, groupWorkspaces, listAllSessions, readSessionSummary, } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, runFollowup } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+import { lookupProjectCwd } from '../lib/project-registry.js';
 export async function registerWorkspaceRoutes(app) {
     app.get('/api/workspaces', async () => {
         const sessions = await listAllSessions();
@@ -15,10 +16,14 @@ export async function registerWorkspaceRoutes(app) {
     app.get('/api/workspaces/:project', async ({ params }) => {
         const sessions = await listAllSessions();
         const mine = sessions.filter((s) => s.project === params.project);
+        // A just-created project has no sessions yet — fall back to the cwd the
+        // wizard registered so the canvas header shows the real path + name
+        // instead of the lossy-encoded project slug.
+        const freshCwd = (await lookupProjectCwd(params.project)) || '';
         const meta = groupWorkspaces(mine)[0] || {
             project: params.project,
-            cwd: '',
-            name: params.project,
+            cwd: freshCwd,
+            name: basename(freshCwd) || params.project,
             sessionCount: 0,
             lastActivity: 0,
             lastSessionId: '',
@@ -37,9 +42,10 @@ export async function registerWorkspaceRoutes(app) {
         // Active provider (from Settings) picks the SDK's backing endpoint.
         // The `model` body field is currently ignored — provider is global.
         const { model, env: providerEnv } = getActiveProviderEnv();
-        // Derive cwd from any existing session in this project, else decode the
-        // project name (which mirrors claude-cli's encoding).
-        let cwd = decodeClaudeProjectName(project);
+        // Derive cwd from any existing session in this project, else the cwd
+        // registered by the New-Project wizard, else decode the project name
+        // (which mirrors claude-cli's encoding but is lossy for fresh dirs).
+        let cwd = (await lookupProjectCwd(project)) || decodeClaudeProjectName(project);
         try {
             const projDir = path.join(CLAUDE_PROJECTS, project);
             const files = await fs.readdir(projDir);
@@ -127,7 +133,7 @@ export async function registerWorkspaceRoutes(app) {
                         livePush(capturedSid, payload);
                 }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
                     if (capturedSid)
                         livePush(capturedSid, payload);
