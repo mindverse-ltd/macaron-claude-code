@@ -85,7 +85,9 @@ export async function registerCodexRoutes(app) {
                 return;
             liveStarted = true;
             liveStart(capturedSid, { cwd: live.cwd });
-            if (live.text)
+            // Seed the user bubble for the reattach snapshot whenever the turn had
+            // any input — an image-only turn still needs its bubble.
+            if (live.text || live.hasImages)
                 livePush(capturedSid, { type: 'user-text', text: live.text });
         };
         ensureLive(); // resume already knows the sid; a new thread waits for `session`
@@ -99,7 +101,7 @@ export async function registerCodexRoutes(app) {
                 if (ev.kind === 'session' && !capturedSid) {
                     capturedSid = ev.sessionId;
                     ensureLive();
-                    safeSend({ type: 'meta', sessionId: capturedSid });
+                    safeSend({ type: 'meta', cwd: live.cwd, sessionId: capturedSid });
                 }
                 else if (ev.kind === 'delta')
                     relay({ type: 'delta', text: ev.text });
@@ -158,13 +160,8 @@ export async function registerCodexRoutes(app) {
         sseSend(reply, { type: 'starting', cwd });
         const abortController = new AbortController();
         const stream = runCodex({ prompt: text, cwd, images, abortController });
-        // Register the abort under the sid once we learn it.
-        (async () => {
-            // Peek at first session event so we can wire the abort — but pipeCodexToSSE
-            // owns the iteration. We register on the ev.kind==='session' path inside.
-        })();
-        // We can't peek; instead, register on capturedSid after the pipe learns it.
-        // Simpler: wrap the runner to install the abort after first event.
+        // pipeCodexToSSE owns the iteration, so wrap the runner to install the abort
+        // under the sid once the first `session` event reveals it.
         const wrapped = (async function* () {
             for await (const ev of stream) {
                 if (ev.kind === 'session')
@@ -172,7 +169,7 @@ export async function registerCodexRoutes(app) {
                 yield ev;
             }
         })();
-        pipeCodexToSSE(reply, wrapped, null, { cwd, text });
+        pipeCodexToSSE(reply, wrapped, null, { cwd, text, hasImages: images.length > 0 });
     });
     app.post('/api/codex/threads/:sid/message', async (req, reply) => {
         const sid = req.params.sid;
@@ -194,28 +191,28 @@ export async function registerCodexRoutes(app) {
         sseSend(reply, { type: 'meta', sessionId: sid, cwd });
         const abortController = new AbortController();
         registerRun(sid, abortController);
-        pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, { cwd, text });
+        pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, { cwd, text, hasImages: images.length > 0 });
     });
     app.post('/api/codex/threads/:sid/stop', async ({ params }, reply) => {
         const ok = abortRun(params.sid);
         return reply.send({ ok, running: ok });
     });
-    // SSE: reattach to an in-flight Codex turn. Replays the current snapshot
-    // (liveGet), then forwards live events until the turn ends — so a browser
-    // refresh mid-turn picks the stream back up instead of waiting for the
-    // rollout to land on disk. Mirrors the Claude route's /live handler.
+    // SSE: reattach to a Codex turn. Replays the current snapshot (liveGet), then
+    // forwards live events until the turn ends — so a browser refresh mid-turn
+    // picks the stream back up instead of waiting for the rollout to land on disk.
+    // Mirrors the Claude route's /live handler.
     app.get('/api/codex/threads/:sid/live', async ({ params }, reply) => {
         startSSE(reply);
         const ls = liveGet(params.sid);
-        // Only an in-flight turn is worth reattaching to. A finished turn's data
-        // is already (or imminently) on disk and the frontend reloads it there on
-        // done, so replaying an ended turn would double it against the disk-derived
-        // history — treat ended as not-live.
-        if (!ls || ls.ended) {
+        if (!ls) {
             sseSend(reply, { type: 'live-end', reason: 'not-live' });
             sseDone(reply);
             return;
         }
+        // Replay the fully-buffered transcript even when the turn already ended:
+        // the codex rollout is written asynchronously after `done`, so the disk
+        // history can 404 or be partial right after a turn while the complete
+        // buffer sits here for KEEP_AROUND_MS. The client reconciles any overlap.
         for (const ev of ls.events) {
             try {
                 sseSend(reply, ev);
@@ -223,6 +220,10 @@ export async function registerCodexRoutes(app) {
             catch {
                 return;
             }
+        }
+        if (ls.ended) {
+            sseDone(reply);
+            return;
         }
         ls.subs.add(reply);
         reply.raw.on('close', () => ls.subs.delete(reply));

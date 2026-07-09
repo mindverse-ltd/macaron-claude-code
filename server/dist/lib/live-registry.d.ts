@@ -4,6 +4,7 @@ type LiveSession = {
     events: SessionStreamEvent[];
     subs: Set<FastifyReply>;
     ended: boolean;
+    gc?: NodeJS.Timeout;
 };
 export declare function liveStart(sid: string, meta: {
     cwd: string;
