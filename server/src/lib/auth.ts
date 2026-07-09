@@ -37,8 +37,12 @@ function isProtectedPath(url: string): boolean {
   return url.startsWith('/api/') || url.startsWith('/relay/');
 }
 
+// Endpoints that must answer without a token: health (probes), the auth
+// handshake, and anything under /api/public/ (capability-token reads like share
+// links, where the URL token IS the credential — a login token would defeat the
+// point). Privileged share create/revoke stay on /api/share and are NOT exempt.
 function isExemptPath(url: string): boolean {
-  return url === '/api/health' || url.startsWith('/api/auth/');
+  return url === '/api/health' || url.startsWith('/api/auth/') || url.startsWith('/api/public/');
 }
 
 // The path to match the guard against: the resolved route pattern, which

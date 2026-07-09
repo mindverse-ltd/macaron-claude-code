@@ -2793,6 +2793,16 @@ textarea:focus, select:focus, input:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sb-sess-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
 .sb-spacer-grow { flex: 1; }
 .sb-settings-link {
   display: flex;
