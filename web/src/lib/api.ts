@@ -115,11 +115,15 @@ export const api = {
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/duplicate`,
       { method: 'POST' },
     ),
-  permissionDecision: (id: string, decision: 'allow' | 'deny', reason?: string) =>
+  permissionDecision: (
+    id: string,
+    decision: 'allow' | 'deny',
+    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string },
+  ) =>
     req<{ ok: boolean }>('/api/permission-decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, decision, reason }),
+      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason }),
     }),
   stopSession: (project: string, sid: string) =>
     req<{ ok: boolean; running: boolean }>(

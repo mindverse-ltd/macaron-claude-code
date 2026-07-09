@@ -126,8 +126,14 @@ export async function registerWorkspaceRoutes(app) {
                     if (capturedSid)
                         livePush(capturedSid, payload);
                 }
+                else if (ev.kind === 'diagnostics') {
+                    const payload = { type: 'diagnostics', file: ev.file, toolUseId: ev.toolUseId, diagnostics: ev.diagnostics };
+                    safeSend(payload);
+                    if (capturedSid)
+                        livePush(capturedSid, payload);
+                }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
                     if (capturedSid)
                         livePush(capturedSid, payload);

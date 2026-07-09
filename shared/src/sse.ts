@@ -17,7 +17,7 @@ export type SessionStreamEvent =
   | { type: 'tool_input_done'; id: string; name: string; final_json: string }
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
   | { type: 'diagnostics'; file: string; toolUseId: string; diagnostics: Diagnostic[] }
-  | { type: 'permission_request'; id: string; toolName: string; input: unknown }
+  | { type: 'permission_request'; id: string; toolName: string; input: unknown; suggestion?: { label: string } }
   | { type: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; event: string; subtype: string | null }

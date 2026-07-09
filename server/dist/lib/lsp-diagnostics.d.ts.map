@@ -1,0 +1,1 @@
+{"version":3,"file":"lsp-diagnostics.d.ts","sourceRoot":"","sources":["../../src/lib/lsp-diagnostics.ts"],"names":[],"mappings":"AASA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,iBAAiB,CAAC;AAyElD,wBAAgB,kBAAkB,CAAC,OAAO,EAAE,MAAM,EAAE,OAAO,CAAC,EAAE,MAAM,GAAG,UAAU,EAAE,CAalF;AAKD,wBAAgB,cAAc,CAAC,IAAI,EAAE,MAAM,EAAE,WAAW,EAAE,UAAU,EAAE,GAAG,MAAM,CAS9E"}

@@ -1,4 +1,5 @@
 import { type PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+import type { Diagnostic } from '@macaron/shared';
 export type AttachedImage = {
     mimeType: string;
     dataUrl: string;
@@ -31,6 +32,11 @@ export type RunnerEvent = {
     text: string;
     isError: boolean;
 } | {
+    kind: 'diagnostics';
+    file: string;
+    toolUseId: string;
+    diagnostics: Diagnostic[];
+} | {
     kind: 'usage';
     outputTokens: number;
     thinkingTokens?: number;
@@ -42,6 +48,9 @@ export type RunnerEvent = {
     id: string;
     toolName: string;
     input: unknown;
+    suggestion?: {
+        label: string;
+    };
 } | {
     kind: 'permission_resolved';
     id: string;

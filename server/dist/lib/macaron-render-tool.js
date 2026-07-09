@@ -39,6 +39,12 @@ Media/decor: Avatar+AvatarImage+AvatarFallback, Tilt, GlowEffect, ProgressiveBlu
 - Keep helper components at module scope, not inside App
 - No \`as any\` casts in JSX
 
+# Sending messages back to chat (interactive widgets)
+- Import from \`$macaron/chat\`: \`import { sendUserMessage } from '$macaron/chat';\`
+- \`sendUserMessage(prompt)\` takes a single string and posts it to the chat as if the user typed it, driving the next assistant turn. Use it when a widget action should continue the conversation: form submits, choice confirmations, apply/regenerate buttons, wizard steps.
+- \`prompt\` is the message the next turn receives — write it as the user would (e.g. "Book the 3pm slot"); fold any structured context the next turn needs directly into that string.
+- Call it ONLY from event handlers or effects, never during render, and at most once per user gesture. For a purely display-only UI, don't call it.
+
 # When to use this tool
 Call render_ui when a visual answer beats prose: dashboards, charts, comparison cards, forms, settings panels, interactive widgets, mini editors, status reports. Don't use it for plain text answers. Don't write a markdown TSX fence in chat — that's a failed answer. After render_ui returns, the host already shows the rendered UI to the user; keep your follow-up reply short (one sentence ack at most).`;
 //# sourceMappingURL=macaron-render-tool.js.map
