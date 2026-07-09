@@ -15,6 +15,7 @@ import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 import { lookupProjectCwd } from '../lib/project-registry.js';
+import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 
 type Params = { project: string };
 type NewSessionBody = {
@@ -145,7 +146,10 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
           } else if (ev.kind === 'permission_request') {
             const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
             safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            if (capturedSid) {
+              livePush(capturedSid, payload);
+              pushPermissionRequest(project, capturedSid, ev.toolName);
+            }
           } else if (ev.kind === 'permission_resolved') {
             const payload = { type: 'permission_resolved' as const, id: ev.id, decision: ev.decision };
             safeSend(payload);
@@ -165,6 +169,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             if (capturedSid) {
               liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
               endRun(capturedSid);
+              pushSessionDone(project, capturedSid);
             }
             // Same post-turn follow-up as the resume path: stream a throwaway,
             // persistSession:false query resuming this fresh session (shared

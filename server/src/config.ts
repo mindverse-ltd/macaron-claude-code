@@ -17,6 +17,7 @@ export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
 
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
+export const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
 // Root for the "New Project" wizard — freshly created dirs and `git clone`
 // targets land here. Overridable so ops can point it at a mounted volume.
