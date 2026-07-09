@@ -1793,6 +1793,25 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   flex-direction: column;
 }
+/* PTY terminal tile: the xterm host fills the tile body. Padding gives the
+   shell a little breathing room from the tile border; xterm's own canvas
+   handles scrolling. */
+.term-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  padding: 6px 8px;
+}
+.term-host .xterm,
+.term-host .xterm-viewport {
+  width: 100% !important;
+  height: 100% !important;
+}
+.term-host .xterm-viewport {
+  background: transparent !important;
+}
 /* Session inside a tile should fill the tile, not the whole viewport.
    The chain of `min-width: 0` + `overflow: hidden` prevents children with
    long unbroken content (code blocks, mono text) from stretching the

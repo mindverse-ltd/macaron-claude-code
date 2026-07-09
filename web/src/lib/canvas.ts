@@ -7,6 +7,7 @@
 // nudges the numbers, an animation smooths the transition.
 
 import { useCallback, useEffect, useState } from 'react';
+import { newTerminalSid } from './terminal';
 
 export type TileGeom = { sid: string; colSpan: number; rowSpan: number };
 
@@ -146,6 +147,7 @@ export function useCanvas(project: string): {
   resize: (sid: string, patch: { colSpan?: number; rowSpan?: number }) => void;
   focus: (sid: string) => void;
   addDraft: () => void;
+  addTerminal: () => void;
   promoteDraft: (realSid: string) => void;
 } {
   const [state, setState] = useState<CanvasState>(() => loadCanvas(project));
@@ -297,6 +299,17 @@ export function useCanvas(project: string): {
     });
   }, [update]);
 
+  // Add a fresh terminal tile at the front and focus it. Its sid is a
+  // `term:<uuid>` sentinel the Workspace renders as a <Terminal> instead of
+  // a <Session>; the server spawns the PTY on first stream connect.
+  const addTerminal = useCallback(() => {
+    const sid = newTerminalSid();
+    update((cur) => ({
+      tiles: [{ sid, colSpan: DEFAULT_COL_SPAN, rowSpan: DEFAULT_ROW_SPAN }, ...cur.tiles],
+      focusedSid: sid,
+    }));
+  }, [update]);
+
   // Swap the draft sentinel for the real sessionId in place — keeps grid
   // position + focus intact so the tile the user was typing in stays put.
   const promoteDraft = useCallback(
@@ -332,6 +345,7 @@ export function useCanvas(project: string): {
     resize,
     focus,
     addDraft,
+    addTerminal,
     promoteDraft,
   };
 }
