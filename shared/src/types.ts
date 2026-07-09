@@ -115,6 +115,22 @@ export type PushNotifyPayload = {
   url?: string;
 };
 
+// A per-session git worktree: the session's agent runs with cwd pointing at
+// `worktreePath` (a dedicated branch off `baseBranch`), so parallel sessions
+// in one repo never stomp each other's uncommitted changes. `exists` reflects
+// whether the worktree dir is still on disk (users can delete it manually);
+// `dirty` is set from `git status --porcelain` when the tree is present.
+export type WorktreeInfo = {
+  sessionId: string;
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseBranch: string;
+  status: 'active' | 'merged' | 'discarded';
+  exists: boolean;
+  dirty?: boolean;
+};
+
 // Rate-limit / usage state for the active Claude subscription, read from the
 // ambient OAuth login (~/.claude/.credentials.json) via the oauth/usage
 // endpoint. `utilization` is 0-100; `resetsAt` is an ISO timestamp (null when

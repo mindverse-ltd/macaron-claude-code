@@ -498,6 +498,7 @@ textarea:focus, select:focus, input:focus {
 }
 .icon-btn:hover { color: var(--text); border-color: var(--text); }
 .icon-btn:active { transform: scale(0.96); }
+.iso-toggle.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .crumb-link {
   color: var(--text-2);
   text-decoration: none;

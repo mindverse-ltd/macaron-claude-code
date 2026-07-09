@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
@@ -19,6 +20,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerWorktreeRoutes } from './routes/worktrees.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
@@ -70,6 +72,7 @@ await app.register(async (instance) => {
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
   await registerSessionRoutes(instance);
+  await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
   await registerShareRoutes(instance);
   await registerTerminalRoutes(instance);
@@ -110,6 +113,7 @@ if (existsSync(WEB_DIST)) {
 
 try {
   await warmSettingsCache();
+  await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmLabelsCache();
