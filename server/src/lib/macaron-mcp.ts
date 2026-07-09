@@ -9,19 +9,16 @@
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { handleRenderUI, RENDER_UI_TOOL_DESCRIPTION } from './macaron-render-tool.js';
-
-// Instructions + tool description live in macaron-render-tool.ts so the
-// stdio server (Codex side) can reuse them verbatim.
-const INSTRUCTIONS =
-  'Macaron GenUI bridge. The render_ui tool inlines a TSX component into the conversation. ' +
-  'YOU author the code field with a complete TSX module using $macaron/ui. The user already sees ' +
-  'the rendered UI when render_ui returns — do NOT paste, quote, or summarize the code in your reply.';
+import {
+  handleRenderUI,
+  RENDER_UI_INSTRUCTIONS,
+  RENDER_UI_TOOL_DESCRIPTION,
+} from './macaron-render-tool.js';
 
 export const macaronMcpServer = createSdkMcpServer({
   name: 'macaron',
   version: '0.2.0',
-  instructions: INSTRUCTIONS,
+  instructions: RENDER_UI_INSTRUCTIONS,
   alwaysLoad: true,
   tools: [
     tool(
