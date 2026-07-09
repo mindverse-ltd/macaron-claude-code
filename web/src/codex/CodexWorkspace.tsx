@@ -30,6 +30,7 @@ import {
   MAX_ROW_SPAN,
   type TileGeom,
 } from '../lib/canvas';
+import { subscribeSystemEvents } from '../lib/systemEvents';
 
 const ROW_UNIT_PX = 48;
 
@@ -73,7 +74,16 @@ export function CodexWorkspace() {
     setSessions(null);
     load();
     const t = setInterval(load, 15_000);
-    return () => clearInterval(t);
+    // Live-refresh on a codex disk change (e.g. a terminal-started rollout in
+    // this workspace) so the list picks up external sessions without a manual
+    // refresh — mirrors the claude Workspace. Interval stays as a fallback.
+    const unsub = subscribeSystemEvents((ev) => {
+      if (ev.engine === 'codex') load();
+    });
+    return () => {
+      clearInterval(t);
+      unsub();
+    };
   }, [project, load]);
 
   // Deep-link support: /w/:project/t/:sid pins + focuses, then rewrites URL.
