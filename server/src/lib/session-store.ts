@@ -11,6 +11,7 @@ import type {
   Workspace,
 } from '@macaron/shared';
 import { CLAUDE_PROJECTS, HOME } from '../config.js';
+import { getLabels } from './label-store.js';
 
 export function basename(p: string): string {
   if (!p) return '';
@@ -407,6 +408,7 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
     },
   );
 
+  const labels = await getLabels();
   const summaries = await mapPool(targets, 32, async (t): Promise<SessionListItem | null> => {
     const meta = await readSessionSummary(t.file);
     if (!meta) return null;
@@ -417,6 +419,7 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
       gitBranch: meta.gitBranch || undefined,
       sessionId: t.sid,
       preview: (meta.firstUserText || '').slice(0, 220),
+      label: labels[t.sid],
       messageCount: meta.headLines,
       messageCountSuffix: meta.truncated ? '+' : '',
       mtime: meta.mtime,
@@ -603,7 +606,12 @@ async function parseTranscriptFile(filePath: string): Promise<{
 }
 
 export async function readSessionMessages(project: string, sid: string): Promise<SessionDetail> {
-  const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
+  const base = path.resolve(CLAUDE_PROJECTS);
+  const filePath = path.resolve(base, project, `${sid}.jsonl`);
+  // project/sid reach this sink from a JSON body via the share route, where a
+  // `..` segment passes freely; assert the resolved path stays inside the
+  // projects dir so a traversal can't read an arbitrary *.jsonl off disk.
+  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
   const { messages, cwd, gitBranch, truncated, totalBytes, latestUsage } =
     await parseTranscriptFile(filePath);
 

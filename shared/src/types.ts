@@ -24,6 +24,9 @@ export type SessionListItem = {
   gitBranch?: string;
   sessionId: string;
   preview: string;
+  // User-assigned human label, stored in a macaron sidecar (not in the
+  // Claude-owned jsonl). Takes display precedence over `preview` when set.
+  label?: string;
   // Generated human-readable label. Codex-only for now (see codex-title.ts);
   // the sidebar prefers it over `preview` when present.
   title?: string;
@@ -99,6 +102,22 @@ export type PushNotifyPayload = {
   url?: string;
 };
 
+// Rate-limit / usage state for the active Claude subscription, read from the
+// ambient OAuth login (~/.claude/.credentials.json) via the oauth/usage
+// endpoint. `utilization` is 0-100; `resetsAt` is an ISO timestamp (null when
+// the window is empty). Only the 5-hour and weekly windows are surfaced — the
+// two the always-visible meters need.
+export type RateLimitWindow = { utilization: number; resetsAt: string | null };
+
+// `available` is false when there's no ambient OAuth login to read (e.g. the
+// user runs on a custom provider), so the client can hide the widget without
+// treating it as an error.
+export type UsageResponse = {
+  available: boolean;
+  fiveHour: RateLimitWindow | null;
+  sevenDay: RateLimitWindow | null;
+};
+
 // ---- File explorer -------------------------------------------------------
 // A single entry in a directory listing. `path` is relative to the project
 // cwd (root = ''), so the web tree can request children without knowing the
@@ -118,6 +137,13 @@ export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
+
+// Share links: a session is published behind an unguessable token. The token
+// is the capability — possession grants read access, no login. The token URL
+// never leaks the on-disk project/sid, but resolving it returns the full
+// SessionDetail (sid, project, absolute cwd) to whoever holds the link.
+export type CreateShareResponse = { token: string };
+export type SharedSessionResponse = { sessionId: string; createdAt: number; detail: SessionDetail };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };

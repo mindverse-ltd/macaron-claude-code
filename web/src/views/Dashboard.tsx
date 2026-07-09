@@ -81,7 +81,7 @@ export function Dashboard() {
                     return (
                       <div key={s.sessionId} className="wk-sess-row">
                         <span className={'wk-sess-dot wk-sess-dot-' + st} />
-                        <span className="wk-sess-name">{s.preview || s.sessionId.slice(0, 8)}</span>
+                        <span className="wk-sess-name">{s.label || s.preview || s.sessionId.slice(0, 8)}</span>
                         <span className="wk-sess-time">{fmtAgo(s.mtime)}</span>
                       </div>
                     );
