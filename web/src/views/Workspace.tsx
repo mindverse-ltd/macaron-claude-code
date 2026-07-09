@@ -26,6 +26,8 @@ import {
   type TileGeom,
 } from '../lib/canvas';
 import { Session } from './Session';
+import { Terminal } from '../components/Terminal';
+import { isTerminalSid, killTerminal } from '../lib/terminal';
 
 // One row cell in the canvas grid (px). CSS grid-auto-rows uses this; a
 // tile's rowSpan is a multiplier. Kept in sync with `.ws-canvas-grid-v2`
@@ -212,6 +214,9 @@ export function Workspace() {
           </span>
         </div>
         <div className="ws-canvas-actions">
+          <button className="ghost small" onClick={() => canvas.addTerminal()}>
+            + Terminal
+          </button>
           <Link className="ghost small" to={`/w/${encodeURIComponent(project)}/files`}>
             Files
           </Link>
@@ -246,11 +251,14 @@ export function Workspace() {
             >
               {canvas.tiles.map((tile) => {
                 const draft = isDraftSid(tile.sid);
-                const meta = draft ? undefined : sessions.find((x) => x.sessionId === tile.sid);
+                const terminal = isTerminalSid(tile.sid);
+                const meta = draft || terminal ? undefined : sessions.find((x) => x.sessionId === tile.sid);
                 const isFocused = canvas.focusedSid === tile.sid;
                 const label = draft
                   ? 'New session'
-                  : meta?.preview?.slice(0, 60) || tile.sid.slice(0, 8);
+                  : terminal
+                    ? 'Terminal'
+                    : meta?.preview?.slice(0, 60) || tile.sid.slice(0, 8);
                 return (
                   <SortableTile
                     key={tile.sid}
@@ -259,11 +267,15 @@ export function Workspace() {
                     isFocused={isFocused}
                     project={project}
                     isDraft={draft}
+                    isTerminal={terminal}
                     initialPending={pendingSids.has(tile.sid)}
                     onPendingConsumed={() => clearPending(tile.sid)}
                     onCreated={handleDraftPromoted}
                     onFocus={() => canvas.focus(tile.sid)}
-                    onRemove={() => canvas.remove(tile.sid)}
+                    onRemove={() => {
+                      if (terminal) killTerminal(project, tile.sid);
+                      canvas.remove(tile.sid);
+                    }}
                     onResizeStart={(e) => startResize(tile.sid, e)}
                   />
                 );
@@ -285,6 +297,7 @@ function SortableTile({
   isFocused,
   project,
   isDraft,
+  isTerminal,
   initialPending,
   onPendingConsumed,
   onCreated,
@@ -297,6 +310,7 @@ function SortableTile({
   isFocused: boolean;
   project: string;
   isDraft: boolean;
+  isTerminal: boolean;
   initialPending: boolean;
   onPendingConsumed: () => void;
   onCreated: (newSid: string) => void;
@@ -382,7 +396,7 @@ function SortableTile({
       <div className="ws-tile-grip" {...attributes} {...listeners} title="Drag to reorder">
         <span className="ws-tile-grip-dots">⋮⋮</span>
         <span className="ws-tile-grip-label">{label}</span>
-        {!isDraft && (
+        {!isDraft && !isTerminal && (
         <button
           className="ws-tile-action"
           onPointerDown={(e) => e.stopPropagation()}
@@ -399,7 +413,7 @@ function SortableTile({
           </svg>
         </button>
         )}
-        {!isDraft && (
+        {!isDraft && !isTerminal && (
         <button
           className="ws-tile-action"
           onPointerDown={(e) => e.stopPropagation()}
@@ -432,22 +446,26 @@ function SortableTile({
         </button>
       </div>
       <div className="ws-tile-body">
-        <Session
-          project={project}
-          // A draft tile has no real sid yet — Session's `isNew` branch is
-          // driven by `!sid`, so pass an empty string until promoteDraft
-          // swaps the sentinel for a real id (this whole tile then remounts
-          // with the real sid + `initialPending`).
-          sid={isDraft ? '' : tile.sid}
-          focused={isFocused}
-          onFocus={onFocus}
-          hideBar
-          refreshKey={refreshKey}
-          onSendingChange={setIsRunning}
-          initialPending={initialPending}
-          onPendingConsumed={onPendingConsumed}
-          onCreated={onCreated}
-        />
+        {isTerminal ? (
+          <Terminal project={project} sid={tile.sid} focused={isFocused} />
+        ) : (
+          <Session
+            project={project}
+            // A draft tile has no real sid yet — Session's `isNew` branch is
+            // driven by `!sid`, so pass an empty string until promoteDraft
+            // swaps the sentinel for a real id (this whole tile then remounts
+            // with the real sid + `initialPending`).
+            sid={isDraft ? '' : tile.sid}
+            focused={isFocused}
+            onFocus={onFocus}
+            hideBar
+            refreshKey={refreshKey}
+            onSendingChange={setIsRunning}
+            initialPending={initialPending}
+            onPendingConsumed={onPendingConsumed}
+            onCreated={onCreated}
+          />
+        )}
       </div>
       <div
         className="ws-tile-resize"
