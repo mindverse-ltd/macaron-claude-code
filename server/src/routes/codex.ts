@@ -113,16 +113,20 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     };
     let capturedSid = sid;
     let agentText = '';
+    // Reasoning and the final reply arrive as the same `delta`; a reasoning
+    // delta is always preceded by a `codex_reasoning` marker. Only the reply
+    // feeds the loop's sentinel test (see codex-loop.ts), so skip reasoning.
+    let reasoningNext = false;
     (async () => {
       for await (const ev of stream) {
         if (ev.kind === 'session' && !capturedSid) {
           capturedSid = ev.sessionId;
           safeSend({ type: 'meta', sessionId: capturedSid });
-        } else if (ev.kind === 'delta') { agentText += ev.text; safeSend({ type: 'delta', text: ev.text }); }
+        } else if (ev.kind === 'delta') { if (!reasoningNext) agentText += ev.text; reasoningNext = false; safeSend({ type: 'delta', text: ev.text }); }
         else if (ev.kind === 'tool_use') safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
         else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-        else if (ev.kind === 'message') safeSend({ type: 'event', subtype: ev.subtype });
+        else if (ev.kind === 'message') { if (ev.subtype === 'codex_reasoning') reasoningNext = true; safeSend({ type: 'event', subtype: ev.subtype }); }
         else if (ev.kind === 'error') safeSend({ type: 'error', error: ev.error });
         else if (ev.kind === 'done') {
           safeSend({ type: 'done', exitCode: ev.exitCode });
@@ -188,17 +192,22 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       if (!text && images.length === 0) {
         return reply.status(400).send({ error: 'text or images required' });
       }
+      const abortController = new AbortController();
+      // Register before the await: otherwise a loop tick firing during
+      // readCodexSessionMessages would see isRunActive === false, start its own
+      // iteration, and both turns would runStreamed on one thread (only one
+      // abortable via /stop). Claiming the sid up front makes the loop bail.
+      registerRun(sid, abortController);
       let cwd = process.env.HOME || '/tmp';
       try {
         const detail = await readCodexSessionMessages(sid);
         if (detail.cwd) cwd = detail.cwd;
       } catch (e) {
+        endRun(sid);
         return reply.status(404).send({ error: (e as Error).message });
       }
       startSSE(reply);
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
-      const abortController = new AbortController();
-      registerRun(sid, abortController);
       pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, cwd);
     },
   );
@@ -216,7 +225,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
 
   // Toggle / edit the loop. Enabling arms it immediately when the session is
   // idle; disabling aborts any in-flight iteration. cwd is resolved from the
-  // thread so a fresh-thread iteration spawns in the right directory.
+  // thread so each resumed iteration runs in the right directory.
   app.put<{ Params: SidParams; Body: Partial<CodexLoopConfig> }>(
     '/api/codex/threads/:sid/loop',
     async (req, reply) => {

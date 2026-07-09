@@ -131,17 +131,6 @@ export function CodexLoopControl({ sid, snapshot }: { sid: string; snapshot: Cod
             />
           </label>
 
-          <label className="cx-loop-field">
-            <span>Thread mode</span>
-            <select
-              value={draft.mode}
-              onChange={(e) => setDraft({ ...draft, mode: e.target.value === 'fresh-thread' ? 'fresh-thread' : 'same-thread' })}
-            >
-              <option value="same-thread">Same thread (context grows)</option>
-              <option value="fresh-thread">Fresh thread each iteration</option>
-            </select>
-          </label>
-
           {err && <div className="cx-loop-err">{err}</div>}
           <div className="cx-loop-pop-foot">
             <button className="cx-loop-save" disabled={busy} onClick={applyDraft}>Save</button>

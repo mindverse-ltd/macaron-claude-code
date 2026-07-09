@@ -17,6 +17,7 @@ import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
 import { CODEX_SYSTEM_PROVIDER_ID, createCodexProvider, deleteCodexProvider, readPublicCodexSettings, setActiveCodexProvider, updateCodexProvider, updateCodexRuntime, } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+import { getLoopSnapshot, setLoopConfig, subscribeLoop, noteCodexTurnComplete, } from '../lib/codex-loop.js';
 export async function registerCodexRoutes(app) {
     // --- Threads -----------------------------------------------------------
     app.get('/api/codex/threads', async () => {
@@ -61,7 +62,7 @@ export async function registerCodexRoutes(app) {
         }
     });
     // --- Send / resume -----------------------------------------------------
-    const pipeCodexToSSE = (reply, stream, sid) => {
+    const pipeCodexToSSE = (reply, stream, sid, cwd) => {
         let clientGone = false;
         reply.raw.on('close', () => { clientGone = true; });
         const safeSend = (payload) => {
@@ -75,33 +76,50 @@ export async function registerCodexRoutes(app) {
             }
         };
         let capturedSid = sid;
+        let agentText = '';
+        // Reasoning and the final reply arrive as the same `delta`; a reasoning
+        // delta is always preceded by a `codex_reasoning` marker. Only the reply
+        // feeds the loop's sentinel test (see codex-loop.ts), so skip reasoning.
+        let reasoningNext = false;
         (async () => {
             for await (const ev of stream) {
                 if (ev.kind === 'session' && !capturedSid) {
                     capturedSid = ev.sessionId;
                     safeSend({ type: 'meta', sessionId: capturedSid });
                 }
-                else if (ev.kind === 'delta')
+                else if (ev.kind === 'delta') {
+                    if (!reasoningNext)
+                        agentText += ev.text;
+                    reasoningNext = false;
                     safeSend({ type: 'delta', text: ev.text });
+                }
                 else if (ev.kind === 'tool_use')
                     safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
                 else if (ev.kind === 'tool_result')
                     safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
                 else if (ev.kind === 'usage')
                     safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-                else if (ev.kind === 'message')
+                else if (ev.kind === 'message') {
+                    if (ev.subtype === 'codex_reasoning')
+                        reasoningNext = true;
                     safeSend({ type: 'event', subtype: ev.subtype });
+                }
                 else if (ev.kind === 'error')
                     safeSend({ type: 'error', error: ev.error });
                 else if (ev.kind === 'done') {
                     safeSend({ type: 'done', exitCode: ev.exitCode });
-                    if (capturedSid)
+                    if (capturedSid) {
                         endRun(capturedSid);
-                    // Name the thread from its opening exchange once the turn's rollout
-                    // has landed. Fire-and-forget: no-op if already titled, never blocks
-                    // the response, failures swallowed.
-                    if (capturedSid && ev.exitCode === 0)
-                        void maybeGenerateCodexTitle(capturedSid).catch(() => { });
+                        // Name the thread from its opening exchange once the turn's rollout
+                        // has landed. Fire-and-forget: no-op if already titled, never blocks
+                        // the response, failures swallowed.
+                        if (ev.exitCode === 0)
+                            void maybeGenerateCodexTitle(capturedSid).catch(() => { });
+                        // A user turn finishing is what arms the autonomous loop (if enabled
+                        // for this sid). No-op when the loop is off.
+                        if (ev.exitCode === 0)
+                            noteCodexTurnComplete(capturedSid, cwd, agentText);
+                    }
                     if (!clientGone)
                         sseDone(reply);
                 }
@@ -147,7 +165,7 @@ export async function registerCodexRoutes(app) {
                 yield ev;
             }
         })();
-        pipeCodexToSSE(reply, wrapped, null);
+        pipeCodexToSSE(reply, wrapped, null, cwd);
     });
     app.post('/api/codex/threads/:sid/message', async (req, reply) => {
         const sid = req.params.sid;
@@ -156,6 +174,12 @@ export async function registerCodexRoutes(app) {
         if (!text && images.length === 0) {
             return reply.status(400).send({ error: 'text or images required' });
         }
+        const abortController = new AbortController();
+        // Register before the await: otherwise a loop tick firing during
+        // readCodexSessionMessages would see isRunActive === false, start its own
+        // iteration, and both turns would runStreamed on one thread (only one
+        // abortable via /stop). Claiming the sid up front makes the loop bail.
+        registerRun(sid, abortController);
         let cwd = process.env.HOME || '/tmp';
         try {
             const detail = await readCodexSessionMessages(sid);
@@ -163,17 +187,51 @@ export async function registerCodexRoutes(app) {
                 cwd = detail.cwd;
         }
         catch (e) {
+            endRun(sid);
             return reply.status(404).send({ error: e.message });
         }
         startSSE(reply);
         sseSend(reply, { type: 'meta', sessionId: sid, cwd });
-        const abortController = new AbortController();
-        registerRun(sid, abortController);
-        pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid);
+        pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, cwd);
     });
     app.post('/api/codex/threads/:sid/stop', async ({ params }, reply) => {
         const ok = abortRun(params.sid);
         return reply.send({ ok, running: ok });
+    });
+    // --- Autonomous loop ---------------------------------------------------
+    app.get('/api/codex/threads/:sid/loop', async ({ params }) => {
+        return getLoopSnapshot(params.sid);
+    });
+    // Toggle / edit the loop. Enabling arms it immediately when the session is
+    // idle; disabling aborts any in-flight iteration. cwd is resolved from the
+    // thread so each resumed iteration runs in the right directory.
+    app.put('/api/codex/threads/:sid/loop', async (req, reply) => {
+        let cwd = '';
+        try {
+            const detail = await readCodexSessionMessages(req.params.sid);
+            cwd = detail.cwd || '';
+        }
+        catch { /* thread may be brand-new / not on disk yet — cwd stays '' */ }
+        return reply.send(setLoopConfig(req.params.sid, req.body || {}, cwd));
+    });
+    // SSE: subscribe to a session's loop stream — lifecycle status + the
+    // runner events of each auto-driven iteration, so an open thread view
+    // watches the loop even though it's detached from any request.
+    app.get('/api/codex/threads/:sid/loop/live', async ({ params }, reply) => {
+        startSSE(reply);
+        let clientGone = false;
+        const unsub = subscribeLoop(params.sid, (ev) => {
+            if (clientGone)
+                return;
+            try {
+                sseSend(reply, ev);
+            }
+            catch {
+                clientGone = true;
+                unsub();
+            }
+        });
+        reply.raw.on('close', () => { clientGone = true; unsub(); });
     });
     // --- Config ------------------------------------------------------------
     app.get('/api/codex/config', async () => readPublicCodexSettings());

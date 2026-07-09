@@ -18,8 +18,6 @@ import { HOME } from '../config.js';
 import { runCodex } from './codex-runner.js';
 import { registerRun, endRun, abortRun, isRunActive } from './active-runs.js';
 
-export type CodexLoopMode = 'same-thread' | 'fresh-thread';
-
 export type CodexLoopConfig = {
   enabled: boolean;
   /** The continue prompt re-injected each iteration. NOT a baked-in string. */
@@ -30,9 +28,6 @@ export type CodexLoopConfig = {
   timeoutMs: number;
   /** Stop if the agent's turn output contains any of these substrings. */
   sentinels: string[];
-  /** same-thread resumes the anchor thread (context grows); fresh-thread spawns
-   * a clean child thread from the same cwd each iteration. */
-  mode: CodexLoopMode;
 };
 
 export type CodexLoopStatus = 'idle' | 'armed' | 'running' | 'stopped';
@@ -72,7 +67,6 @@ export function defaultLoopConfig(): CodexLoopConfig {
     maxIterations: 25,
     timeoutMs: 30 * 60_000,
     sentinels: ['COMPLETE', 'BLOCKED'],
-    mode: 'same-thread',
   };
 }
 
@@ -105,7 +99,6 @@ function sanitize(patch: Partial<CodexLoopConfig>, base: CodexLoopConfig): Codex
     maxIterations: Number.isFinite(patch.maxIterations) && patch.maxIterations! >= 0 ? Math.floor(patch.maxIterations!) : base.maxIterations,
     timeoutMs: Number.isFinite(patch.timeoutMs) && patch.timeoutMs! >= 0 ? Math.floor(patch.timeoutMs!) : base.timeoutMs,
     sentinels,
-    mode: patch.mode === 'fresh-thread' ? 'fresh-thread' : patch.mode === 'same-thread' ? 'same-thread' : base.mode,
   };
 }
 
@@ -173,8 +166,12 @@ export function subscribeLoop(sid: string, cb: (ev: CodexLoopStreamEvent) => voi
   return () => { rt.subs.delete(cb); };
 }
 
+// Match a sentinel only as its own trimmed line — the default prompt tells the
+// model to "reply with COMPLETE on its own line", so a bare substring match
+// would also fire on prose like "I won't write COMPLETE yet".
 function hitsSentinel(text: string, sentinels: string[]): string | null {
-  for (const s of sentinels) if (s && text.includes(s)) return s;
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  for (const s of sentinels) if (s && lines.includes(s)) return s;
   return null;
 }
 
@@ -224,18 +221,22 @@ async function driveIteration(sid: string): Promise<void> {
 
   const ac = new AbortController();
   registerRun(sid, ac); // counts as busy + lets the /stop route abort the loop
-  const resume = rt.config.mode === 'same-thread' ? sid : undefined;
   let agentText = '';
+  // The runner emits reasoning and the final reply as the same {kind:'delta'};
+  // a reasoning delta is always immediately preceded by a `codex_reasoning`
+  // marker. Only the reply feeds sentinel matching, else the model's own
+  // "reply with COMPLETE" reasoning would stop the loop on iteration 1.
+  let reasoningNext = false;
   let failed = false;
   try {
-    for await (const ev of runCodex({ prompt: rt.config.prompt, cwd: rt.cwd, resume, abortController: ac })) {
+    for await (const ev of runCodex({ prompt: rt.config.prompt, cwd: rt.cwd, resume: sid, abortController: ac })) {
       switch (ev.kind) {
         case 'session': emit(rt, { type: 'meta', sessionId: ev.sessionId }); break;
-        case 'delta': agentText += ev.text; emit(rt, { type: 'delta', text: ev.text }); break;
+        case 'delta': if (!reasoningNext) agentText += ev.text; reasoningNext = false; emit(rt, { type: 'delta', text: ev.text }); break;
         case 'tool_use': emit(rt, { type: 'tool_use', id: ev.id, name: ev.name, input: ev.input }); break;
         case 'tool_result': emit(rt, { type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError }); break;
         case 'usage': emit(rt, { type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens }); break;
-        case 'message': emit(rt, { type: 'event', subtype: ev.subtype }); break;
+        case 'message': if (ev.subtype === 'codex_reasoning') reasoningNext = true; emit(rt, { type: 'event', subtype: ev.subtype }); break;
         case 'error': failed = true; emit(rt, { type: 'error', error: ev.error }); break;
         case 'done': emit(rt, { type: 'done', exitCode: ev.exitCode }); break;
       }

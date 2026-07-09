@@ -49,7 +49,6 @@ export type PublicCodexSettings = {
   runtime: CodexRuntimeOptions;
 };
 
-export type CodexLoopMode = 'same-thread' | 'fresh-thread';
 export type CodexLoopStatus = 'idle' | 'armed' | 'running' | 'stopped';
 
 export type CodexLoopConfig = {
@@ -58,7 +57,6 @@ export type CodexLoopConfig = {
   maxIterations: number;
   timeoutMs: number;
   sentinels: string[];
-  mode: CodexLoopMode;
 };
 
 export type CodexLoopSnapshot = {
