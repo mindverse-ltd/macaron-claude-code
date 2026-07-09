@@ -456,6 +456,11 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
+      <Link className="sb-settings-link" to="/schedules">
+        <span>⏰</span>
+        <span>Schedules</span>
+      </Link>
+
       <Link className="sb-settings-link" to="/mcp">
         <span>🧩</span>
         <span>MCP servers</span>

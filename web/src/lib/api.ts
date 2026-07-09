@@ -17,6 +17,9 @@ export type {
   WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
+  Schedule,
+  ScheduleInput,
+  SessionKind,
   SlashCommand,
   ConfigFileId,
   ConfigFileFormat,
@@ -38,6 +41,9 @@ import type {
   SharedSessionResponse,
   WorktreeInfo,
   UsageResponse,
+  Schedule,
+  ScheduleInput,
+  SchedulesResponse,
   CommandsResponse,
   ConfigFileId,
   ConfigFileMeta,
@@ -283,6 +289,29 @@ export const api = {
     }),
   sharedSession: (token: string) =>
     getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
+  schedules: () => getJSON<SchedulesResponse>('/api/schedules'),
+  createSchedule: (input: ScheduleInput) =>
+    req<Schedule>('/api/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateSchedule: (id: string, patch: Partial<ScheduleInput>) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteSchedule: async (id: string): Promise<void> => {
+    const r = await authedFetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`http ${r.status}`);
+  },
+  pauseSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  resumeSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  runScheduleNow: (id: string) =>
+    req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}/run-now`, { method: 'POST' }),
   worktrees: () => getJSON<{ worktrees: WorktreeInfo[] }>('/api/worktrees'),
   mergeWorktree: (sid: string) =>
     req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),

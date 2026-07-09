@@ -9,6 +9,8 @@ import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { warmLabelsCache } from './lib/label-store.js';
+import { warmSchedulesCache } from './lib/schedule-store.js';
+import { startScheduler } from './lib/scheduler.js';
 import { warmCodexTitlesCache } from './lib/codex-titles.js';
 import { checkGenUI } from './lib/genui-check.js';
 import { startSessionWatcher } from './lib/session-watcher.js';
@@ -30,6 +32,7 @@ import { registerCodexRoutes } from './routes/codex.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerPushRoutes } from './routes/push.js';
 import { registerUsageRoutes } from './routes/usage.js';
+import { registerScheduleRoutes } from './routes/schedules.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
@@ -82,6 +85,7 @@ await app.register(async (instance) => {
   await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
   await registerShareRoutes(instance);
+  await registerScheduleRoutes(instance);
   await registerTerminalRoutes(instance);
   await registerFileRoutes(instance);
 });
@@ -124,6 +128,7 @@ try {
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmLabelsCache();
+  await warmSchedulesCache();
   await warmCodexTitlesCache();
   await warmShareCache();
   await startSessionWatcher();
@@ -138,6 +143,7 @@ try {
   } else if (authToken) {
     app.log.info('server auth enabled (MACARON_AUTH_TOKEN) — remote requests require the token.');
   }
+  startScheduler();
   // Pre-warm the render_ui TS check: the first diagnose pays full program construction. Do it now,
   // at boot, instead of mid-turn while an SSE stream is live. The `import "$macaron/ui"` is what
   // makes this warm the expensive half — it pulls source.tsx and its whole vendored tree into the
