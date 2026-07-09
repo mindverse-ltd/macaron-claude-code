@@ -7,7 +7,7 @@
 //
 // Cache is warmed at startup so getActiveProviderEnv() is synchronous —
 // hot-path request handlers can call it without awaiting disk I/O.
-import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,6 +44,7 @@ function makeDefaults() {
         // switch to it, or delete it. Same UX as any other custom provider.
         customProviders: [seedMacaronProvider()],
         yoloMode: false,
+        followupSuggestions: false,
     };
 }
 function normalizeActiveId(id) {
@@ -61,6 +62,7 @@ function migrateIfLegacy(raw) {
             activeProviderId: normalizeActiveId(legacy.activeProviderId || SYSTEM_PROVIDER_ID),
             customProviders: legacy.customProviders.map(sanitizeProvider),
             yoloMode: Boolean(legacy.yoloMode),
+            followupSuggestions: Boolean(legacy.followupSuggestions),
         };
     }
     // Legacy: rebuild
@@ -76,6 +78,7 @@ function migrateIfLegacy(raw) {
         activeProviderId: wasMacaronActive ? macaron.id : SYSTEM_PROVIDER_ID,
         customProviders: [macaron],
         yoloMode: Boolean(legacy?.yoloMode),
+        followupSuggestions: Boolean(legacy?.followupSuggestions),
     };
 }
 function sanitizeProvider(p) {
@@ -136,6 +139,7 @@ export async function readPublicSettings() {
             configured: Boolean(p.apiKey),
         })),
         yoloMode: s.yoloMode,
+        followupSuggestions: s.followupSuggestions,
     };
 }
 // ---------- CRUD --------------------------------------------------------
@@ -206,27 +210,26 @@ function ensureIsolatedDir() {
     if (!isolatedDirReady) {
         if (!existsSync(ISOLATED_CONFIG_DIR))
             mkdirSync(ISOLATED_CONFIG_DIR, { recursive: true });
-        // Symlink projects/ so jsonls land in ~/.claude/projects/ where the
-        // WebUI can read them.
-        const projectsLink = path.join(ISOLATED_CONFIG_DIR, 'projects');
-        const realProjects = path.join(HOME, '.claude', 'projects');
-        if (!existsSync(realProjects))
-            mkdirSync(realProjects, { recursive: true });
-        try {
-            const st = lstatSync(projectsLink);
-            // Repair if it's not a symlink or points elsewhere.
-            if (!st.isSymbolicLink()) {
-                // A stray dir was created here on an earlier run; replace it.
-                fs.rm(projectsLink, { recursive: true, force: true }).catch(() => { });
-                symlinkSync(realProjects, projectsLink);
-            }
-        }
-        catch {
-            // Doesn't exist — create the symlink.
+        // Symlink shared user data so custom-provider subprocesses keep auth isolated
+        // without hiding sessions or user-scoped slash commands from the WebUI/CLI.
+        for (const dir of ['projects', 'commands']) {
+            const link = path.join(ISOLATED_CONFIG_DIR, dir);
+            const real = path.join(HOME, '.claude', dir);
+            if (!existsSync(real))
+                mkdirSync(real, { recursive: true });
             try {
-                symlinkSync(realProjects, projectsLink);
+                const st = lstatSync(link);
+                if (!st.isSymbolicLink()) {
+                    rmSync(link, { recursive: true, force: true });
+                    symlinkSync(real, link);
+                }
             }
-            catch { /* already there */ }
+            catch {
+                try {
+                    symlinkSync(real, link);
+                }
+                catch { /* already there */ }
+            }
         }
         isolatedDirReady = true;
     }
@@ -257,6 +260,14 @@ export function getYoloMode() {
 export async function setYoloMode(enabled) {
     const s = await readSettings();
     s.yoloMode = Boolean(enabled);
+    await persist();
+}
+export function getFollowupSuggestionsEnabled() {
+    return (cache ?? makeDefaults()).followupSuggestions ?? false;
+}
+export async function setFollowupSuggestionsEnabled(enabled) {
+    const s = await readSettings();
+    s.followupSuggestions = Boolean(enabled);
     await persist();
 }
 export function getActiveProviderEnv() {
