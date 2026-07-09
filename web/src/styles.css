@@ -1771,6 +1771,7 @@ textarea:focus, select:focus, input:focus {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .ti-perm-actions .primary.small,
 .ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
