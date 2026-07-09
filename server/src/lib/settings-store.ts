@@ -46,6 +46,9 @@ export type Settings = {
   // auto-approves every tool call with no client prompt, so it should be an
   // explicit opt-in.
   yoloMode: boolean;
+  // Follow-up suggestions make an extra model call after each clean turn.
+  // Default off so users explicitly opt into the token spend.
+  followupSuggestions: boolean;
 };
 
 // Public projection sent to the client. Never surfaces raw apiKey — only a
@@ -73,6 +76,7 @@ export type PublicSettings = {
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
   yoloMode: boolean;
+  followupSuggestions: boolean;
 };
 
 const CONFIG_PATH = path.join(HOME, '.claude', 'macaron-config.json');
@@ -98,6 +102,7 @@ function makeDefaults(): Settings {
     // switch to it, or delete it. Same UX as any other custom provider.
     customProviders: [seedMacaronProvider()],
     yoloMode: false,
+    followupSuggestions: false,
   };
 }
 
@@ -116,6 +121,7 @@ function migrateIfLegacy(raw: unknown): Settings {
     activeProviderId?: string;
     customProviders?: CustomProvider[];
     yoloMode?: boolean;
+    followupSuggestions?: boolean;
   };
   if (legacy && Array.isArray(legacy.customProviders)) {
     // Already current shape — just normalize the legacy 'anthropic' id.
@@ -123,6 +129,7 @@ function migrateIfLegacy(raw: unknown): Settings {
       activeProviderId: normalizeActiveId(legacy.activeProviderId || SYSTEM_PROVIDER_ID),
       customProviders: legacy.customProviders.map(sanitizeProvider),
       yoloMode: Boolean(legacy.yoloMode),
+      followupSuggestions: Boolean(legacy.followupSuggestions),
     };
   }
   // Legacy: rebuild
@@ -138,6 +145,7 @@ function migrateIfLegacy(raw: unknown): Settings {
     activeProviderId: wasMacaronActive ? macaron.id : SYSTEM_PROVIDER_ID,
     customProviders: [macaron],
     yoloMode: Boolean(legacy?.yoloMode),
+    followupSuggestions: Boolean(legacy?.followupSuggestions),
   };
 }
 
@@ -201,6 +209,7 @@ export async function readPublicSettings(): Promise<PublicSettings> {
       configured: Boolean(p.apiKey),
     })),
     yoloMode: s.yoloMode,
+    followupSuggestions: s.followupSuggestions,
   };
 }
 
@@ -328,6 +337,16 @@ export function getYoloMode(): boolean {
 export async function setYoloMode(enabled: boolean): Promise<void> {
   const s = await readSettings();
   s.yoloMode = Boolean(enabled);
+  await persist();
+}
+
+export function getFollowupSuggestionsEnabled(): boolean {
+  return (cache ?? makeDefaults()).followupSuggestions ?? false;
+}
+
+export async function setFollowupSuggestionsEnabled(enabled: boolean): Promise<void> {
+  const s = await readSettings();
+  s.followupSuggestions = Boolean(enabled);
   await persist();
 }
 

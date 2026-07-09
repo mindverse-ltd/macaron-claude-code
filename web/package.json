@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@macaron/shared": "*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -41,6 +40,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.577.0",
     "motion": "^12.42.0",
+    "partial-json": "^0.1.7",
     "partial-react": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556",
     "partial-tsx": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c00556",
     "react": "^19.1.0",
@@ -54,6 +54,7 @@
     "unocss-preset-animations": "^1.3.0"
   },
   "devDependencies": {
+    "@macaron/shared": "workspace:*",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.0",
     "vite": "^6.0.5"

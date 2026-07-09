@@ -12,7 +12,7 @@ export type SessionStreamEvent =
   | { type: 'tool_input_delta'; id: string; name: string; partial_json: string; accumulated: string }
   | { type: 'tool_input_done'; id: string; name: string; final_json: string }
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
-  | { type: 'permission_request'; id: string; toolName: string; input: unknown }
+  | { type: 'permission_request'; id: string; toolName: string; input: unknown; suggestion?: { label: string } }
   | { type: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; event: string; subtype: string | null }
@@ -20,4 +20,5 @@ export type SessionStreamEvent =
   | { type: 'warn'; text: string }
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number; error?: string }
+  | { type: 'followup_delta'; text: string }
   | { type: 'live-end'; reason?: string };

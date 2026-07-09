@@ -16,6 +16,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Block, Message, SessionDetail, SessionListItem } from '@macaron/shared';
 import { HOME } from '../config.js';
+import { deleteCodexTitle, getCodexTitle } from './codex-titles.js';
 
 const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
@@ -162,6 +163,7 @@ export async function listCodexSessions(): Promise<SessionListItem[]> {
           gitBranch: summary.meta.gitBranch,
           sessionId: sid,
           preview: (summary.firstUserText || '').slice(0, 220),
+          title: getCodexTitle(sid),
           messageCount: summary.approxMessages,
           messageCountSuffix: '',
           mtime: st.mtimeMs,
@@ -282,7 +284,16 @@ export async function readCodexSessionMessages(sid: string): Promise<SessionDeta
     if (o.type === 'response_item') {
       const kind = String(p.type || '');
       if (kind === 'function_call') {
-        const name = String(p.name || 'tool');
+        // Rollout jsonl separates MCP tool calls into `name: "render_ui"` +
+        // `namespace: "mcp__macaron"`. The live SSE stream (codex-runner)
+        // emits the same tool as `mcp:macaron/render_ui` — combine them
+        // here so downstream `isRenderUiTool` / general MCP detection
+        // works uniformly whether the transcript came from disk or the
+        // live event stream.
+        const rawName = String(p.name || 'tool');
+        const ns = String((p as { namespace?: string }).namespace || '');
+        const mcpMatch = ns.match(/^mcp__(.+)$/);
+        const name = mcpMatch ? `mcp:${mcpMatch[1]}/${rawName}` : rawName;
         const callId = String(p.call_id || `codex-${messages.length}`);
         let input: unknown = p.arguments;
         if (typeof input === 'string') {
@@ -346,4 +357,5 @@ export async function deleteCodexSession(sid: string): Promise<void> {
   if (!filePath) throw new Error(`codex session not found: ${sid}`);
   await fs.unlink(filePath);
   summaryCache.delete(filePath);
+  await deleteCodexTitle(sid);
 }

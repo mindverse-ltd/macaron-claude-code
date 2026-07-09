@@ -1,0 +1,6 @@
+packages:
+  - 'shared'
+  - 'server'
+  - 'web'
+allowBuilds:
+  esbuild: set this to true or false
