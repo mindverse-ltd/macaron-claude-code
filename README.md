@@ -84,6 +84,16 @@ MACARON_MODEL=macaron-0.6     # optional
 MACARON_PORT=7878             # optional
 ```
 
+### Exposing on your LAN
+
+By default the server binds to `127.0.0.1`, so only the local machine can reach it — no auth needed. To use the WebUI from your phone or another machine, bind to a routable address and set a shared token:
+
+```bash
+MACARON_HOST=0.0.0.0 MACARON_AUTH_TOKEN=your-long-random-token /macaron
+```
+
+Remote requests must then present the token; localhost stays frictionless (loopback is never challenged). The web app shows a one-field unlock screen, and you can share a ready-to-use link as `http://<host>:7878/?token=your-long-random-token` (the token is stored and stripped from the URL on first load). If you bind to a non-loopback host **without** setting a token, the server generates one at boot and prints it to the log so it's never left wide open.
+
 ## Layout
 
 ```

@@ -4,8 +4,11 @@
 // `/permission-decision`, which invokes the resolver so canUseTool returns
 // and the SDK proceeds.
 
+// scope on an `allow`: 'once' (default) runs the tool this one time; 'session'
+// remembers it for the rest of this server session; 'always' persists it for
+// this project cwd. The runner's canUseTool acts on scope after resolving.
 export type PermissionDecision =
-  | { decision: 'allow' }
+  | { decision: 'allow'; scope?: 'once' | 'session' | 'always' }
   | { decision: 'deny'; reason?: string };
 
 const pending = new Map<string, (d: PermissionDecision) => void>();

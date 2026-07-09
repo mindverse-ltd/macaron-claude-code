@@ -21,15 +21,57 @@
 // bubble to render; can be split later if the SDK adds mid-turn updates.
 
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 import type {
   CodexOptions,
+  Input,
   ThreadEvent,
   ThreadItem,
   ThreadOptions,
+  UserInput,
 } from '@openai/codex-sdk';
-import { getCodexConfig } from './codex-config.js';
+import { getActiveCodexProvider, getCodexConfig } from './codex-config.js';
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
+
+// Absolute path + command for the standalone stdio MCP server that exposes
+// render_ui to the codex CLI (see server/src/macaron-mcp-stdio.ts).
+// Resolved relative to THIS file so the same lookup works whether the
+// server is running from src/ (tsx dev) or dist/ (built).
+//
+// Production: `server/dist/lib/codex-runner.js` → sibling
+//   `server/dist/macaron-mcp-stdio.js` → spawn `node <path>`.
+// Dev: `server/src/lib/codex-runner.ts` → sibling
+//   `server/src/macaron-mcp-stdio.ts` → spawn `tsx <path>` (via
+//   node_modules/.bin/tsx so we don't need a global tsx).
+const { command: MACARON_MCP_CMD, args: MACARON_MCP_ARGS } = (() => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const jsPath = path.join(here, '..', 'macaron-mcp-stdio.js');
+  if (existsSync(jsPath)) {
+    return { command: 'node', args: [jsPath] };
+  }
+  const tsPath = path.join(here, '..', 'macaron-mcp-stdio.ts');
+  // Walk up until we find a runnable tsx binary. Under pnpm, dev bins
+  // are NOT hoisted to `<repo>/node_modules/.bin/`; they live under
+  // `<repo>/node_modules/.pnpm/node_modules/.bin/`. Also check the
+  // classic hoisted path for npm/yarn / server workspace bin.
+  let dir = here;
+  for (let i = 0; i < 6; i++) {
+    for (const rel of [
+      ['node_modules', '.bin', 'tsx'],
+      ['node_modules', '.pnpm', 'node_modules', '.bin', 'tsx'],
+    ]) {
+      const candidate = path.join(dir, ...rel);
+      if (existsSync(candidate)) return { command: candidate, args: [tsPath] };
+    }
+    dir = path.dirname(dir);
+  }
+  // Last resort: hope `tsx` is on PATH.
+  return { command: 'tsx', args: [tsPath] };
+})();
 
 // @openai/codex-sdk ships the `codex` binary via optional deps; if it's not
 // present the SDK throws at construction time. Fall back to the user's
@@ -52,7 +94,7 @@ function detectCodexBinary(): string | undefined {
     return undefined;
   }
 }
-const CODEX_BINARY = detectCodexBinary();
+export const CODEX_BINARY = detectCodexBinary();
 
 export type CodexRunOptions = {
   prompt: string;
@@ -66,8 +108,56 @@ export type CodexRunOptions = {
 // Build the CodexOptions + ThreadOptions from our persisted settings. Kept
 // here (not exported) so the runner is the single caller — settings changes
 // take effect on the next `runCodex()` without hot-reload plumbing.
+//
+// When the active selection is the built-in `system` provider we return the
+// minimum surface possible: no baseUrl / apiKey override, no
+// `model_providers.*` config entries — the codex CLI reads
+// ~/.codex/config.toml as-is. Sandbox / approval come from runtime knobs
+// (independent of provider choice) and skipGitRepoCheck stays on so the
+// server can spawn threads from arbitrary cwds.
 function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
-  const p = getCodexConfig().provider;
+  const s = getCodexConfig();
+  const p = getActiveCodexProvider();
+
+  // Inject the Macaron stdio MCP server into every codex spawn so `render_ui`
+  // is always available regardless of which provider is active. We do NOT
+  // touch the user's ~/.codex/config.toml — these keys land as
+  // `-c mcp_servers.macaron.command=…` overrides on the codex process.
+  const mcpConfig = {
+    'mcp_servers.macaron.command': MACARON_MCP_CMD,
+    'mcp_servers.macaron.args': MACARON_MCP_ARGS,
+    // Under sandbox=workspace-write + approval_policy=never, codex refuses
+    // MCP tool calls with "user cancelled MCP tool call" (duration=0)
+    // unless the server is explicitly marked auto-approved. `"approve"` is
+    // the value that lets the call through without an interactive prompt;
+    // `"auto"` counterintuitively does NOT. Kept opt-in per-server (not a
+    // global bypass) so only our stdio bridge gets the pass, not any
+    // third-party MCP the user might add elsewhere.
+    'mcp_servers.macaron.default_tools_approval_mode': 'approve',
+    // Enable network egress from the codex process. Under `workspace-write`
+    // (our default) codex disables outbound network by default; that broke
+    // any exec_command that needed curl/wget/git fetch, including the
+    // GenUI-builder skill's optional `curl https://genui.macaron.im/...`
+    // probe. Users can still lock this down by setting the runtime
+    // sandboxMode to `read-only`, which supersedes this key.
+    network_access: 'enabled',
+  } satisfies CodexOptions['config'];
+
+  if (!p) {
+    // System pass-through — inherit everything from ~/.codex/config.toml.
+    return {
+      codex: {
+        codexPathOverride: CODEX_BINARY,
+        config: mcpConfig,
+      },
+      thread: {
+        sandboxMode: s.runtime.sandboxMode,
+        approvalPolicy: s.runtime.approvalPolicy,
+        skipGitRepoCheck: true,
+      },
+    };
+  }
+
   return {
     codex: {
       codexPathOverride: CODEX_BINARY,
@@ -76,6 +166,7 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
       // Flattened into `--config key=value` args by the SDK. Mirrors what
       // the user would put in ~/.codex/config.toml for CLI use.
       config: {
+        ...mcpConfig, // network_access + macaron MCP already in here
         model_provider: p.modelProvider,
         model: p.model,
         review_model: p.model,
@@ -83,7 +174,6 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
         model_context_window: p.contextWindow,
         model_auto_compact_token_limit: p.autoCompactTokenLimit,
         disable_response_storage: p.disableResponseStorage,
-        network_access: 'enabled',
         // The bearer_token pathway; the SDK also sets OPENAI_API_KEY.
         [`model_providers.${p.modelProvider}.name`]: p.modelProvider,
         [`model_providers.${p.modelProvider}.base_url`]: p.baseUrl,
@@ -93,8 +183,8 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
     },
     thread: {
       model: p.model,
-      sandboxMode: p.sandboxMode,
-      approvalPolicy: p.approvalPolicy,
+      sandboxMode: s.runtime.sandboxMode,
+      approvalPolicy: s.runtime.approvalPolicy,
       modelReasoningEffort: p.reasoningEffort,
       webSearchEnabled: p.webSearchEnabled,
       skipGitRepoCheck: true,
@@ -102,12 +192,32 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
   };
 }
 
-// Build the SDK Input from a text prompt + optional base64 images. Codex
-// only supports `local_image` (path on disk), not inline data URLs — we
-// write each attached image to a temp file first. For MVP we skip images.
-function buildInput(opts: CodexRunOptions): string {
-  // TODO: write opts.images to tmp and pass [{type:'local_image', path}, {type:'text', text}]
-  return opts.prompt;
+// Build the SDK Input from a text prompt + optional base64 images. Codex only
+// accepts `local_image` (a path on disk), not inline data URLs, so each
+// attached image is written to a temp file; the caller must remove the
+// returned `tmpFiles` once the turn ends.
+const IMAGE_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+function buildInput(opts: CodexRunOptions): { input: Input; tmpFiles: string[] } {
+  if (!opts.images?.length) return { input: opts.prompt, tmpFiles: [] };
+  const tmpFiles: string[] = [];
+  const items: UserInput[] = [];
+  for (const img of opts.images) {
+    const m = /^data:([^;]+);base64,(.*)$/.exec(img.dataUrl);
+    const mime = m?.[1] || img.mimeType || 'image/png';
+    const data = m?.[2] || '';
+    if (!data) continue;
+    const file = path.join(os.tmpdir(), `macaron-codex-${randomUUID()}.${IMAGE_EXT[mime] || 'png'}`);
+    writeFileSync(file, Buffer.from(data, 'base64'));
+    tmpFiles.push(file);
+    items.push({ type: 'local_image', path: file });
+  }
+  if (opts.prompt) items.push({ type: 'text', text: opts.prompt });
+  return { input: items, tmpFiles };
 }
 
 export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEvent> {
@@ -274,7 +384,15 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
       }
       case 'error': {
         if (phase !== 'completed') return;
-        push({ kind: 'error', error: item.message || 'unknown codex item error' });
+        const msg = item.message || 'unknown codex item error';
+        // Codex emits the "Skill descriptions were shortened to fit the 2%
+        // skills context budget" line as an ErrorItem, but it's purely
+        // informational (the skills are still fully loaded, just their
+        // descriptions got trimmed). Rendering it as a red Error card in
+        // fresh threads scares users; swallow it silently — the model
+        // still sees the note in its own context.
+        if (/Skill descriptions were shortened/i.test(msg)) return;
+        push({ kind: 'error', error: msg });
         return;
       }
       default:
@@ -284,6 +402,8 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
 
   void (async () => {
     let sessionEmitted = false;
+    // Temp files backing local_image inputs; removed once the turn ends.
+    let tmpFiles: string[] = [];
     try {
       // Lazy-import so the default (claude) engine never loads @openai/codex-sdk
       // — the bundled tarball (server/dist/index.js only) has no node_modules, so
@@ -301,7 +421,9 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
         push({ kind: 'session', sessionId: opts.resume });
       }
 
-      const streamed = await thread.runStreamed(buildInput(opts), {
+      const built = buildInput(opts);
+      tmpFiles = built.tmpFiles;
+      const streamed = await thread.runStreamed(built.input, {
         signal: opts.abortController?.signal,
       });
 
@@ -351,6 +473,7 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
       push({ kind: 'error', error: (err as Error).message });
       push({ kind: 'done', exitCode: -1 });
     } finally {
+      for (const f of tmpFiles) { try { unlinkSync(f); } catch { /* already gone */ } }
       finish();
     }
   })();
