@@ -10,6 +10,7 @@ export type Settings = {
     activeProviderId: string;
     customProviders: CustomProvider[];
     yoloMode: boolean;
+    followupSuggestions: boolean;
 };
 export type PublicCustomProvider = {
     id: string;
@@ -29,6 +30,7 @@ export type PublicSettings = {
     builtins: PublicBuiltinProvider[];
     customProviders: PublicCustomProvider[];
     yoloMode: boolean;
+    followupSuggestions: boolean;
 };
 export declare function readSettings(): Promise<Settings>;
 export declare function warmSettingsCache(): Promise<void>;
@@ -46,6 +48,8 @@ export declare function getActiveProviderRaw(): {
 } | null;
 export declare function getYoloMode(): boolean;
 export declare function setYoloMode(enabled: boolean): Promise<void>;
+export declare function getFollowupSuggestionsEnabled(): boolean;
+export declare function setFollowupSuggestionsEnabled(enabled: boolean): Promise<void>;
 export declare function getActiveProviderEnv(): {
     model: string | undefined;
     env: Record<string, string> | null;

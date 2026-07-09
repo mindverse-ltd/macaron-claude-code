@@ -5,6 +5,7 @@ import type {
   SessionDetail,
   Workspace,
 } from '@macaron/shared';
+import { authedFetch } from '../lib/auth';
 
 export type CodexThread = SessionListItem;
 export type CodexWorkspace = Workspace;
@@ -49,13 +50,13 @@ export type PublicCodexSettings = {
 };
 
 async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+  const r = await authedFetch(url);
   if (!r.ok) throw new Error(`http ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 async function reqJSON<T>(url: string, init: RequestInit): Promise<T> {
-  const r = await fetch(url, init);
+  const r = await authedFetch(url, init);
   if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json() as Promise<T>;
 }
@@ -69,7 +70,7 @@ export const codexApi = {
     ),
   thread: (sid: string) => getJSON<SessionDetail>(`/api/codex/threads/${encodeURIComponent(sid)}`),
   deleteThread: async (sid: string): Promise<void> => {
-    const r = await fetch(`/api/codex/threads/${encodeURIComponent(sid)}`, { method: 'DELETE' });
+    const r = await authedFetch(`/api/codex/threads/${encodeURIComponent(sid)}`, { method: 'DELETE' });
     if (!r.ok) throw new Error(`http ${r.status}`);
   },
   stopThread: (sid: string) =>

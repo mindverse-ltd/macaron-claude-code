@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import {
   THINKING_VERBS,
@@ -17,8 +18,10 @@ import {
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
+import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -52,7 +55,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -62,7 +65,7 @@ type Item =
   | { id: string; kind: 'live-assistant'; text: string }
   // Pending / resolved permission gate. Rendered as an inline card with
   // Allow/Deny buttons while `status === 'pending'`.
-  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; status: 'pending' | 'allow' | 'deny' };
+  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; suggestion?: { label: string }; status: 'pending' | 'allow' | 'deny' };
 
 const TODO_WRITE_NAMES = new Set(['TodoWrite', 'todo_write']);
 const isTodoWriteTool = (name: string) => TODO_WRITE_NAMES.has(name);
@@ -552,19 +555,21 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   );
 }
 
-// Inline permission gate — Allow / Deny buttons that POST the decision back
-// so the SDK's canUseTool callback resumes with the user's choice.
+// Inline permission gate. Deny / Allow-once always show; Session / Always
+// appear when the server sent a `suggestion` (i.e. there's a concrete rule to
+// remember) and POST the decision with a scope so canUseTool persists it.
 function PermissionItem({
   it,
   onDecide,
 }: {
   it: Extract<Item, { kind: 'permission' }>;
-  onDecide: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
 }) {
   // Only pending gates are worth showing — once resolved, the tool block
   // above already tells the story (Bash ran / didn't run).
   if (it.status !== 'pending') return null;
   const header = toolHeader(it.toolName, it.input);
+  const remember = it.suggestion?.label;
   return (
     <div className="ti-perm">
       <span className="ti-perm-icon">🔒</span>
@@ -586,11 +591,31 @@ function PermissionItem({
         </button>
         <button
           type="button"
-          className="primary small"
-          onClick={() => onDecide(it.permissionId, 'allow')}
+          className="ghost small"
+          onClick={() => onDecide(it.permissionId, 'allow', 'once')}
         >
-          Allow
+          Allow once
         </button>
+        {remember && (
+          <button
+            type="button"
+            className="ghost small"
+            title={`Don't ask again this session for: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'session')}
+          >
+            Session
+          </button>
+        )}
+        {remember && (
+          <button
+            type="button"
+            className="primary small"
+            title={`Always allow in this project: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'always')}
+          >
+            Always
+          </button>
+        )}
       </span>
     </div>
   );
@@ -603,7 +628,7 @@ function ItemView({
 }: {
   it: Item;
   onRewind?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -623,8 +648,12 @@ function ItemView({
       return <LiveAssistantItem text={it.text} />;
     case 'thinking':
       return <ThinkingItem text={it.text} />;
-    case 'tool':
-      return <ToolItem name={it.name} input={it.input} result={it.result} />;
+    case 'tool': {
+      // Edit/Write/MultiEdit render as an inline diff card; every other tool
+      // (and any edit whose input hasn't fully streamed yet) uses the plain row.
+      const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
+      return diff ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} /> : <ToolItem name={it.name} input={it.input} result={it.result} />;
+    }
     case 'todo':
       return <TodoItem todos={it.todos} />;
     case 'system_event':
@@ -772,6 +801,15 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Set when the current turn hit onError, so the completion effect below can
+  // skip the 'complete' cue — onDone still runs after a stream error, and a
+  // failed turn shouldn't sound like a success.
+  const turnErroredRef = useRef(false);
+  // Set while a user-initiated Stop is in flight. Stop aborts the SDK
+  // stream, which claude-runner's catch surfaces as an onError (it doesn't
+  // filter AbortError) — so without this the deliberate Stop would play the
+  // 'error' cue as if the turn had actually failed.
+  const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -793,6 +831,11 @@ export function Session(props: SessionProps = {}) {
     }
     if (!streamedRef.current) return;
     streamedRef.current = false;
+    // A turn that ended in onError already played the 'error' cue; don't also
+    // play 'complete' (onDone still fires after a stream error).
+    const errored = turnErroredRef.current;
+    turnErroredRef.current = false;
+    if (!errored) playSound('complete');
     notify({
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
@@ -988,7 +1031,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny') => {
+    (permissionId: string, decision: 'allow' | 'deny', scope: 'once' | 'session' | 'always' = 'once') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -996,7 +1039,7 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision).catch((e) => {
+      api.permissionDecision(permissionId, decision, { scope }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
@@ -1008,6 +1051,11 @@ export function Session(props: SessionProps = {}) {
   // the existing `done` handler.
   const handleStop = useCallback(async () => {
     if (!sid) return;
+    // Mark the abort as user-initiated before requesting it, so the error
+    // that comes back over the SSE is recognised as a Stop, not a failure,
+    // and its cue is suppressed. (turnErroredRef still trips, so the
+    // trailing completion effect stays silent too.)
+    stoppingRef.current = true;
     try {
       await api.stopSession(project, sid);
       toast('Stop requested');
@@ -1054,7 +1102,7 @@ export function Session(props: SessionProps = {}) {
       bypassPermissions: 'Bypass all',
     };
     const onKey = (e: Event) => {
-      if (!focused) return; // canvas tiles only respond when active
+      if (!focused || hasActiveModal()) return; // canvas tiles only respond when active and no modal is covering them
       const ke = e as unknown as { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void };
       if (ke.key !== 'Tab' || !ke.shiftKey || ke.ctrlKey || ke.metaKey || ke.altKey) return;
       ke.preventDefault();
@@ -1102,6 +1150,7 @@ export function Session(props: SessionProps = {}) {
               permissionId: t.permissionId,
               toolName: t.toolName,
               input: t.input,
+              suggestion: t.suggestion,
               status: t.status,
             };
           }
@@ -1260,13 +1309,17 @@ export function Session(props: SessionProps = {}) {
   }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
-    async (e?: FormEvent) => {
-      e?.preventDefault();
-      const text = input.trim();
+    async (e?: FormEvent | string) => {
+      // A string arg is a programmatic send (the $macaron/chat bridge); a
+      // FormEvent is the composer submit. Bridge text bypasses the input box.
+      const override = typeof e === 'string' ? e : undefined;
+      if (typeof e !== 'string') e?.preventDefault();
+      const text = (override ?? input).trim();
       if ((!text && images.length === 0) || sending) return;
-      const sentImages = images;
-      setInput('');
-      setImages([]);
+      // A bridge send carries only its own text — leave the user's in-progress
+      // composer draft and attachments untouched.
+      const sentImages = override ? [] : images;
+      if (!override) { setInput(''); setImages([]); }
       // New turn ⇒ new follow-up generation: clears the chips and invalidates
       // any deltas still streaming from the previous turn's follow-up query.
       const fGen = resetFollowups();
@@ -1289,6 +1342,10 @@ export function Session(props: SessionProps = {}) {
       setLiveUserImages(sentImages);
       setLiveTurn([]);
       setOutputTokens(-1);
+      // Fresh turn: clear the Stop latch so a prior Stop can't suppress
+      // this turn's error cue. (turnErroredRef is cleared by the completion
+      // effect when the previous turn settled.)
+      stoppingRef.current = false;
 
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
@@ -1368,10 +1425,9 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolInputDone: ({ id, name, final_json }) => {
-            if (!isRenderUITool(name)) return;
             try {
               const obj = JSON.parse(final_json);
-              if (typeof obj?.code === 'string') {
+              if (isRenderUITool(name) && typeof obj?.code === 'string') {
                 setLiveTurn((cur) =>
                   cur.map((t) =>
                     t.kind === 'genui' && t.toolUseId === id
@@ -1379,14 +1435,19 @@ export function Session(props: SessionProps = {}) {
                       : t,
                   ),
                 );
+              } else if (isDiffTool(name)) {
+                setLiveTurn((cur) =>
+                  cur.map((t) => (t.kind === 'tool' && t.id === `live-${id}` ? { ...t, input: obj } : t)),
+                );
               }
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
-          onPermissionRequest: ({ id, toolName, input }) => {
+          onPermissionRequest: ({ id, toolName, input, suggestion }) => {
             // Nudge the user via native notification when a tool needs
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
             // acted on.
+            playSound('permission');
             notify({
               title: 'Macaron · permission needed',
               body: `${toolName} wants to run` + (
@@ -1408,6 +1469,7 @@ export function Session(props: SessionProps = {}) {
                 permissionId: id,
                 toolName,
                 input,
+                suggestion,
                 status: 'pending',
               },
             ]);
@@ -1429,7 +1491,7 @@ export function Session(props: SessionProps = {}) {
                   return { ...t, status: 'ready' };
                 }
                 if (t.kind === 'tool' && (t.id === `live-${tool_use_id}`)) {
-                  return { ...t, result: resultText };
+                  return { ...t, result: resultText, isError };
                 }
                 return t;
               }),
@@ -1439,6 +1501,11 @@ export function Session(props: SessionProps = {}) {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            turnErroredRef.current = true;
+            // A user Stop surfaces here as an error — suppress the error cue
+            // in that case (turnErroredRef above already keeps the trailing
+            // completion effect silent, so the Stop makes no sound at all).
+            if (!stoppingRef.current) playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               const chunk = `\n[error] ${err}`;
@@ -1467,6 +1534,20 @@ export function Session(props: SessionProps = {}) {
     },
     [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
+
+  // Chat bridge: a sandboxed render_ui widget imports sendUserMessage from
+  // '$macaron/chat', and the shim (web/public/genui-shim/chat.mjs) dispatches
+  // the payload to this host global slot ('$app/chat'), which relays it into
+  // send() as a programmatic user turn. Only the focused session registers —
+  // canvas multi-tile mounts share one slot, so the widget the user is actually
+  // looking at owns the bridge.
+  useEffect(() => {
+    if (!focused) return;
+    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const bridge = (prompt: string) => { void send(prompt); };
+    g['$app/chat'] = bridge;
+    return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
+  }, [focused, send]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

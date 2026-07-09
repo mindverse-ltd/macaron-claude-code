@@ -2,6 +2,9 @@ import os from 'node:os';
 import path from 'node:path';
 export const PORT = parseInt(process.env.MACARON_PORT || '7878', 10);
 export const HOST = process.env.MACARON_HOST || '127.0.0.1';
+// Optional shared token that gates the API when the server is reachable from
+// the network. Empty = auth off (the default for loopback-only binds).
+export const AUTH_TOKEN = process.env.MACARON_AUTH_TOKEN || '';
 // Optional env overrides. Users normally set the Macaron API key via the
 // Settings page (persisted to ~/.claude/macaron-config.json); env vars still
 // win for ops-driven / one-shot invocations.
