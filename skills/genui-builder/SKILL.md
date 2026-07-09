@@ -30,16 +30,16 @@ The CLI is optional. Prefer direct streaming runtimes when the user wants an HTM
 Use this exact pinned command unless the user provides a newer one:
 
 ```bash
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767
 ```
 
 The CLI supports:
 
 ```bash
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 lint App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 check App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 build App.tsx -o index.html
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 dev App.tsx -p 4173 --host 127.0.0.1
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 lint App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 check App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 build App.tsx -o index.html
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 dev App.tsx -p 4173 --host 127.0.0.1
 ```
 
 Before relying on the CLI, check that Bun/Bunx is available:
@@ -149,22 +149,22 @@ For a standalone HTML request:
 ```bash
 mkdir -p genui-output
 $EDITOR genui-output/App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 lint genui-output/App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 check genui-output/App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 build genui-output/App.tsx -o genui-output/index.html
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 lint genui-output/App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 check genui-output/App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 build genui-output/App.tsx -o genui-output/index.html
 ```
 
 For an agent-facing TSX artifact:
 
 ```bash
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 lint App.tsx
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 check App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 lint App.tsx
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 check App.tsx
 ```
 
 For live preview:
 
 ```bash
-bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@1140 dev App.tsx -p 4173 --host 127.0.0.1
+bunx genui@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/cli@00b6767 dev App.tsx -p 4173 --host 127.0.0.1
 ```
 
 For a model-backed HTML runtime, do not use the CLI as the default. Build a page that streams model output into a GenUI renderer and verify during generation that the code pane grows before the final response completes.
