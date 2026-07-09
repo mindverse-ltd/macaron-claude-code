@@ -572,7 +572,7 @@ export async function readSessionMessages(project: string, sid: string): Promise
                   : Array.isArray(b.content)
                     ? b.content.map((x: { text?: string }) => x.text || '').join('\n')
                     : '';
-              blocks.push({ kind: 'tool_result', toolUseId: b.tool_use_id, text: t.slice(0, 4000) });
+              blocks.push({ kind: 'tool_result', toolUseId: b.tool_use_id, text: t.slice(0, 4000), isError: b.is_error === true });
             }
           }
         }

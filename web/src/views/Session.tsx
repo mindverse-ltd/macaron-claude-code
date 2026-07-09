@@ -26,6 +26,7 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { ActivityTimeline, toolIcon, toolLabel, type TimelineEntry } from '../components/ActivityTimeline';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
@@ -70,7 +71,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -96,7 +97,13 @@ function isNoisyUserText(t: string): boolean {
 export function flatten(messages: Message[]): Item[] {
   const out: Item[] = [];
   let i = 0;
-  let lastTool: Extract<Item, { kind: 'tool' }> | null = null;
+  type PairedTool = Extract<Item, { kind: 'tool' | 'genui' }>;
+  type PendingTool = { item: PairedTool; ts?: string };
+  const pendingTools = new Map<string, PendingTool>();
+  // Legacy fallback for older/malformed transcripts without toolUseId. Normal
+  // Claude turns can emit multiple tool_use blocks before any tool_result, so
+  // id-based pairing below is the load-bearing path.
+  let fallbackTool: PendingTool | null = null;
   // TodoWrite fires repeatedly with the full task list each time. Only the
   // latest snapshot is meaningful, so we track its slot in `out` and splice
   // out the previous one when a new one arrives — this mirrors the CLI which
@@ -112,7 +119,7 @@ export function flatten(messages: Message[]): Item[] {
           out.push({ id: `sys${i++}`, kind: 'system_event', eventType: b.eventType, text: b.text });
         }
       }
-      lastTool = null;
+      fallbackTool = null;
       continue;
     }
     // Collect any text + image blocks the user sent in this message into a
@@ -133,14 +140,14 @@ export function flatten(messages: Message[]): Item[] {
     for (const b of m.blocks) {
       if (m.role !== 'user' && b.kind === 'text') {
         if (b.text.trim()) out.push({ id: `a${i++}`, kind: 'assistant', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'thinking') {
         if (b.text.trim()) out.push({ id: `t${i++}`, kind: 'thinking', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (m.role !== 'user' && b.kind === 'image') {
         // Very rare — assistant emitting an image. Keep in its own row.
         out.push({ id: `img${i++}`, kind: 'assistant-image', mimeType: b.mimeType, data: b.data });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'tool_use') {
         if (isTodoWriteTool(b.name)) {
           const input = (b.input || {}) as { todos?: TodoEntry[] };
@@ -155,7 +162,7 @@ export function flatten(messages: Message[]): Item[] {
           out.push({ id: `todo${i++}`, kind: 'todo', todos });
           // TodoWrite's tool_result is just an ACK — don't chain it to
           // anything real.
-          lastTool = null;
+          fallbackTool = null;
         } else if (isRenderUITool(b.name)) {
           // Claude writes the TSX directly into the tool_use input.code field;
           // jsonl persists it. We use that as the rendered code immediately.
@@ -178,9 +185,11 @@ export function flatten(messages: Message[]): Item[] {
             status: code ? 'ready' : 'pending',
           };
           out.push(it);
-          // Reuse lastTool slot so the next tool_result lands here.
-          lastTool = it as unknown as Extract<Item, { kind: 'tool' }>;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         } else {
+          const toolUseId = (b as unknown as { id?: string }).id || `synthetic-${i}`;
           const it: Extract<Item, { kind: 'tool' }> = {
             id: `tool${i++}`,
             kind: 'tool',
@@ -188,12 +197,16 @@ export function flatten(messages: Message[]): Item[] {
             input: b.input,
           };
           out.push(it);
-          lastTool = it;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         }
       } else if (b.kind === 'tool_result') {
-        if (lastTool) {
-          if ((lastTool as unknown as Item).kind === 'genui') {
-            const g = lastTool as unknown as Extract<Item, { kind: 'genui' }>;
+        const pending = b.toolUseId ? pendingTools.get(b.toolUseId) : fallbackTool;
+        const item = pending?.item;
+        if (item) {
+          if (item.kind === 'genui') {
+            const g = item;
             const t = b.text || '';
             if (t.startsWith('render_ui failed:')) {
               g.status = 'error';
@@ -202,7 +215,15 @@ export function flatten(messages: Message[]): Item[] {
               g.status = 'ready';
             }
           } else {
-            lastTool.result = (lastTool.result ? lastTool.result + '\n' : '') + b.text;
+            item.result = (item.result ? item.result + '\n' : '') + b.text;
+            if (b.isError) item.isError = true;
+            // Wall-clock = result message time − tool_use message time. Both
+            // are best-effort ISO strings; leave undefined if either is absent
+            // or the delta is nonsensical (clock skew / same-line messages).
+            if (pending.ts && m.timestamp) {
+              const d = new Date(m.timestamp).getTime() - new Date(pending.ts).getTime();
+              if (Number.isFinite(d) && d >= 0) item.durationMs = d;
+            }
           }
         }
       }
@@ -213,7 +234,7 @@ export function flatten(messages: Message[]): Item[] {
 
 // ---- Tool header formatting (Bash → command first line, etc.) -------------
 
-function toolHeader(name: string, input: any): string {
+export function toolHeader(name: string, input: any): string {
   if (!input || typeof input !== 'object') return '';
   if (name === 'Bash') {
     return String(input.command || '').replace(/\s+/g, ' ').slice(0, 240);
@@ -271,7 +292,7 @@ const TODO_STATUS_ORDER: Record<TodoEntry['status'], number> = {
   completed: 2,
 };
 
-function TodoItem({ todos }: { todos: TodoEntry[] }) {
+function TodoItem({ id, todos }: { id?: string; todos: TodoEntry[] }) {
   const [expanded, setExpanded] = useState(false);
   const total = todos.length;
   const done = todos.filter((t) => t.status === 'completed').length;
@@ -299,7 +320,7 @@ function TodoItem({ todos }: { todos: TodoEntry[] }) {
   const hiddenCompleted = Math.max(0, done - completedShown);
 
   return (
-    <div className="ti-todo">
+    <div className="ti-todo" data-item-id={id}>
       <div className="ti-todo-stats">
         <strong>{total} tasks</strong> ({done} done, {inProg} in progress, {open} open)
       </div>
@@ -443,7 +464,7 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
 
 const PREVIEW_LINES = 2;
 
-function ToolItem({ name, input, result }: { name: string; input: unknown; result?: string }) {
+function ToolItem({ id, name, input, result, durationMs, isError }: { id?: string; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }) {
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
   const resultText = (result ?? '').replace(/\n+$/, '');
@@ -452,15 +473,16 @@ function ToolItem({ name, input, result }: { name: string; input: unknown; resul
   const extra = Math.max(0, allLines.length - PREVIEW_LINES);
 
   return (
-    <div className="ti-tool">
+    <div className="ti-tool" data-item-id={id}>
       <div className="ti-tool-head">
-        <span className="ti-dot">●</span>
+        <span className={`ti-dot${isError ? ' ti-dot-error' : ''}`}>●</span>
         <span className="ti-tool-name">{name}</span>
         {header && (
           <span className="ti-tool-args" title={header}>
             ({header})
           </span>
         )}
+        {durationMs != null && <span className="ti-tool-dur">{formatDuration(durationMs)}</span>}
       </div>
       {result !== undefined && allLines.length > 0 && (
         <div className="ti-tool-out">
@@ -557,20 +579,20 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 
   if (it.status === 'error') {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-error">render_ui failed: {it.error || 'unknown error'}</div>
       </div>
     );
   }
   if (!code) {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-pending">generating UI…</div>
       </div>
     );
   }
   return (
-    <div className="ti-genui">
+    <div className="ti-genui" data-item-id={it.id}>
       <StaticGenUIRenderer
         code={code}
         active
@@ -727,10 +749,12 @@ export function ItemView({
       // Edit/Write/MultiEdit render as an inline diff card; every other tool
       // (and any edit whose input hasn't fully streamed yet) uses the plain row.
       const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
-      return diff ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} /> : <ToolItem name={it.name} input={it.input} result={it.result} />;
+      return diff
+        ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} />
+        : <ToolItem id={it.id} name={it.name} input={it.input} result={it.result} durationMs={it.durationMs} isError={it.isError} />;
     }
     case 'todo':
-      return <TodoItem todos={it.todos} />;
+      return <TodoItem id={it.id} todos={it.todos} />;
     case 'system_event':
       return <SystemEventItem eventType={it.eventType} text={it.text} />;
     case 'genui':
@@ -1477,6 +1501,66 @@ export function Session(props: SessionProps = {}) {
   // automatically — new content pushes existing content up without us
   // touching scrollTop. The user can freely scroll up to read history.
 
+  // ---- Activity timeline: one rail node per tool call in the session -----
+  // Built from the persisted `items`, so live-turn tools join once the jsonl
+  // reloads. Todo / genui calls are surfaced too (they're tool calls the CLI
+  // renders specially). `id` matches each row's `data-item-id` for click-jump.
+  const timelineEntries = useMemo<TimelineEntry[]>(() => {
+    const out: TimelineEntry[] = [];
+    for (const it of items) {
+      if (it.kind === 'tool') {
+        out.push({
+          id: it.id,
+          icon: toolIcon(it.name),
+          label: toolLabel(it.name),
+          summary: toolHeader(it.name, it.input),
+          durationMs: it.durationMs,
+          status: it.isError ? 'error' : it.result !== undefined ? 'ok' : 'pending',
+        });
+      } else if (it.kind === 'todo') {
+        const done = it.todos.filter((t) => t.status === 'completed').length;
+        out.push({ id: it.id, icon: toolIcon('TodoWrite'), label: 'Todo', summary: `${done}/${it.todos.length} done`, status: 'ok' });
+      } else if (it.kind === 'genui') {
+        out.push({ id: it.id, icon: '🎨', label: 'render_ui', summary: it.prompt, status: it.status === 'error' ? 'error' : it.status === 'ready' ? 'ok' : 'pending' });
+      }
+    }
+    return out;
+  }, [items]);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+
+  // Request a jump to a rail node's target row. If the row is older than the
+  // paginated window, widen `shown` first. The scroll runs in the effect below,
+  // once React has committed the wider window — doing it inline (even in a rAF)
+  // races the commit and silently misses rows that aren't mounted yet.
+  const jumpToItem = useCallback(
+    (id: string) => {
+      const idx = items.findIndex((it) => it.id === id);
+      if (idx >= 0) {
+        const fromTail = items.length - idx;
+        if (fromTail > shown) setShown((s) => Math.max(s, fromTail));
+      }
+      setActiveItemId(id);
+      setPendingJumpId(id);
+    },
+    [items, shown],
+  );
+
+  // Resolve a pending jump after the target row is committed. Re-runs when
+  // `shown` widens (which mounts older rows), so jumps into hidden history land
+  // reliably instead of no-oping when the row wasn't mounted in time.
+  useEffect(() => {
+    if (!pendingJumpId) return;
+    const el = threadRef.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(pendingJumpId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('ti-jump-flash');
+    // Force reflow so re-adding the class restarts the flash animation.
+    void el.offsetWidth;
+    el.classList.add('ti-jump-flash');
+    setPendingJumpId(null);
+  }, [pendingJumpId, shown]);
+
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
   // Session start time from the earliest message timestamp — mirrors the CLI's
@@ -1923,6 +2007,8 @@ export function Session(props: SessionProps = {}) {
           </div>
         </div>
       )}
+
+      <ActivityTimeline entries={timelineEntries} activeId={activeItemId} onJump={jumpToItem} />
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
