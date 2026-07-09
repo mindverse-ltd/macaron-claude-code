@@ -16,6 +16,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerConfigFileRoutes } from './routes/config-files.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerTunnelRoutes } from './routes/tunnel.js';
@@ -72,6 +73,7 @@ await app.register(async (instance) => {
     await registerHealthRoutes(instance);
     await registerAuthRoutes(instance);
     await registerSettingsRoutes(instance);
+    await registerConfigFileRoutes(instance);
     await registerRelayRoutes(instance);
     await registerTunnelRoutes(instance);
     await registerWorkspaceRoutes(instance);
