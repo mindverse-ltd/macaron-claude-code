@@ -2,6 +2,7 @@
 // into typed events the chat view can consume with simple callbacks.
 
 import { authedFetch } from '../lib/auth';
+import type { CodexLoopSnapshot } from './api';
 
 export type CodexStreamEvent =
   | { type: 'starting'; cwd?: string }
@@ -12,7 +13,8 @@ export type CodexStreamEvent =
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; subtype: string }
   | { type: 'error'; error: string }
-  | { type: 'done'; exitCode: number };
+  | { type: 'done'; exitCode: number }
+  | { type: 'loop_status'; snapshot: CodexLoopSnapshot };
 
 export type CodexStreamHandlers = {
   onMeta?: (sessionId: string, cwd?: string) => void;
@@ -23,6 +25,7 @@ export type CodexStreamHandlers = {
   onUsage?: (out: number, thinking?: number) => void;
   onError?: (msg: string) => void;
   onDone?: (exitCode: number) => void;
+  onLoopStatus?: (snapshot: CodexLoopSnapshot) => void;
 };
 
 type Body = { text: string; cwd?: string; images?: Array<{ mimeType: string; dataUrl: string }> };
@@ -61,6 +64,7 @@ async function pump(resp: Response, h: CodexStreamHandlers): Promise<void> {
         case 'usage': h.onUsage?.(p.outputTokens, p.thinkingTokens); break;
         case 'error': h.onError?.(p.error); break;
         case 'done': h.onDone?.(p.exitCode); break;
+        case 'loop_status': h.onLoopStatus?.(p.snapshot); break;
       }
     }
   }
@@ -82,4 +86,16 @@ export async function sendCodexMessage(sid: string, body: Body, h: CodexStreamHa
     body: JSON.stringify(body),
   });
   await pump(resp, h);
+}
+
+// Subscribe to a thread's autonomous-loop stream: lifecycle status plus the
+// runner events of each auto-driven iteration. Returns an unsubscribe fn that
+// aborts the SSE connection. The loop lives server-side, so this is a passive
+// viewer — closing it does not stop the loop.
+export function subscribeCodexLoop(sid: string, h: CodexStreamHandlers): () => void {
+  const ac = new AbortController();
+  authedFetch(`/api/codex/threads/${encodeURIComponent(sid)}/loop/live`, { signal: ac.signal })
+    .then((resp) => pump(resp, h))
+    .catch(() => { /* aborted or network drop — silent, the caller re-subscribes on remount */ });
+  return () => ac.abort();
 }

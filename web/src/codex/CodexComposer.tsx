@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CodexProviderPicker } from './CodexProviderPicker';
+import { CodexLoopControl } from './CodexLoopControl';
+import type { CodexLoopSnapshot } from './api';
 
 export type ComposerImage = { id: string; name: string; mimeType: string; dataUrl: string };
 
@@ -15,6 +17,8 @@ export function CodexComposer({
   disabled,
   running,
   placeholder,
+  sid,
+  loop,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -25,6 +29,8 @@ export function CodexComposer({
   disabled?: boolean;
   running?: boolean;
   placeholder?: string;
+  sid?: string;
+  loop?: CodexLoopSnapshot | null;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -138,6 +144,7 @@ export function CodexComposer({
       </div>
       <div className="cx-composer-foot">
         <CodexProviderPicker />
+        {sid && <CodexLoopControl sid={sid} snapshot={loop ?? null} />}
         <span className="cx-composer-hint">Enter to send · Shift+Enter for newline</span>
       </div>
     </div>

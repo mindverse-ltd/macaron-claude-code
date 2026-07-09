@@ -6,8 +6,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
-import { codexApi } from './api';
-import { sendCodexMessage, startCodexThread } from './stream';
+import { codexApi, type CodexLoopSnapshot } from './api';
+import { sendCodexMessage, startCodexThread, subscribeCodexLoop } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
 
@@ -218,11 +218,16 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [loop, setLoop] = useState<CodexLoopSnapshot | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // True after the user actually kicked off a turn on THIS mount, so the
   // done-notification only fires for turns they submitted (not the initial
   // jsonl replay). Mirrors the Claude-side `streamedRef` in Session.tsx.
   const streamedRef = useRef(false);
+  // Latest `sending` for the loop subscription's stable callbacks — a manual
+  // turn owns the live timeline, so loop events defer to it while it's true.
+  const sendingRef = useRef(false);
+  useEffect(() => { sendingRef.current = sending; }, [sending]);
 
   useEffect(() => { onSendingChange?.(sending); }, [sending, onSendingChange]);
 
@@ -351,9 +356,44 @@ export function CodexChat(props: CodexChatProps = {}) {
     }
   }, [pending, images, sending, isNew, sid, navigate]);
 
+  // Subscribe to the server-side loop: lifecycle status + the runner events of
+  // each auto-driven iteration. The loop runs detached from any request, so
+  // this is a passive viewer — an iteration renders into the same live timeline
+  // a manual turn uses. When the user is mid-turn, their stream owns the
+  // timeline and we only track status. On each iteration's `done`, refetch the
+  // transcript so the auto-turn persists into history.
+  useEffect(() => {
+    if (!sid) { setLoop(null); return; }
+    codexApi.loop(sid).then(setLoop).catch(() => {});
+    let loopStreaming = false;
+    const unsub = subscribeCodexLoop(sid, {
+      onLoopStatus: (snap) => {
+        setLoop(snap);
+        if (snap.status === 'running' && !sendingRef.current) loopStreaming = true;
+      },
+      onDelta: (t) => { if (!sendingRef.current) appendAssistantDelta(t); },
+      onToolUse: (ev) => { if (!sendingRef.current) appendTool(ev.id, ev.name, ev.input); },
+      onToolResult: (ev) => { if (!sendingRef.current) applyToolResult(ev.tool_use_id, ev.text, ev.isError); },
+      onError: (m) => { if (!sendingRef.current) setError(m); },
+      onDone: () => {
+        if (loopStreaming) {
+          loopStreaming = false;
+          codexApi.thread(sid).then(setDetail).catch(() => {}).finally(() => setLive([]));
+        }
+      },
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sid]);
+
   const title = isNew
     ? 'New thread'
     : detail?.cwd?.split('/').filter(Boolean).pop() || 'Thread';
+
+  // A loop iteration streaming counts as busy: the composer shows Stop (which
+  // aborts the iteration) so the user interjects instead of racing a second
+  // turn onto the same resumed thread.
+  const loopRunning = !sending && loop?.status === 'running';
 
   return (
     <div className={'cx-main' + (hideBar ? ' tile' : '')}>
@@ -409,9 +449,11 @@ export function CodexChat(props: CodexChatProps = {}) {
             onImagesChange={setImages}
             onSubmit={submit}
             onStop={stop}
-            disabled={sending}
-            running={sending && !isNew}
-            placeholder={sending ? 'Draft next message…' : undefined}
+            disabled={sending || loopRunning}
+            running={(sending || loopRunning) && !isNew}
+            placeholder={sending ? 'Draft next message…' : loopRunning ? 'Loop running — Stop to interject…' : undefined}
+            sid={isNew ? undefined : sid}
+            loop={loop}
           />
         </div>
       </div>

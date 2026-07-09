@@ -33,6 +33,13 @@ import {
 } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+import {
+  getLoopSnapshot,
+  setLoopConfig,
+  subscribeLoop,
+  noteCodexTurnComplete,
+  type CodexLoopConfig,
+} from '../lib/codex-loop.js';
 import type { AttachedImage } from '../lib/claude-runner.js';
 
 type SidParams = { sid: string };
@@ -96,6 +103,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     reply: Parameters<typeof startSSE>[0],
     stream: ReturnType<typeof runCodex>,
     sid: string | null,
+    cwd: string,
   ) => {
     let clientGone = false;
     reply.raw.on('close', () => { clientGone = true; });
@@ -104,12 +112,13 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       try { sseSend(reply, payload); } catch { clientGone = true; }
     };
     let capturedSid = sid;
+    let agentText = '';
     (async () => {
       for await (const ev of stream) {
         if (ev.kind === 'session' && !capturedSid) {
           capturedSid = ev.sessionId;
           safeSend({ type: 'meta', sessionId: capturedSid });
-        } else if (ev.kind === 'delta') safeSend({ type: 'delta', text: ev.text });
+        } else if (ev.kind === 'delta') { agentText += ev.text; safeSend({ type: 'delta', text: ev.text }); }
         else if (ev.kind === 'tool_use') safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
         else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
@@ -117,11 +126,16 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         else if (ev.kind === 'error') safeSend({ type: 'error', error: ev.error });
         else if (ev.kind === 'done') {
           safeSend({ type: 'done', exitCode: ev.exitCode });
-          if (capturedSid) endRun(capturedSid);
-          // Name the thread from its opening exchange once the turn's rollout
-          // has landed. Fire-and-forget: no-op if already titled, never blocks
-          // the response, failures swallowed.
-          if (capturedSid && ev.exitCode === 0) void maybeGenerateCodexTitle(capturedSid).catch(() => {});
+          if (capturedSid) {
+            endRun(capturedSid);
+            // Name the thread from its opening exchange once the turn's rollout
+            // has landed. Fire-and-forget: no-op if already titled, never blocks
+            // the response, failures swallowed.
+            if (ev.exitCode === 0) void maybeGenerateCodexTitle(capturedSid).catch(() => {});
+            // A user turn finishing is what arms the autonomous loop (if enabled
+            // for this sid). No-op when the loop is off.
+            if (ev.exitCode === 0) noteCodexTurnComplete(capturedSid, cwd, agentText);
+          }
           if (!clientGone) sseDone(reply);
         }
       }
@@ -162,7 +176,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         yield ev;
       }
     })();
-    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null);
+    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null, cwd);
   });
 
   app.post<{ Params: SidParams; Body: MessageBody }>(
@@ -185,13 +199,47 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
       const abortController = new AbortController();
       registerRun(sid, abortController);
-      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid);
+      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, cwd);
     },
   );
 
   app.post<{ Params: SidParams }>('/api/codex/threads/:sid/stop', async ({ params }, reply) => {
     const ok = abortRun(params.sid);
     return reply.send({ ok, running: ok });
+  });
+
+  // --- Autonomous loop ---------------------------------------------------
+
+  app.get<{ Params: SidParams }>('/api/codex/threads/:sid/loop', async ({ params }) => {
+    return getLoopSnapshot(params.sid);
+  });
+
+  // Toggle / edit the loop. Enabling arms it immediately when the session is
+  // idle; disabling aborts any in-flight iteration. cwd is resolved from the
+  // thread so a fresh-thread iteration spawns in the right directory.
+  app.put<{ Params: SidParams; Body: Partial<CodexLoopConfig> }>(
+    '/api/codex/threads/:sid/loop',
+    async (req, reply) => {
+      let cwd = '';
+      try {
+        const detail = await readCodexSessionMessages(req.params.sid);
+        cwd = detail.cwd || '';
+      } catch { /* thread may be brand-new / not on disk yet — cwd stays '' */ }
+      return reply.send(setLoopConfig(req.params.sid, req.body || {}, cwd));
+    },
+  );
+
+  // SSE: subscribe to a session's loop stream — lifecycle status + the
+  // runner events of each auto-driven iteration, so an open thread view
+  // watches the loop even though it's detached from any request.
+  app.get<{ Params: SidParams }>('/api/codex/threads/:sid/loop/live', async ({ params }, reply) => {
+    startSSE(reply);
+    let clientGone = false;
+    const unsub = subscribeLoop(params.sid, (ev) => {
+      if (clientGone) return;
+      try { sseSend(reply, ev); } catch { clientGone = true; unsub(); }
+    });
+    reply.raw.on('close', () => { clientGone = true; unsub(); });
   });
 
   // --- Config ------------------------------------------------------------

@@ -20,3 +20,9 @@ export function abortRun(sid: string): boolean {
 export function endRun(sid: string): void {
   runs.delete(sid);
 }
+
+// Idle-gate for the autonomous loop: true while a turn (user or loop) is in
+// flight for this sid, so the loop driver only fires when the session is free.
+export function isRunActive(sid: string): boolean {
+  return runs.has(sid);
+}

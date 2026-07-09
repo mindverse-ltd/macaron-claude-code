@@ -7,6 +7,7 @@ import { warmSettingsCache } from './lib/settings-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { warmCodexTitlesCache } from './lib/codex-titles.js';
+import { warmCodexLoopCache } from './lib/codex-loop.js';
 import { checkGenUI } from './lib/genui-check.js';
 
 // Claude Agent SDK kills MCP tool calls after 60s by default. Macaron renders
@@ -96,6 +97,7 @@ try {
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmCodexTitlesCache();
+  await warmCodexLoopCache();
   await app.listen({ host: HOST, port: PORT });
   app.log.info(`macaron server listening on http://${HOST}:${PORT}`);
   if (authGenerated) {
