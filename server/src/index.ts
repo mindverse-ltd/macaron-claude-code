@@ -23,6 +23,7 @@ import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerSearchRoutes } from './routes/search.js';
 import { isSearchEnabled, syncAll } from './lib/search-index.js';
+import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
 const app = Fastify({
@@ -65,6 +66,7 @@ await app.register(async (instance) => {
   await registerSessionRoutes(instance);
   await registerCodexRoutes(instance);
   await registerSearchRoutes(instance);
+  await registerTerminalRoutes(instance);
   await registerFileRoutes(instance);
 });
 
