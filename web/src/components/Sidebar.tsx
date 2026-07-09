@@ -307,6 +307,11 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
+      <Link className="sb-settings-link" to="/mcp">
+        <span>🧩</span>
+        <span>MCP servers</span>
+      </Link>
+
       <button
         type="button"
         className="sb-settings-link sb-shortcuts-btn"
