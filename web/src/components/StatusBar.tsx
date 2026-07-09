@@ -12,6 +12,7 @@
 //   Row 6: [Permission chip] shift+tab to cycle    (permission)
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ProviderPicker } from './ProviderPicker';
 import { api, type PublicSettings } from '../lib/api';
 import { effectiveWindow, formatTokens } from '../lib/modelWindow';
@@ -140,7 +141,7 @@ export function StatusBar({
             <span className="status-sep">|</span>
           )}
           {(mcpCount ?? 0) > 0 && (
-            <span>{mcpCount} MCPs</span>
+            <Link className="status-env-link" to="/mcp" title="Manage MCP servers">{mcpCount} MCPs</Link>
           )}
         </div>
       )}
