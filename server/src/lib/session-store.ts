@@ -35,6 +35,7 @@ type CacheEntry = { mtimeMs: number; size: number; summary: SessionSummary };
 // File-keyed mtime cache so we only re-parse jsonl when claude appends to it.
 const summaryCache = new Map<string, CacheEntry>();
 const HEAD_BYTES = 96 * 1024;
+const CWD_TAIL_BYTES = 64 * 1024;
 
 export async function deleteSession(project: string, sid: string): Promise<void> {
   const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
@@ -240,8 +241,83 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
     /* swallow */
   }
 
+  // cwd sits at the END of each jsonl line (after `message`), so a huge first
+  // paste can push the head's only cwd-bearing line past HEAD_BYTES, truncating
+  // it unparseably. The same cwd repeats on every later line, and trailing lines
+  // are usually small — so when the head read came up empty on a truncated file,
+  // recover cwd (and gitBranch) from a tail read instead.
+  if (summary.truncated && !summary.cwd) {
+    try {
+      const fh = await fs.open(filePath, 'r');
+      try {
+        const len = Math.min(st.size, CWD_TAIL_BYTES);
+        const buf = Buffer.alloc(len);
+        await fh.read(buf, 0, len, st.size - len);
+        const text = buf.toString('utf8');
+        const lines = text.split('\n');
+        // Drop the first slice — it's a partial line cut by the seek offset.
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i]!;
+          if (!line.trim()) continue;
+          try {
+            const o = JSON.parse(line);
+            if (o.cwd) summary.cwd = o.cwd;
+            if (!summary.gitBranch && o.gitBranch) summary.gitBranch = o.gitBranch;
+          } catch {
+            /* skip malformed line */
+          }
+        }
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      /* swallow — fall back to decoded project name upstream */
+    }
+  }
+
   summaryCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, summary });
   return summary;
+}
+
+// Resolve a session's working directory. The project name IS the cwd (encoded
+// by claude-cli), so it's the safe default — the jsonl's head read is capped at
+// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
+// the decoded name and only override with the embedded cwd when we got one.
+export async function resolveSessionCwd(project: string, sid: string): Promise<string> {
+  let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+  try {
+    const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+    if (head?.cwd) cwd = head.cwd;
+  } catch { /* fall back to decoded project name */ }
+  return cwd;
+}
+
+// Resolve a claude project name to its working directory. Prefer the cwd
+// embedded in an actual jsonl (a big first-line paste can push `cwd` past
+// HEAD_BYTES, so decoding the name is the fallback). We only fall back to
+// decodeClaudeProjectName when the project is actually registered under
+// CLAUDE_PROJECTS: that decode (`-` -> `/`) is attacker-controllable, and
+// callers that hand the result to the filesystem as a *root* (routes/files.ts)
+// would otherwise turn the `:project` route param into an arbitrary-root
+// traversal (e.g. `-etc` -> `/etc`). Returns null for an unregistered project;
+// callers must treat null as "unknown project" (404), never as a servable root.
+export async function resolveProjectCwd(project: string): Promise<string | null> {
+  let files: string[];
+  const projDir = path.join(CLAUDE_PROJECTS, project);
+  try {
+    files = await fs.readdir(projDir);
+  } catch {
+    return null; // no such project dir — reject rather than decode a root
+  }
+  for (const f of files) {
+    if (!f.endsWith('.jsonl')) continue;
+    const meta = await readSessionSummary(path.join(projDir, f));
+    if (meta?.cwd) return meta.cwd;
+  }
+  // Registered project whose cwd we couldn't recover from any jsonl: fall back
+  // to the decoded name (the original big-paste behavior), now gated on the dir
+  // existing above so an unregistered `-etc` can never reach this.
+  return decodeClaudeProjectName(project);
 }
 
 export async function listAllSessions(): Promise<SessionListItem[]> {
