@@ -83,7 +83,7 @@ function detectCodexBinary() {
         return undefined;
     }
 }
-const CODEX_BINARY = detectCodexBinary();
+export const CODEX_BINARY = detectCodexBinary();
 // Build the CodexOptions + ThreadOptions from our persisted settings. Kept
 // here (not exported) so the runner is the single caller — settings changes
 // take effect on the next `runCodex()` without hot-reload plumbing.
