@@ -649,6 +649,47 @@ function PermissionItem({
   );
 }
 
+// Plan-mode approval panel — shown when the model calls `ExitPlanMode` to
+// present a plan. Three choices map to how the run proceeds once plan mode
+// exits: auto-accept edits (acceptEdits), approve each edit (default), or
+// keep planning (deny — the model refines and re-proposes).
+function PlanApprovalItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
+}) {
+  if (it.status !== 'pending') return null;
+  const rawPlan = (it.input as { plan?: unknown } | null)?.plan;
+  const plan = typeof rawPlan === 'string' ? rawPlan : '';
+  return (
+    <div className="ti-plan">
+      <div className="ti-plan-head">
+        <span className="ti-plan-icon">📋</span>
+        <span className="ti-plan-title">Ready to code?</span>
+        <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
+      </div>
+      {plan && (
+        <div className="ti-plan-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+        </div>
+      )}
+      <div className="ti-plan-actions">
+        <button type="button" className="primary small" onClick={() => onDecide(it.permissionId, 'allow', 'acceptEdits')}>
+          Yes, and auto-accept edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'allow', 'default')}>
+          Yes, and manually approve edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'deny')}>
+          No, keep planning
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ItemView({
   it,
   onRewind,
@@ -658,7 +699,10 @@ export function ItemView({
   it: Item;
   onRewind?: (uuid: string) => void;
   onFork?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
+  // 3rd arg is a scope ('once'/'session'/'always') from PermissionItem or a plan-mode
+  // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
+  // handler serves both. This wider param is assignable to both child onDecide props.
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -693,12 +737,14 @@ export function ItemView({
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
-    case 'permission':
-      return onPermissionDecide ? (
-        <PermissionItem it={it} onDecide={onPermissionDecide} />
+    case 'permission': {
+      const decide = onPermissionDecide ?? (() => {});
+      return it.toolName === 'ExitPlanMode' ? (
+        <PlanApprovalItem it={it} onDecide={decide} />
       ) : (
-        <PermissionItem it={it} onDecide={() => {}} />
+        <PermissionItem it={it} onDecide={decide} />
       );
+    }
   }
 }
 
@@ -1191,7 +1237,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny', scope: 'once' | 'session' | 'always' = 'once') => {
+    (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -1199,7 +1245,16 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision, { scope }).catch((e) => {
+      // The 3rd arg is either a plan-mode (from PlanApprovalItem) or a remember-scope
+      // (from PermissionItem) — disjoint value sets, so route by value.
+      const mode = arg === 'default' || arg === 'acceptEdits' || arg === 'plan' || arg === 'bypassPermissions' ? arg : undefined;
+      const scope = arg === 'once' || arg === 'session' || arg === 'always' ? arg : undefined;
+      // A plan approval switches the session out of plan mode (server-side via
+      // setMode). Mirror that in the local mode state so the next send() and
+      // the status bar reflect it — otherwise the composer would silently
+      // re-enter plan mode on the following turn.
+      if (decision === 'allow' && mode) setPermissionMode(mode);
+      api.permissionDecision(permissionId, decision, { scope, mode }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },

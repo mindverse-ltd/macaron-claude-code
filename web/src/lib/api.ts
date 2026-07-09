@@ -214,12 +214,12 @@ export const api = {
   permissionDecision: (
     id: string,
     decision: 'allow' | 'deny',
-    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string },
+    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string; mode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' },
   ) =>
     req<{ ok: boolean }>('/api/permission-decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason }),
+      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason, mode: opts?.mode }),
     }),
   stopSession: (project: string, sid: string) =>
     req<{ ok: boolean; running: boolean }>(
