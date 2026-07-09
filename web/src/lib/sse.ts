@@ -95,6 +95,10 @@ export async function streamSession(
   body: unknown,
   h: SessionStreamHandlers,
 ): Promise<void> {
+  const finishWithError = (msg: string) => {
+    h.onError?.(msg);
+    h.onDone?.();
+  };
   let resp: Response;
   try {
     resp = await authedFetch(url, {
@@ -103,60 +107,65 @@ export async function streamSession(
       body: JSON.stringify(body),
     });
   } catch (e) {
-    h.onError?.((e as Error).message);
+    finishWithError((e as Error).message);
     return;
   }
   if (!resp.ok || !resp.body) {
-    h.onError?.(`http ${resp.status}`);
+    finishWithError(`http ${resp.status}`);
     return;
   }
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const events = buf.split(/\r?\n\r?\n/);
-    buf = events.pop() || '';
-    for (const ev of events) {
-      const data = ev
-        .split(/\r?\n/)
-        .filter((l) => l.startsWith('data:'))
-        .map((l) => l.slice(5).trimStart())
-        .join('\n')
-        .trim();
-      if (!data) continue;
-      if (data === '[DONE]') {
-        h.onDone?.();
-        return;
-      }
-      try {
-        const p = JSON.parse(data);
-        if (p.type === 'delta') h.onDelta?.(p.text);
-        else if (p.type === 'meta') h.onMeta?.(p);
-        else if (p.type === 'starting') h.onStarting?.(p);
-        else if (p.type === 'event') h.onEvent?.(p);
-        else if (p.type === 'tool_use') h.onToolUse?.(p);
-        else if (p.type === 'tool_input_delta') h.onToolInputDelta?.(p);
-        else if (p.type === 'tool_input_done') h.onToolInputDone?.(p);
-        else if (p.type === 'tool_result') h.onToolResult?.(p);
-        else if (p.type === 'permission_request') h.onPermissionRequest?.(p);
-        else if (p.type === 'permission_resolved') h.onPermissionResolved?.(p);
-        else if (p.type === 'usage') h.onUsage?.(p);
-        else if (p.type === 'error') h.onError?.(p.error);
-        else if (p.type === 'warn') console.warn('[claude]', p.text);
-        // The server keeps the stream open after `done` to append follow-up
-        // suggestions, so fire onDone on the business event — the turn is
-        // over the moment it arrives, not when the socket closes. The
-        // trailing onDone at stream close stays as the error-path fallback
-        // (it's idempotent).
-        else if (p.type === 'done') h.onDone?.();
-        else if (p.type === 'followup_delta') h.onFollowupDelta?.(p.text);
-      } catch {
-        /* ignore */
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split(/\r?\n\r?\n/);
+      buf = events.pop() || '';
+      for (const ev of events) {
+        const data = ev
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith('data:'))
+          .map((l) => l.slice(5).trimStart())
+          .join('\n')
+          .trim();
+        if (!data) continue;
+        if (data === '[DONE]') {
+          h.onDone?.();
+          return;
+        }
+        try {
+          const p = JSON.parse(data);
+          if (p.type === 'delta') h.onDelta?.(p.text);
+          else if (p.type === 'meta') h.onMeta?.(p);
+          else if (p.type === 'starting') h.onStarting?.(p);
+          else if (p.type === 'event') h.onEvent?.(p);
+          else if (p.type === 'tool_use') h.onToolUse?.(p);
+          else if (p.type === 'tool_input_delta') h.onToolInputDelta?.(p);
+          else if (p.type === 'tool_input_done') h.onToolInputDone?.(p);
+          else if (p.type === 'tool_result') h.onToolResult?.(p);
+          else if (p.type === 'permission_request') h.onPermissionRequest?.(p);
+          else if (p.type === 'permission_resolved') h.onPermissionResolved?.(p);
+          else if (p.type === 'usage') h.onUsage?.(p);
+          else if (p.type === 'error') h.onError?.(p.error);
+          else if (p.type === 'warn') console.warn('[claude]', p.text);
+          // The server keeps the stream open after `done` to append follow-up
+          // suggestions, so fire onDone on the business event — the turn is
+          // over the moment it arrives, not when the socket closes. The
+          // trailing onDone at stream close stays as the error-path fallback
+          // (it's idempotent).
+          else if (p.type === 'done') h.onDone?.();
+          else if (p.type === 'followup_delta') h.onFollowupDelta?.(p.text);
+        } catch {
+          /* ignore */
+        }
       }
     }
+  } catch (e) {
+    finishWithError((e as Error).message);
+    return;
   }
   h.onDone?.();
 }
