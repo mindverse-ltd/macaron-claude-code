@@ -703,6 +703,79 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-expand:hover { color: var(--accent); }
 
+/* ---------- inline diff card (Edit / Write / MultiEdit) ---------- */
+.ti-diff {
+  margin: 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  font-family: var(--font-mono);
+}
+.ti-diff.err {
+  border-color: rgba(192, 82, 74, 0.55);
+}
+.ti-diff.err .ti-dot {
+  color: var(--bad);
+}
+.ti-diff-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.ti-diff-path {
+  color: var(--text-2);
+  word-break: break-all;
+  min-width: 0;
+  flex: 1;
+}
+.ti-diff-stat { flex-shrink: 0; font-size: 11.5px; }
+.ti-diff-plus { color: var(--good); }
+.ti-diff-minus { color: var(--bad); }
+.ti-diff-body {
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ti-diff-hunk { border-bottom: 1px solid var(--border); }
+.ti-diff-hunk:last-child { border-bottom: 0; }
+.ti-diff-tag {
+  padding: 1px 10px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.ti-diff-row {
+  display: flex;
+  gap: 2px;
+  white-space: pre;
+  padding-right: 10px;
+}
+.ti-diff-del { background: rgba(192, 82, 74, 0.10); }
+.ti-diff-add { background: rgba(90, 139, 90, 0.12); }
+.ti-diff-sign {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+.ti-diff-del .ti-diff-sign { color: var(--bad); }
+.ti-diff-add .ti-diff-sign { color: var(--good); }
+.ti-diff-code {
+  white-space: pre;
+  color: var(--text);
+}
+.ti-diff-result {
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+.ti-diff .ti-expand { padding: 4px 10px; }
+
 /* ---------- todo card ---------- */
 .ti-todo {
   margin: 8px 0;

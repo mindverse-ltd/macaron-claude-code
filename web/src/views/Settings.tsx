@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import {
+  SOUND_EVENTS,
+  SOUND_PACKS,
+  previewSound,
+  setSoundPrefs,
+  useSoundPrefs,
+} from '../lib/sound';
 
 const BLANK_INPUT: ProviderInput = { name: '', endpoint: '', model: '', apiKey: '' };
 
@@ -293,6 +300,8 @@ export function Settings() {
         </label>
       </div>
 
+      <SoundSettings />
+
       <div className="settings-section">
         <div className="settings-row-head">
           <h2 className="sec-title">Suggestions</h2>
@@ -423,5 +432,123 @@ function ProviderForm({
         )}
       </div>
     </>
+  );
+}
+
+// Audio cue preferences (localStorage-backed, see lib/sound.ts). Independent
+// of the server-side PublicSettings above — nothing here round-trips to the
+// backend, so it renders straight from the useSoundPrefs store.
+function SoundSettings() {
+  const prefs = useSoundPrefs();
+  return (
+    <div className="settings-section">
+      <div className="settings-row-head">
+        <h2 className="sec-title">Sound notifications</h2>
+      </div>
+      <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        Play a short sound when a session needs attention — handy when the tab is in the background.
+      </p>
+
+      <label className={`prov-card${prefs.enabled ? ' active' : ''}`}>
+        <input
+          type="checkbox"
+          checked={prefs.enabled}
+          onChange={(e) => setSoundPrefs({ enabled: e.target.checked })}
+        />
+        <div className="prov-card-body">
+          <div className="prov-card-head">
+            <span className="prov-name">Enable sounds</span>
+            <span className={`prov-tag ${prefs.enabled ? 'ok' : 'bad'}`}>
+              {prefs.enabled ? 'on' : 'off'}
+            </span>
+          </div>
+          <div className="prov-card-sub">Master switch for all per-event cues below.</div>
+        </div>
+      </label>
+
+      <div className="settings-field">
+        <label>Sound pack</label>
+        <div className="prov-list">
+          {SOUND_PACKS.map((pk) => (
+            <label key={pk.id} className={`prov-card${prefs.pack === pk.id ? ' active' : ''}`}>
+              <input
+                type="radio"
+                name="sound-pack"
+                checked={prefs.pack === pk.id}
+                disabled={!prefs.enabled}
+                onChange={() => setSoundPrefs({ pack: pk.id })}
+              />
+              <div className="prov-card-body">
+                <div className="prov-card-head">
+                  <span className="prov-name">{pk.label}</span>
+                </div>
+                <div className="prov-card-sub">{pk.hint}</div>
+              </div>
+              <div className="prov-card-actions">
+                <button
+                  type="button"
+                  className="ghost small"
+                  disabled={!prefs.enabled}
+                  onClick={(e) => { e.preventDefault(); previewSound('complete', pk.id, prefs.volume); }}
+                >
+                  Preview
+                </button>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-field">
+        <label htmlFor="sound-volume">Volume · {Math.round(prefs.volume * 100)}%</label>
+        <input
+          id="sound-volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={prefs.volume}
+          disabled={!prefs.enabled}
+          onChange={(e) => setSoundPrefs({ volume: Number(e.target.value) })}
+        />
+      </div>
+
+      <div className="settings-field">
+        <label>Per-event</label>
+        <div className="prov-list">
+          {SOUND_EVENTS.map((ev) => (
+            <label
+              key={ev.key}
+              className={`prov-card${prefs.enabled && prefs.events[ev.key] ? ' active' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={prefs.events[ev.key]}
+                disabled={!prefs.enabled}
+                onChange={(e) =>
+                  setSoundPrefs({ events: { [ev.key]: e.target.checked } })
+                }
+              />
+              <div className="prov-card-body">
+                <div className="prov-card-head">
+                  <span className="prov-name">{ev.label}</span>
+                </div>
+                <div className="prov-card-sub">{ev.hint}</div>
+              </div>
+              <div className="prov-card-actions">
+                <button
+                  type="button"
+                  className="ghost small"
+                  disabled={!prefs.enabled}
+                  onClick={(e) => { e.preventDefault(); previewSound(ev.key, prefs.pack, prefs.volume); }}
+                >
+                  Preview
+                </button>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
