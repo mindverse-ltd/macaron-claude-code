@@ -268,13 +268,7 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
         if (phase !== 'completed') return;
         const text = item.text?.trim();
         if (!text) return;
-        // Reuse the tool-input event shape to carry a thinking block.
-        // Actually the WebUI has no first-class "thinking delta" event on
-        // the runner yet — we fold reasoning into a delta prefixed with a
-        // marker the WebUI can recognise. Simpler: emit as message subtype
-        // 'thinking' so downstream can render or ignore.
-        push({ kind: 'message', subtype: 'codex_reasoning' });
-        push({ kind: 'delta', text });
+        push({ kind: 'reasoning', text });
         return;
       }
       case 'command_execution': {

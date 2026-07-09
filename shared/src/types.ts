@@ -41,7 +41,7 @@ export type Block =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
-  | { kind: 'tool_result'; toolUseId?: string; text: string }
+  | { kind: 'tool_result'; toolUseId?: string; text: string; isError?: boolean }
   // Base64-encoded image attached to a user message. Preserved in jsonl by
   // the CLI; the WebUI renders it inline where it appears in the block order,
   // so pastes/attachments interleaved with text stay in position.
@@ -86,6 +86,19 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// A transcript-search match — one message whose text contains the query.
+// The palette deep-links into the session via project+sessionId, and uses
+// `uuid` to scroll to the exact message when the session view is mounted.
+export type MessageSearchHit = {
+  project: string;
+  sessionId: string;
+  uuid?: string;
+  role: 'user' | 'assistant';
+  snippet: string;
+  preview: string;
+  mtime: number;
+};
+
 // Git/PR state for the current session's cwd, used to prefill and gate the
 // "Create PR" action. `ahead` = commits on `branch` not on `defaultBranch`;
 // `null` means the base ref couldn't be resolved (e.g. a single-branch or
@@ -119,6 +132,35 @@ export type PushNotifyPayload = {
   url?: string;
 };
 
+// Rate-limit / usage state for the active Claude subscription, read from the
+// ambient OAuth login (~/.claude/.credentials.json) via the oauth/usage
+// endpoint. `utilization` is 0-100; `resetsAt` is an ISO timestamp (null when
+// the window is empty). Only the 5-hour and weekly windows are surfaced — the
+// two the always-visible meters need.
+export type RateLimitWindow = { utilization: number; resetsAt: string | null };
+
+// `available` is false when there's no ambient OAuth login to read (e.g. the
+// user runs on a custom provider), so the client can hide the widget without
+// treating it as an error.
+export type UsageResponse = {
+  available: boolean;
+  fiveHour: RateLimitWindow | null;
+  sevenDay: RateLimitWindow | null;
+};
+
+// A slash command surfaced in the composer palette. `name` is the bare
+// command (no leading slash). `builtin` = a CLI command worth listing;
+// `project`/`user` come from `.claude/commands/**/*.md` (cwd / $HOME). A
+// subdirectory becomes `namespace` for display only — it does NOT change the
+// command name the SDK expands.
+export type SlashCommand = {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: 'builtin' | 'project' | 'user';
+  namespace?: string;
+};
+
 // ---- File explorer -------------------------------------------------------
 // A single entry in a directory listing. `path` is relative to the project
 // cwd (root = ''), so the web tree can request children without knowing the
@@ -135,6 +177,7 @@ export type FileListResponse = { root: string; path: string; entries: FileEntry[
 export type FileReadResponse = { path: string; content: string; size: number };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
@@ -168,3 +211,4 @@ export type ConfigFileMeta = {
 export type ConfigFile = ConfigFileMeta & { content: string };
 
 export type ConfigFilesResponse = { files: ConfigFileMeta[] };
+export type CommandsResponse = { commands: SlashCommand[] };
