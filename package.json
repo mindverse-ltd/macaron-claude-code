@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @macaron/server dev\" \"pnpm --filter @macaron/web dev\"",
+    "test:smoke": "pnpm --filter @macaron/web test:smoke",
     "build": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server build && pnpm --filter @macaron/web build",
     "build:web": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/web build",
     "build:server": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server build",

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:smoke": "pnpm --filter @macaron/shared build && vitest run --environment happy-dom --maxWorkers=1 src/components/CommandPalette.smoke.test.tsx",
     "build": "vite build",
     "typecheck": "tsc -b",
     "preview": "vite preview"
@@ -66,8 +67,11 @@
   },
   "devDependencies": {
     "@macaron/shared": "workspace:*",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "happy-dom": "^20.10.6",
     "typescript": "^5.7.0",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
   }
 }
