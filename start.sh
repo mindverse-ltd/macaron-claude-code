@@ -44,12 +44,13 @@ FOREGROUND="${MACARON_FOREGROUND:-0}"
 WEB_DIST="$DIR/web/dist"
 SERVER_DIST="$DIR/server/dist/index.js"
 
-# Prebuilt dist ships in the repo — see .gitignore for the `!web/dist/`
-# and `!server/dist/` exceptions. So the marketplace flow (git clone
-# → plugin cache → run) needs zero client-side BUILD in the common case.
-# Runtime deps (fastify, agent-sdk, zod, …) still need to be present in
-# node_modules; --omit=dev skips vite / rollup / typescript-toolchain,
-# which sidesteps the npm/cli#4828 rollup platform-binary bug entirely.
+# Fast path: prebuilt dist present. This is the npx/pkg.pr.new case (the
+# tarball ships prebuilt server/dist + web/dist), or any checkout where a
+# prior `start.sh`/`pnpm build` already produced dist. dist is no longer
+# tracked in git, so a fresh marketplace clone lands in the `else` branch
+# below and builds from source once. Runtime deps (fastify, agent-sdk, zod,
+# …) still need to be in node_modules; --omit=dev skips vite / rollup /
+# typescript-toolchain, sidestepping the npm/cli#4828 rollup bug entirely.
 if [ -f "$SERVER_DIST" ] && [ -f "$WEB_DIST/index.html" ]; then
   if [ ! -d "$DIR/node_modules/fastify" ]; then
     echo "[macaron] installing runtime deps (one-time, ~10s)…" >&2

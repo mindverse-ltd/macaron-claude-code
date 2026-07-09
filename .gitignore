@@ -3,20 +3,14 @@ node_modules/
 .pnp
 .pnp.js
 
-# Build output
+# Build output — NOT tracked (committing hash-named Vite bundles made every
+# PR conflict on rebuild). The npx/pkg.pr.new tarball still ships prebuilt
+# dist: `prepack` builds it fresh into the workspace and package.json `files[]`
+# packs it, independent of git. The marketplace git-clone flow builds on the
+# first `start.sh` run (~60s source-build fallback).
 dist/
 build/
 *.tsbuildinfo
-
-# EXCEPT: web/dist and server/dist ship as prebuilt artifacts so the
-# plugin marketplace flow (`codex plugin marketplace add …`, `/plugin
-# install`) works without a client-side npm install + build. Rebuild
-# with `npm run build` before committing when web/src, server/src or
-# shared/src changed.
-!web/dist/
-!web/dist/**
-!server/dist/
-!server/dist/**
 
 # Env / secrets
 .env
