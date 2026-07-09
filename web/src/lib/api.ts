@@ -205,6 +205,15 @@ export const api = {
         body: JSON.stringify({ uuid }),
       },
     ),
+  forkSession: (project: string, sid: string, uuid: string) =>
+    req<{ ok: true; newSid: string; kept: number }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/fork`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid }),
+      },
+    ),
   compactSession: (project: string, sid: string) =>
     req<{ ok: true; summary: string; backupPath: string; kept: number }>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/compact`,
