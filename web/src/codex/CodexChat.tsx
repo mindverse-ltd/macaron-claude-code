@@ -3,18 +3,35 @@
 // look. Every visual detail — background, borders, tool cards, code
 // blocks — is tuned to match the claude WebUI's palette (see styles.css).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
-import { sendCodexMessage, startCodexThread } from './stream';
-import { CodexComposer } from './CodexComposer';
+import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
+import { CodexComposer, type ComposerImage } from './CodexComposer';
+import { notify } from '../lib/notify';
+
+// GenuiPreview + its vendored runtime (~500KB gzip) is behind a lazy
+// import so the default codex bundle stays small. First render_ui in a
+// thread triggers the load; subsequent ones use the cached chunk.
+const GenuiPreview = lazy(() =>
+  import('../genui-runtime').then((m) => ({ default: m.GenuiPreview })),
+);
+
+const RENDER_UI_TOOL_NAME = 'mcp:macaron/render_ui';
+const isRenderUiTool = (name: string): boolean =>
+  name === RENDER_UI_TOOL_NAME || name === 'mcp__macaron__render_ui';
 
 type Item =
-  | { id: string; kind: 'user'; text: string }
+  | { id: string; kind: 'user'; text: string; images?: ComposerImage[] }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'reasoning'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean };
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
+  // GenUI render_ui tool call. Codex hands us the full `code` at
+  // tool_use time (arguments are already aggregated by the CLI), so we
+  // render immediately — no pending phase in practice. The tool_result
+  // (checkGenUI diagnostics) may flip `status` to 'error' with details.
+  | { id: string; kind: 'genui'; toolUseId: string; code: string; status: 'ready' | 'error'; error?: string };
 
 function toolInputToCmd(name: string, input: unknown): string {
   if (name === 'Bash') {
@@ -48,17 +65,95 @@ function historyToItems(detail: SessionDetail): Item[] {
       } else if (b.kind === 'thinking' && b.text.trim()) {
         out.push({ id: next(), kind: 'reasoning', text: b.text });
       } else if (b.kind === 'tool_use') {
-        out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input });
+        if (isRenderUiTool(b.name)) {
+          const code = String((b.input as { code?: unknown } | null)?.code || '');
+          out.push({
+            id: `genui-${b.id}`,
+            kind: 'genui',
+            toolUseId: b.id,
+            code,
+            status: 'ready',
+          });
+        } else {
+          out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input });
+        }
       } else if (b.kind === 'tool_result') {
         const target = [...out].reverse().find(
-          (it) => it.kind === 'tool' && it.result === undefined && (b.toolUseId ? it.id === b.toolUseId : true),
+          (it) =>
+            (it.kind === 'tool' && it.result === undefined && (b.toolUseId ? it.id === b.toolUseId : true))
+            || (it.kind === 'genui' && it.toolUseId === b.toolUseId),
         );
-        if (target && target.kind === 'tool') target.result = b.text;
+        if (target?.kind === 'tool') target.result = b.text;
+        else if (target?.kind === 'genui') {
+          const flagged = b.text.startsWith('Rendered inline, but the TSX has issues');
+          if (flagged) { target.status = 'error'; target.error = b.text; }
+        }
       }
     }
   };
   for (const m of detail.messages) walk(m.blocks, m.role);
   return out;
+}
+
+function reconcileHistoryWithLive(history: Item[], live: Item[]): Item[] {
+  const liveUser = live.find((it): it is Extract<Item, { kind: 'user' }> => it.kind === 'user');
+  const liveText = liveUser?.text.trim();
+  if (!liveText) return history;
+
+  // Codex may have already appended part of the in-flight turn to its rollout.
+  // When that latest user bubble matches the live snapshot, let the snapshot own
+  // the whole turn so partial disk blocks are not rendered a second time.
+  for (let i = history.length - 1; i >= 0; i--) {
+    const item = history[i]!;
+    if (item.kind !== 'user') continue;
+    return item.text.trim() === liveText ? history.slice(0, i) : history;
+  }
+  return history;
+}
+
+function withUser(cur: Item[], text: string, images?: ComposerImage[]): Item[] {
+  return [
+    ...cur,
+    { id: `u-${Date.now()}-${cur.length}`, kind: 'user', text, images: images?.length ? images : undefined },
+  ];
+}
+
+function withAssistantDelta(cur: Item[], text: string): Item[] {
+  const last = cur[cur.length - 1];
+  if (last?.kind === 'assistant') {
+    return [...cur.slice(0, -1), { ...last, text: last.text + text }];
+  }
+  return [...cur, { id: `a-${Date.now()}-${cur.length}`, kind: 'assistant', text }];
+}
+
+function withTool(cur: Item[], id: string, name: string, input: unknown): Item[] {
+  if (isRenderUiTool(name)) {
+    const code = String((input as { code?: unknown } | null)?.code || '');
+    return [
+      ...cur,
+      {
+        id: `genui-${id}`,
+        kind: 'genui',
+        toolUseId: id,
+        code,
+        status: 'ready',
+      },
+    ];
+  }
+  return [...cur, { id, kind: 'tool', name, input }];
+}
+
+function withToolResult(cur: Item[], toolUseId: string, text: string, isError: boolean): Item[] {
+  return cur.map((it) => {
+    if (it.kind === 'tool' && it.id === toolUseId) return { ...it, result: text, isError };
+    if (it.kind === 'genui' && it.toolUseId === toolUseId) {
+      const flagged = isError || text.startsWith('Rendered inline, but the TSX has issues');
+      return flagged
+        ? { ...it, status: 'error' as const, error: text }
+        : it;
+    }
+    return it;
+  });
 }
 
 function Reasoning({ text }: { text: string }) {
@@ -114,15 +209,42 @@ function ToolCard({ it }: { it: Extract<Item, { kind: 'tool' }> }) {
   );
 }
 
+function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
+  return (
+    <div className="cx-genui">
+      <div className="cx-genui-head">
+        <span className="cx-genui-glyph">◈</span>
+        <span className="cx-genui-name">Rendered UI</span>
+        {it.status === 'error' && <span className="cx-genui-status err">diagnostics failed</span>}
+      </div>
+      <Suspense fallback={<div className="cx-genui-loading">Loading GenUI runtime…</div>}>
+        <GenuiPreview code={it.code} done />
+      </Suspense>
+      {it.status === 'error' && it.error && (
+        <details className="cx-genui-details">
+          <summary>Show diagnostics</summary>
+          <pre>{it.error}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function MessageRow({ it }: { it: Item }) {
   if (it.kind === 'reasoning') return <Reasoning text={it.text} />;
   if (it.kind === 'tool') return <ToolCard it={it} />;
+  if (it.kind === 'genui') return <GenuiCard it={it} />;
   const isUser = it.kind === 'user';
   return (
     <div className={'cx-msg ' + (isUser ? 'user' : 'assistant')}>
       <div className="cx-msg-avatar">{isUser ? 'You' : 'cx'}</div>
       <div className="cx-msg-body">
         <div className="cx-msg-role">{isUser ? 'You' : 'Codex'}</div>
+        {isUser && it.images && it.images.length > 0 && (
+          <div className="cx-msg-imgs">
+            {it.images.map((img) => <img key={img.id} src={img.dataUrl} alt={img.name} />)}
+          </div>
+        )}
         <div className="cx-msg-text">{it.text}</div>
       </div>
     </div>
@@ -154,19 +276,90 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [live, setLive] = useState<Item[]>([]);
   const [pending, setPending] = useState('');
+  const [images, setImages] = useState<ComposerImage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // True only after the user kicks off a turn on THIS mount. A server-side
+  // reattach also flips `sending`, but must not create a completion notification.
+  const streamedRef = useRef(false);
 
   useEffect(() => { onSendingChange?.(sending); }, [sending, onSendingChange]);
 
+  // In-app notification when a turn finishes — matches the Claude side
+  // (NotifyStack is mounted in CodexApp). Click routes to the thread's
+  // canvas view so the user lands on the right tile.
   useEffect(() => {
-    if (isNew) { setDetail(null); setLive([]); setError(''); return; }
+    if (sending) return;
+    if (!streamedRef.current) return;
+    streamedRef.current = false;
+    if (!sid) return;
+    const project = detail?.project;
+    notify({
+      title: 'Macaron · thread ready',
+      body: `${sid.slice(0, 8)} finished a turn`,
+      tag: `codex-done-${sid}`,
+      href: project
+        ? `/w/${encodeURIComponent(project)}/t/${encodeURIComponent(sid)}`
+        : `/t/${encodeURIComponent(sid)}`,
+    });
+  }, [sending, sid, detail?.project]);
+
+  useEffect(() => {
+    if (isNew) {
+      setDetail(null);
+      setLive([]);
+      setSending(false);
+      setError('');
+      return;
+    }
+    let active = true;
+    let hasLiveSnapshot = false;
     setLive([]);
-    codexApi.thread(sid).then(setDetail).catch((e) => setError((e as Error).message));
+    setSending(false);
+    setError('');
+    void codexApi.thread(sid)
+      .then((next) => { if (active) setDetail(next); })
+      .catch((e) => { if (active && !hasLiveSnapshot) setError((e as Error).message); });
+
+    const unsubscribe = subscribeCodexLive(sid, {
+      // `meta` is present only when the registry has a snapshot. Reset first so
+      // a fresh subscription is idempotent if this effect reruns.
+      onMeta: () => {
+        if (!active) return;
+        hasLiveSnapshot = true;
+        setLive([]);
+        setSending(true);
+        setError('');
+      },
+      onUserText: (text) => { if (active) setLive((cur) => withUser(cur, text)); },
+      onDelta: (text) => { if (active) setLive((cur) => withAssistantDelta(cur, text)); },
+      onToolUse: (ev) => { if (active) setLive((cur) => withTool(cur, ev.id, ev.name, ev.input)); },
+      onToolResult: (ev) => {
+        if (active) setLive((cur) => withToolResult(cur, ev.tool_use_id, ev.text, ev.isError));
+      },
+      onError: (message) => { if (active) setError(message); },
+      onDone: () => {
+        if (!active) return;
+        setSending(false);
+        // Keep the complete live buffer visible while the Codex rollout catches
+        // up asynchronously; refresh metadata without clearing that buffer.
+        void codexApi.thread(sid).then((next) => { if (active) setDetail(next); }).catch(() => {});
+      },
+      onLiveEnd: () => { if (active) setSending(false); },
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [sid, isNew, refreshKey]);
 
-  const history = useMemo(() => (detail ? historyToItems(detail) : []), [detail]);
+  const diskHistory = useMemo(() => (detail ? historyToItems(detail) : []), [detail]);
+  const history = useMemo(
+    () => reconcileHistoryWithLive(diskHistory, live),
+    [diskHistory, live],
+  );
   const items = useMemo(() => [...history, ...live], [history, live]);
 
   useEffect(() => {
@@ -174,24 +367,17 @@ export function CodexChat(props: CodexChatProps = {}) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [items.length, live[live.length - 1]]);
 
-  const appendUser = (text: string) =>
-    setLive((cur) => [...cur, { id: `u-${Date.now()}`, kind: 'user', text }]);
-  const appendAssistantDelta = (text: string) => {
-    setLive((cur) => {
-      const last = cur[cur.length - 1];
-      if (last?.kind === 'assistant') {
-        return [...cur.slice(0, -1), { ...last, text: last.text + text }];
-      }
-      return [...cur, { id: `a-${Date.now()}-${cur.length}`, kind: 'assistant', text }];
-    });
-  };
-  const appendTool = (id: string, name: string, input: unknown) => {
-    setLive((cur) => [...cur, { id, kind: 'tool', name, input }]);
-  };
+  const appendUser = (text: string, imgs?: ComposerImage[]) =>
+    setLive((cur) => withUser(cur, text, imgs));
+  // Codex emits each reasoning item atomically on completed, so every event
+  // is one full thinking block — append, don't concat.
+  const appendReasoning = (text: string) =>
+    setLive((cur) => [...cur, { id: `r-${Date.now()}-${cur.length}`, kind: 'reasoning', text }]);
+  const appendAssistantDelta = (text: string) => setLive((cur) => withAssistantDelta(cur, text));
+  const appendTool = (id: string, name: string, input: unknown) =>
+    setLive((cur) => withTool(cur, id, name, input));
   const applyToolResult = (toolUseId: string, text: string, isError: boolean) => {
-    setLive((cur) => cur.map((it) =>
-      it.kind === 'tool' && it.id === toolUseId ? { ...it, result: text, isError } : it,
-    ));
+    setLive((cur) => withToolResult(cur, toolUseId, text, isError));
   };
 
   const stop = useCallback(async () => {
@@ -201,17 +387,22 @@ export function CodexChat(props: CodexChatProps = {}) {
 
   const submit = useCallback(async () => {
     const text = pending.trim();
-    if (!text || sending) return;
+    if ((!text && images.length === 0) || sending) return;
+    const sentImages = images;
+    const wire = sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl }));
     setPending('');
+    setImages([]);
+    streamedRef.current = true;
     setSending(true);
     setError('');
-    appendUser(text);
+    appendUser(text, sentImages);
     try {
       if (isNew) {
         let newSid = '';
-        await startCodexThread({ text }, {
+        await startCodexThread({ text, images: wire }, {
           onMeta: (s) => { newSid = s; },
           onDelta: appendAssistantDelta,
+          onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
           onError: (m) => setError(m),
@@ -221,8 +412,9 @@ export function CodexChat(props: CodexChatProps = {}) {
           },
         });
       } else {
-        await sendCodexMessage(sid, { text }, {
+        await sendCodexMessage(sid, { text, images: wire }, {
           onDelta: appendAssistantDelta,
+          onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
           onError: (m) => setError(m),
@@ -236,7 +428,7 @@ export function CodexChat(props: CodexChatProps = {}) {
       setError((e as Error).message);
       setSending(false);
     }
-  }, [pending, sending, isNew, sid, navigate]);
+  }, [pending, images, sending, isNew, sid, navigate]);
 
   const title = isNew
     ? 'New thread'
@@ -292,11 +484,13 @@ export function CodexChat(props: CodexChatProps = {}) {
           <CodexComposer
             value={pending}
             onChange={setPending}
+            images={images}
+            onImagesChange={setImages}
             onSubmit={submit}
             onStop={stop}
             disabled={sending}
             running={sending && !isNew}
-            placeholder={sending ? 'Codex is working…' : undefined}
+            placeholder={sending ? 'Draft next message…' : undefined}
           />
         </div>
       </div>

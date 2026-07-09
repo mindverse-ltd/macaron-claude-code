@@ -10,9 +10,10 @@ import {
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
-import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
+import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
-import { getActiveProviderEnv } from '../lib/settings-store.js';
+import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 
 type Params = { project: string };
 type NewSessionBody = {
@@ -136,9 +137,12 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             safeSend(payload);
             if (capturedSid) livePush(capturedSid, payload);
           } else if (ev.kind === 'permission_request') {
-            const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input };
+            const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
             safeSend(payload);
-            if (capturedSid) livePush(capturedSid, payload);
+            if (capturedSid) {
+              livePush(capturedSid, payload);
+              pushPermissionRequest(project, capturedSid, ev.toolName);
+            }
           } else if (ev.kind === 'permission_resolved') {
             const payload = { type: 'permission_resolved' as const, id: ev.id, decision: ev.decision };
             safeSend(payload);
@@ -158,6 +162,21 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             if (capturedSid) {
               liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
               endRun(capturedSid);
+              pushSessionDone(project, capturedSid);
+            }
+            // Same post-turn follow-up as the resume path: stream a throwaway,
+            // persistSession:false query resuming this fresh session (shared
+            // prefix → cache hit). Best-effort; never blocks the turn close.
+            // Gated on exitCode 0 so an abort/error stays identical to before.
+            if (!clientGone && capturedSid && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+              try {
+                for await (const delta of runFollowup({ resume: capturedSid, cwd, model, envOverrides: providerEnv })) {
+                  if (clientGone) break;
+                  safeSend({ type: 'followup_delta', text: delta });
+                }
+              } catch {
+                /* swallow: follow-up is enrichment, never fatal */
+              }
             }
             if (!clientGone) sseDone(reply);
           }

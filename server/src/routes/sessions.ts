@@ -1,21 +1,24 @@
-import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { CLAUDE_PROJECTS } from '../config.js';
 import {
-  decodeClaudeProjectName,
   deleteSession,
   duplicateSession,
+  forkSession,
   readSessionMessages,
-  readSessionSummary,
+  resolveProjectCwd,
+  resolveSessionCwd,
   rewindSession,
+  searchMessages,
   writeCompactedSession,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
+import { setLabel, deleteLabel } from '../lib/label-store.js';
 import { liveGet } from '../lib/live-registry.js';
-import { runClaude, type AttachedImage } from '../lib/claude-runner.js';
-import { getActiveProviderEnv, getActiveProviderRaw } from '../lib/settings-store.js';
+import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
+import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
+import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
+import { listSlashCommands } from '../lib/slash-commands.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -26,6 +29,17 @@ type MessageBody = {
 };
 
 export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
+  // Grep claude transcripts for a substring — backs the command palette's
+  // message search. Newest-first, capped at `limit` hits (see searchMessages).
+  app.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/messages',
+    async ({ query }) => {
+      const q = String(query?.q || '');
+      const limit = Math.min(100, Math.max(1, parseInt(query?.limit || '30', 10) || 30));
+      return { hits: await searchMessages(q, limit) };
+    },
+  );
+
   app.get<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {
       return await readSessionMessages(params.project, params.sid);
@@ -34,14 +48,40 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     }
   });
 
+  // List slash commands available for this session's cwd: curated built-ins
+  // plus project (`<cwd>/.claude/commands`) and user (`~/.claude/commands`)
+  // custom commands. Read-only, best-effort — never 500 on a missing dir.
+  // The palette only *lists*; the SDK already expands `/name` prompts itself.
+  app.get<{ Params: { project: string } }>(
+    '/api/sessions/claude/:project/commands',
+    async ({ params }) => {
+      // Resolve the real cwd from a jsonl head — the decoded project name is
+      // lossy and would send walkCommands to a non-existent dir, dropping
+      // every project-scoped command (see resolveProjectCwd).
+      const cwd = await resolveProjectCwd(params.project);
+      return { commands: await listSlashCommands(cwd || '') };
+    },
+  );
+
   app.delete<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {
       await deleteSession(params.project, params.sid);
+      await deleteLabel(params.sid);
       return { ok: true };
     } catch (e) {
       return reply.status(404).send({ error: (e as Error).message });
     }
   });
+
+  // Rename: set (or clear, when blank) a human label for this session. The
+  // label lives in a macaron sidecar, not the Claude-owned jsonl.
+  app.patch<{ Params: Params; Body: { name?: string } }>(
+    '/api/sessions/claude/:project/:sid/label',
+    async (req, reply) => {
+      const label = await setLabel(req.params.sid, String(req.body?.name ?? ''));
+      return reply.send({ ok: true, label });
+    },
+  );
 
   // Duplicate: clone the jsonl to a fresh sid so both can be resumed
   // independently. Sidebar's context menu wires to this.
@@ -57,8 +97,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     },
   );
 
-  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', reason? }.
-  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string } }>(
+  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', scope?, reason?, mode? }.
+  // `mode` (allow only) exits plan mode into the chosen permission mode. Only the two
+  // modes the plan-approval panel offers are honored — the Body type is advisory
+  // (Fastify doesn't enforce it), so anything else (e.g. `bypassPermissions`) is
+  // dropped here to keep a crafted POST from escalating the session's permissions.
+  // `scope` (allow only): 'once' (default), 'session' (remember this server session),
+  // or 'always' (persist for this project cwd).
+  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string; scope?: 'once' | 'session' | 'always'; mode?: 'default' | 'acceptEdits' } }>(
     '/api/permission-decision',
     async (req, reply) => {
       const id = String(req.body?.id || '').trim();
@@ -66,9 +112,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!id || (dec !== 'allow' && dec !== 'deny')) {
         return reply.status(400).send({ error: 'id + decision required' });
       }
+      const mode = dec === 'allow' && (req.body?.mode === 'default' || req.body?.mode === 'acceptEdits') ? req.body.mode : undefined;
+      const scope = req.body?.scope === 'session' || req.body?.scope === 'always' ? req.body.scope : 'once';
       const ok = resolvePending(
         id,
-        dec === 'allow' ? { decision: 'allow' } : { decision: 'deny', reason: req.body?.reason },
+        dec === 'allow' ? { decision: 'allow', mode, scope } : { decision: 'deny', reason: req.body?.reason },
       );
       return reply.send({ ok });
     },
@@ -93,6 +141,23 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!uuid) return reply.status(400).send({ error: 'uuid required' });
       try {
         const r = await rewindSession(req.params.project, req.params.sid, uuid);
+        return { ok: true, ...r };
+      } catch (e) {
+        return reply.status(400).send({ error: (e as Error).message });
+      }
+    },
+  );
+
+  // Fork: copy the transcript up to (excluding) the given message uuid into a
+  // fresh sid. Non-destructive twin of rewind — the original is untouched, so
+  // the user branches off a new conversation from that point.
+  app.post<{ Params: Params; Body: { uuid?: string } }>(
+    '/api/sessions/claude/:project/:sid/fork',
+    async (req, reply) => {
+      const uuid = String(req.body?.uuid || '').trim();
+      if (!uuid) return reply.status(400).send({ error: 'uuid required' });
+      try {
+        const r = await forkSession(req.params.project, req.params.sid, uuid);
         return { ok: true, ...r };
       } catch (e) {
         return reply.status(400).send({ error: (e as Error).message });
@@ -232,6 +297,32 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     reply.raw.on('close', () => ls.subs.delete(reply));
   });
 
+  // Proactive follow-ups for an already-idle session: resume + runFollowup
+  // with NO main turn, so merely opening a finished conversation surfaces
+  // suggestions too — not only the instant a turn ends. Same cache-hit prefix
+  // as the post-turn path. Best-effort; gated on the global toggle.
+  app.post<{ Params: Params }>(
+    '/api/sessions/claude/:project/:sid/followups',
+    async ({ params }, reply) => {
+      const { project, sid } = params;
+      startSSE(reply);
+      if (!getFollowupSuggestionsEnabled()) { sseDone(reply); return; }
+
+      const cwd = await resolveSessionCwd(project, sid);
+
+      const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
+      let clientGone = false;
+      reply.raw.on('close', () => { clientGone = true; });
+      try {
+        for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+          if (clientGone) break;
+          try { sseSend(reply, { type: 'followup_delta', text: delta }); } catch { clientGone = true; break; }
+        }
+      } catch { /* swallow: follow-up is enrichment, never fatal */ }
+      if (!clientGone) sseDone(reply);
+    },
+  );
+
   // Send a message into an existing session (`claude -p --resume <sid>`).
   app.post<{ Params: Params; Body: MessageBody }>(
     '/api/sessions/claude/:project/:sid/message',
@@ -245,19 +336,9 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         return reply.status(400).send({ error: 'text or images required' });
       }
 
-      // Prefer the cwd embedded in the jsonl's first `user`/etc line, but
-      // that read is capped at HEAD_BYTES — a big paste on the first line
-      // pushes cwd out of range and we'd silently fall back to $HOME, which
-      // makes the SDK look under the wrong project dir and error with "No
-      // conversation found". The project name IS the cwd (encoded by
-      // claude-cli), so use it as the safe default.
-      let cwd = decodeClaudeProjectName(project) || process.env.HOME || '/tmp';
-      try {
-        const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
-        if (head?.cwd) cwd = head.cwd;
-      } catch {
-        /* fall back to decoded project name */
-      }
+      // Prefer the cwd embedded in the jsonl's first line, else the decoded
+      // project name (which claude-cli derives from the cwd).
+      const cwd = await resolveSessionCwd(project, sid);
 
       startSSE(reply);
       sseSend(reply, { type: 'meta', cwd, sessionId: sid });
@@ -292,7 +373,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
             safeSend({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
           }
           else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-          else if (ev.kind === 'permission_request') safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input });
+          else if (ev.kind === 'permission_request') { safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
           else if (ev.kind === 'permission_resolved') safeSend({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
           else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
           else if (ev.kind === 'message') safeSend({ type: 'event', event: 'system', subtype: ev.subtype });
@@ -300,6 +381,26 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           else if (ev.kind === 'done') {
             safeSend({ type: 'done', exitCode: ev.exitCode });
             endRun(sid);
+            pushSessionDone(project, sid);
+            // After the main turn: stream a throwaway follow-up-suggestions
+            // query resuming the same session (shared prefix → provider cache
+            // hit, near-free). persistSession:false keeps it off disk. Each
+            // text delta is forwarded as a `followup_delta` event; the WebUI
+            // accumulates + parses incrementally with partial-json. Best-effort
+            // — any failure is swallowed, never blocks the turn's close.
+            // Only on a clean finish (exitCode 0): a Stop (abort → -1) or a
+            // mid-turn error must stay byte-identical to pre-feature behavior,
+            // never spinning up a follow-up query on an aborted transcript.
+            if (!clientGone && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+              try {
+                for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+                  if (clientGone) break;
+                  safeSend({ type: 'followup_delta', text: delta });
+                }
+              } catch {
+                /* swallow: follow-up is enrichment, never fatal */
+              }
+            }
             if (!clientGone) sseDone(reply);
           }
         }

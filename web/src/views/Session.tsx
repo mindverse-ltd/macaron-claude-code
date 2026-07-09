@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api, basename, type Message, type SessionDetail } from '../lib/api';
+import { sessionToMarkdown } from '@macaron/shared';
+import {
+  api,
+  basename,
+  downloadTextFile,
+  type Message,
+  type SessionDetail,
+  type SlashCommand,
+} from '../lib/api';
 import { streamSession } from '../lib/sse';
-import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
-import { extractPartialCode } from '../lib/partialJson';
+import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { hasActiveModal } from '../lib/modal';
+import { extractPartialCode, parseFollowups } from '../lib/partialJson';
+import { SlashPalette } from '../components/SlashPalette';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -16,9 +26,12 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { ActivityTimeline, toolIcon, toolLabel, type TimelineEntry } from '../components/ActivityTimeline';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
+import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -27,6 +40,12 @@ const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWit
 const PAGE_SIZE = 80;
 
 type AttachedImage = { id: string; name: string; mimeType: string; dataUrl: string };
+
+// A message the user typed while a turn was still running. Held client-side
+// (macaron's runner is single-shot — one `/message` POST per turn — so there
+// is no persistent stdin to inject into) and auto-sent when the turn finishes.
+type QueuedMessage = { id: string; text: string };
+const queueId = (prefix = 'q') => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -52,7 +71,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -62,7 +81,7 @@ type Item =
   | { id: string; kind: 'live-assistant'; text: string }
   // Pending / resolved permission gate. Rendered as an inline card with
   // Allow/Deny buttons while `status === 'pending'`.
-  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; status: 'pending' | 'allow' | 'deny' };
+  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; suggestion?: { label: string }; status: 'pending' | 'allow' | 'deny' };
 
 const TODO_WRITE_NAMES = new Set(['TodoWrite', 'todo_write']);
 const isTodoWriteTool = (name: string) => TODO_WRITE_NAMES.has(name);
@@ -75,10 +94,16 @@ function isNoisyUserText(t: string): boolean {
   return false;
 }
 
-function flatten(messages: Message[]): Item[] {
+export function flatten(messages: Message[]): Item[] {
   const out: Item[] = [];
   let i = 0;
-  let lastTool: Extract<Item, { kind: 'tool' }> | null = null;
+  type PairedTool = Extract<Item, { kind: 'tool' | 'genui' }>;
+  type PendingTool = { item: PairedTool; ts?: string };
+  const pendingTools = new Map<string, PendingTool>();
+  // Legacy fallback for older/malformed transcripts without toolUseId. Normal
+  // Claude turns can emit multiple tool_use blocks before any tool_result, so
+  // id-based pairing below is the load-bearing path.
+  let fallbackTool: PendingTool | null = null;
   // TodoWrite fires repeatedly with the full task list each time. Only the
   // latest snapshot is meaningful, so we track its slot in `out` and splice
   // out the previous one when a new one arrives — this mirrors the CLI which
@@ -94,7 +119,7 @@ function flatten(messages: Message[]): Item[] {
           out.push({ id: `sys${i++}`, kind: 'system_event', eventType: b.eventType, text: b.text });
         }
       }
-      lastTool = null;
+      fallbackTool = null;
       continue;
     }
     // Collect any text + image blocks the user sent in this message into a
@@ -115,14 +140,14 @@ function flatten(messages: Message[]): Item[] {
     for (const b of m.blocks) {
       if (m.role !== 'user' && b.kind === 'text') {
         if (b.text.trim()) out.push({ id: `a${i++}`, kind: 'assistant', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'thinking') {
         if (b.text.trim()) out.push({ id: `t${i++}`, kind: 'thinking', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (m.role !== 'user' && b.kind === 'image') {
         // Very rare — assistant emitting an image. Keep in its own row.
         out.push({ id: `img${i++}`, kind: 'assistant-image', mimeType: b.mimeType, data: b.data });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'tool_use') {
         if (isTodoWriteTool(b.name)) {
           const input = (b.input || {}) as { todos?: TodoEntry[] };
@@ -137,7 +162,7 @@ function flatten(messages: Message[]): Item[] {
           out.push({ id: `todo${i++}`, kind: 'todo', todos });
           // TodoWrite's tool_result is just an ACK — don't chain it to
           // anything real.
-          lastTool = null;
+          fallbackTool = null;
         } else if (isRenderUITool(b.name)) {
           // Claude writes the TSX directly into the tool_use input.code field;
           // jsonl persists it. We use that as the rendered code immediately.
@@ -160,9 +185,11 @@ function flatten(messages: Message[]): Item[] {
             status: code ? 'ready' : 'pending',
           };
           out.push(it);
-          // Reuse lastTool slot so the next tool_result lands here.
-          lastTool = it as unknown as Extract<Item, { kind: 'tool' }>;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         } else {
+          const toolUseId = (b as unknown as { id?: string }).id || `synthetic-${i}`;
           const it: Extract<Item, { kind: 'tool' }> = {
             id: `tool${i++}`,
             kind: 'tool',
@@ -170,12 +197,16 @@ function flatten(messages: Message[]): Item[] {
             input: b.input,
           };
           out.push(it);
-          lastTool = it;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         }
       } else if (b.kind === 'tool_result') {
-        if (lastTool) {
-          if ((lastTool as unknown as Item).kind === 'genui') {
-            const g = lastTool as unknown as Extract<Item, { kind: 'genui' }>;
+        const pending = b.toolUseId ? pendingTools.get(b.toolUseId) : fallbackTool;
+        const item = pending?.item;
+        if (item) {
+          if (item.kind === 'genui') {
+            const g = item;
             const t = b.text || '';
             if (t.startsWith('render_ui failed:')) {
               g.status = 'error';
@@ -184,7 +215,15 @@ function flatten(messages: Message[]): Item[] {
               g.status = 'ready';
             }
           } else {
-            lastTool.result = (lastTool.result ? lastTool.result + '\n' : '') + b.text;
+            item.result = (item.result ? item.result + '\n' : '') + b.text;
+            if (b.isError) item.isError = true;
+            // Wall-clock = result message time − tool_use message time. Both
+            // are best-effort ISO strings; leave undefined if either is absent
+            // or the delta is nonsensical (clock skew / same-line messages).
+            if (pending.ts && m.timestamp) {
+              const d = new Date(m.timestamp).getTime() - new Date(pending.ts).getTime();
+              if (Number.isFinite(d) && d >= 0) item.durationMs = d;
+            }
           }
         }
       }
@@ -195,7 +234,7 @@ function flatten(messages: Message[]): Item[] {
 
 // ---- Tool header formatting (Bash → command first line, etc.) -------------
 
-function toolHeader(name: string, input: any): string {
+export function toolHeader(name: string, input: any): string {
   if (!input || typeof input !== 'object') return '';
   if (name === 'Bash') {
     return String(input.command || '').replace(/\s+/g, ' ').slice(0, 240);
@@ -253,7 +292,7 @@ const TODO_STATUS_ORDER: Record<TodoEntry['status'], number> = {
   completed: 2,
 };
 
-function TodoItem({ todos }: { todos: TodoEntry[] }) {
+function TodoItem({ id, todos }: { id?: string; todos: TodoEntry[] }) {
   const [expanded, setExpanded] = useState(false);
   const total = todos.length;
   const done = todos.filter((t) => t.status === 'completed').length;
@@ -281,7 +320,7 @@ function TodoItem({ todos }: { todos: TodoEntry[] }) {
   const hiddenCompleted = Math.max(0, done - completedShown);
 
   return (
-    <div className="ti-todo">
+    <div className="ti-todo" data-item-id={id}>
       <div className="ti-todo-stats">
         <strong>{total} tasks</strong> ({done} done, {inProg} in progress, {open} open)
       </div>
@@ -341,9 +380,11 @@ function SystemEventItem({ eventType, text }: { eventType: string; text: string 
 function UserItem({
   parts,
   onRewind,
+  onFork,
 }: {
   parts: MsgPart[];
   onRewind?: () => void;
+  onFork?: () => void;
 }) {
   const hasNonEmptyText = parts.some((p) => p.kind === 'text' && p.text);
   const hasImage = parts.some((p) => p.kind === 'image');
@@ -362,6 +403,17 @@ function UserItem({
           ),
         )}
       </div>
+      {onFork && (
+        <button
+          type="button"
+          className="ti-user-fork"
+          onClick={onFork}
+          title="Fork a new session from before this message"
+          aria-label="Fork"
+        >
+          ⑂ fork
+        </button>
+      )}
       {onRewind && (
         <button
           type="button"
@@ -412,7 +464,7 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
 
 const PREVIEW_LINES = 2;
 
-function ToolItem({ name, input, result }: { name: string; input: unknown; result?: string }) {
+function ToolItem({ id, name, input, result, durationMs, isError }: { id?: string; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }) {
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
   const resultText = (result ?? '').replace(/\n+$/, '');
@@ -421,15 +473,16 @@ function ToolItem({ name, input, result }: { name: string; input: unknown; resul
   const extra = Math.max(0, allLines.length - PREVIEW_LINES);
 
   return (
-    <div className="ti-tool">
+    <div className="ti-tool" data-item-id={id}>
       <div className="ti-tool-head">
-        <span className="ti-dot">●</span>
+        <span className={`ti-dot${isError ? ' ti-dot-error' : ''}`}>●</span>
         <span className="ti-tool-name">{name}</span>
         {header && (
           <span className="ti-tool-args" title={header}>
             ({header})
           </span>
         )}
+        {durationMs != null && <span className="ti-tool-dur">{formatDuration(durationMs)}</span>}
       </div>
       {result !== undefined && allLines.length > 0 && (
         <div className="ti-tool-out">
@@ -526,20 +579,20 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 
   if (it.status === 'error') {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-error">render_ui failed: {it.error || 'unknown error'}</div>
       </div>
     );
   }
   if (!code) {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-pending">generating UI…</div>
       </div>
     );
   }
   return (
-    <div className="ti-genui">
+    <div className="ti-genui" data-item-id={it.id}>
       <StaticGenUIRenderer
         code={code}
         active
@@ -552,19 +605,21 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   );
 }
 
-// Inline permission gate — Allow / Deny buttons that POST the decision back
-// so the SDK's canUseTool callback resumes with the user's choice.
+// Inline permission gate. Deny / Allow-once always show; Session / Always
+// appear when the server sent a `suggestion` (i.e. there's a concrete rule to
+// remember) and POST the decision with a scope so canUseTool persists it.
 function PermissionItem({
   it,
   onDecide,
 }: {
   it: Extract<Item, { kind: 'permission' }>;
-  onDecide: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
 }) {
   // Only pending gates are worth showing — once resolved, the tool block
   // above already tells the story (Bash ran / didn't run).
   if (it.status !== 'pending') return null;
   const header = toolHeader(it.toolName, it.input);
+  const remember = it.suggestion?.label;
   return (
     <div className="ti-perm">
       <span className="ti-perm-icon">🔒</span>
@@ -586,24 +641,90 @@ function PermissionItem({
         </button>
         <button
           type="button"
-          className="primary small"
-          onClick={() => onDecide(it.permissionId, 'allow')}
+          className="ghost small"
+          onClick={() => onDecide(it.permissionId, 'allow', 'once')}
         >
-          Allow
+          Allow once
         </button>
+        {remember && (
+          <button
+            type="button"
+            className="ghost small"
+            title={`Don't ask again this session for: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'session')}
+          >
+            Session
+          </button>
+        )}
+        {remember && (
+          <button
+            type="button"
+            className="primary small"
+            title={`Always allow in this project: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'always')}
+          >
+            Always
+          </button>
+        )}
       </span>
     </div>
   );
 }
 
-function ItemView({
+// Plan-mode approval panel — shown when the model calls `ExitPlanMode` to
+// present a plan. Three choices map to how the run proceeds once plan mode
+// exits: auto-accept edits (acceptEdits), approve each edit (default), or
+// keep planning (deny — the model refines and re-proposes).
+function PlanApprovalItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
+}) {
+  if (it.status !== 'pending') return null;
+  const rawPlan = (it.input as { plan?: unknown } | null)?.plan;
+  const plan = typeof rawPlan === 'string' ? rawPlan : '';
+  return (
+    <div className="ti-plan">
+      <div className="ti-plan-head">
+        <span className="ti-plan-icon">📋</span>
+        <span className="ti-plan-title">Ready to code?</span>
+        <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
+      </div>
+      {plan && (
+        <div className="ti-plan-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+        </div>
+      )}
+      <div className="ti-plan-actions">
+        <button type="button" className="primary small" onClick={() => onDecide(it.permissionId, 'allow', 'acceptEdits')}>
+          Yes, and auto-accept edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'allow', 'default')}>
+          Yes, and manually approve edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'deny')}>
+          No, keep planning
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function ItemView({
   it,
   onRewind,
+  onFork,
   onPermissionDecide,
 }: {
   it: Item;
   onRewind?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onFork?: (uuid: string) => void;
+  // 3rd arg is a scope ('once'/'session'/'always') from PermissionItem or a plan-mode
+  // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
+  // handler serves both. This wider param is assignable to both child onDecide props.
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -613,6 +734,7 @@ function ItemView({
           onRewind={
             onRewind && it.uuid ? () => onRewind(it.uuid!) : undefined
           }
+          onFork={onFork && it.uuid ? () => onFork(it.uuid!) : undefined}
         />
       );
     case 'live-user':
@@ -623,22 +745,30 @@ function ItemView({
       return <LiveAssistantItem text={it.text} />;
     case 'thinking':
       return <ThinkingItem text={it.text} />;
-    case 'tool':
-      return <ToolItem name={it.name} input={it.input} result={it.result} />;
+    case 'tool': {
+      // Edit/Write/MultiEdit render as an inline diff card; every other tool
+      // (and any edit whose input hasn't fully streamed yet) uses the plain row.
+      const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
+      return diff
+        ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} />
+        : <ToolItem id={it.id} name={it.name} input={it.input} result={it.result} durationMs={it.durationMs} isError={it.isError} />;
+    }
     case 'todo':
-      return <TodoItem todos={it.todos} />;
+      return <TodoItem id={it.id} todos={it.todos} />;
     case 'system_event':
       return <SystemEventItem eventType={it.eventType} text={it.text} />;
     case 'genui':
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
-    case 'permission':
-      return onPermissionDecide ? (
-        <PermissionItem it={it} onDecide={onPermissionDecide} />
+    case 'permission': {
+      const decide = onPermissionDecide ?? (() => {});
+      return it.toolName === 'ExitPlanMode' ? (
+        <PlanApprovalItem it={it} onDecide={decide} />
       ) : (
-        <PermissionItem it={it} onDecide={() => {}} />
+        <PermissionItem it={it} onDecide={decide} />
       );
+    }
   }
 }
 
@@ -649,10 +779,12 @@ function SessionActionsMenu({
   disabled,
   busyCompact,
   onCompact,
+  onExport,
 }: {
   disabled: boolean;
   busyCompact: boolean;
   onCompact: () => void;
+  onExport: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -693,6 +825,20 @@ function SessionActionsMenu({
           <button
             type="button"
             className="actions-menu-item"
+            disabled={disabled}
+            onClick={() => {
+              setOpen(false);
+              onExport();
+            }}
+          >
+            <span className="actions-menu-body">
+              <span className="actions-menu-label">Export to Markdown</span>
+              <span className="actions-menu-sub">Download the transcript as a .md file</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="actions-menu-item"
             disabled={disabled || busyCompact}
             onClick={() => {
               setOpen(false);
@@ -708,6 +854,71 @@ function SessionActionsMenu({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Pending queue --------------------------------------------------------
+
+// Messages the user lined up while a turn was running. Rendered above the
+// composer (mirrors the img-chips row). Each row can be reordered, edited
+// (pulled back into the composer), or removed.
+function PendingQueue({
+  queue,
+  onRemove,
+  onMove,
+  onEdit,
+}: {
+  queue: QueuedMessage[];
+  onRemove: (id: string) => void;
+  onMove: (id: string, dir: -1 | 1) => void;
+  onEdit: (id: string) => void;
+}) {
+  if (queue.length === 0) return null;
+  return (
+    <div className="pending-queue">
+      <div className="pending-queue-head">
+        {queue.length} queued · sends when the current turn finishes
+      </div>
+      {queue.map((q, idx) => (
+        <div key={q.id} className="pending-item">
+          <span className="pending-item-idx">{idx + 1}</span>
+          <button
+            type="button"
+            className="pending-item-text"
+            title={q.text}
+            aria-label="Edit queued message"
+            onClick={() => onEdit(q.id)}
+          >
+            {q.text}
+          </button>
+          <span className="pending-item-actions">
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Move up"
+              aria-label="Move up"
+              disabled={idx === 0}
+              onClick={() => onMove(q.id, -1)}
+            >↑</button>
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Move down"
+              aria-label="Move down"
+              disabled={idx === queue.length - 1}
+              onClick={() => onMove(q.id, 1)}
+            >↓</button>
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Remove"
+              aria-label="Remove"
+              onClick={() => onRemove(q.id)}
+            >×</button>
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -772,6 +983,15 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Set when the current turn hit onError, so the completion effect below can
+  // skip the 'complete' cue — onDone still runs after a stream error, and a
+  // failed turn shouldn't sound like a success.
+  const turnErroredRef = useRef(false);
+  // Set while a user-initiated Stop is in flight. Stop aborts the SDK
+  // stream, which claude-runner's catch surfaces as an onError (it doesn't
+  // filter AbortError) — so without this the deliberate Stop would play the
+  // 'error' cue as if the turn had actually failed.
+  const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -793,6 +1013,11 @@ export function Session(props: SessionProps = {}) {
     }
     if (!streamedRef.current) return;
     streamedRef.current = false;
+    // A turn that ended in onError already played the 'error' cue; don't also
+    // play 'complete' (onDone still fires after a stream error).
+    const errored = turnErroredRef.current;
+    turnErroredRef.current = false;
+    if (!errored) playSound('complete');
     notify({
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
@@ -803,6 +1028,35 @@ export function Session(props: SessionProps = {}) {
     });
   }, [sending, polling, sid, project]);
   const [liveUser, setLiveUser] = useState<string>('');
+  // Raw follow-up text streamed after each turn (a throwaway cache-hit
+  // query). Parsed incrementally with partial-json. Deltas can arrive from a
+  // stream that a newer send / session switch already superseded (e.g. click
+  // a chip and send while the previous follow-up is still streaming), so
+  // every producer captures its generation and stale deltas are dropped.
+  const [followupRaw, setFollowupRaw] = useState('');
+  const followupGen = useRef(0);
+  const followups = useMemo(() => parseFollowups(followupRaw), [followupRaw]);
+  // The row keeps a reserved slot (so streaming chips don't shove the thread
+  // up) ONLY while the feature is on — when it's off there's nothing to wait
+  // for, so we collapse the space entirely. Fetched once on mount.
+  const [followupsEnabled, setFollowupsEnabled] = useState(false);
+  useEffect(() => { api.settings().then((s) => setFollowupsEnabled(s.followupSuggestions)).catch(() => {}); }, []);
+  // Clear the chips and invalidate any deltas still streaming from a superseded
+  // follow-up query, atomically. Returns the new generation so a producer can
+  // capture it as its token; call sites that only need to reset ignore it.
+  const resetFollowups = useCallback(() => { setFollowupRaw(''); return ++followupGen.current; }, []);
+  // First-turn follow-ups stream over an independent live-store channel that
+  // outlives the main turn's `done` (which clears the live store). 2nd+ turns
+  // deliver follow-ups via streamSession's onFollowupDelta instead. Not gated
+  // on isPending — the canvas path flips it right at `done`, before the
+  // follow-up stream even starts.
+  useEffect(() => {
+    const gen = resetFollowups();
+    return subscribeFollowup(sid, (text) => {
+      if (followupGen.current !== gen) return;
+      setFollowupRaw((prev) => prev + text);
+    });
+  }, [sid]);
   // Single ordered timeline for the current turn: text chunks and tool
   // calls/permissions are interleaved in the same array so the render
   // matches Claude's actual "text → tool → text → tool" sequencing. Previous
@@ -840,12 +1094,26 @@ export function Session(props: SessionProps = {}) {
   // lazily so each new mount picks up entries appended by sibling tiles.
   const [history, setHistory] = useState<string[]>(() => loadHistory(project));
   useEffect(() => { setHistory(loadHistory(project)); }, [project]);
+  // Fetch the slash-command list once per project (built-ins + custom
+  // `.claude/commands`). Best-effort — a failure just leaves the palette empty.
+  useEffect(() => {
+    if (!project) return;
+    let alive = true;
+    api.commands(project).then((r) => { if (alive) setCommands(r.commands); }).catch(() => {});
+    return () => { alive = false; };
+  }, [project]);
   // Navigation state. null = user is composing a fresh draft; otherwise
   // 0 = latest sent, 1 = one before, … history.length-1 = oldest. When we
   // enter history navigation we stash the draft so ArrowDown-past-latest
   // can restore it.
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const draftInputRef = useRef<string>('');
+  // Slash-command palette. `commands` is fetched once per session; the palette
+  // opens while the input is a bare `/name` (no space yet) and `slashIdx`
+  // tracks the keyboard-highlighted row. The SDK expands the picked `/name` on
+  // send, so this is purely a discoverability helper.
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [slashIdx, setSlashIdx] = useState(0);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   // Shift+Tab cycles through permission modes globally on the Session view
@@ -863,6 +1131,10 @@ export function Session(props: SessionProps = {}) {
   const confirm = useConfirm();
   const [busyCompact, setBusyCompact] = useState(false);
   const [busyRewind, setBusyRewind] = useState(false);
+  const [busyFork, setBusyFork] = useState(false);
+  // Messages the user lined up while the current turn was still streaming.
+  // Auto-sent one at a time as each turn completes (see the dequeue effect).
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
@@ -921,6 +1193,26 @@ export function Session(props: SessionProps = {}) {
     [busyRewind, confirm, project, sid, toast],
   );
 
+  // Fork: non-destructive branch. Copy the transcript up to (excluding) the
+  // picked message into a fresh sid and navigate there — Workspace pins it as
+  // a new focused tile. The original session is untouched, so no confirm.
+  const handleFork = useCallback(
+    async (uuid: string) => {
+      if (busyFork) return;
+      setBusyFork(true);
+      try {
+        const r = await api.forkSession(project, sid, uuid);
+        toast(`forked → ${r.newSid.slice(0, 8)}`);
+        navigate(`/w/${encodeURIComponent(project)}/s/${encodeURIComponent(r.newSid)}`);
+      } catch (e) {
+        toast(`fork failed: ${(e as Error).message}`);
+      } finally {
+        setBusyFork(false);
+      }
+    },
+    [busyFork, navigate, project, sid, toast],
+  );
+
   // Compact: replace the transcript with a provider-generated recap.
   const handleCompact = useCallback(async () => {
     if (busyCompact) return;
@@ -954,12 +1246,22 @@ export function Session(props: SessionProps = {}) {
     }
   }, [busyCompact, confirm, project, sid, toast]);
 
+  // Export: serialize the loaded transcript to Markdown and download it —
+  // client-side, no server round-trip (we already hold the parsed messages).
+  const handleExport = useCallback(() => {
+    if (!data) return;
+    const md = sessionToMarkdown(data);
+    const name = `${basename(data.cwd) || 'session'}-${sid.slice(0, 8)}.md`;
+    downloadTextFile(name, md);
+    toast(`Exported ${name}`);
+  }, [data, sid, toast]);
+
   // Permission decision: POST to server; server resolves the pending
   // canUseTool promise. Optimistically update the local card so it doesn't
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny') => {
+    (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -967,7 +1269,16 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision).catch((e) => {
+      // The 3rd arg is either a plan-mode (from PlanApprovalItem) or a remember-scope
+      // (from PermissionItem) — disjoint value sets, so route by value.
+      const mode = arg === 'default' || arg === 'acceptEdits' || arg === 'plan' || arg === 'bypassPermissions' ? arg : undefined;
+      const scope = arg === 'once' || arg === 'session' || arg === 'always' ? arg : undefined;
+      // A plan approval switches the session out of plan mode (server-side via
+      // setMode). Mirror that in the local mode state so the next send() and
+      // the status bar reflect it — otherwise the composer would silently
+      // re-enter plan mode on the following turn.
+      if (decision === 'allow' && mode) setPermissionMode(mode);
+      api.permissionDecision(permissionId, decision, { scope, mode }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
@@ -979,6 +1290,11 @@ export function Session(props: SessionProps = {}) {
   // the existing `done` handler.
   const handleStop = useCallback(async () => {
     if (!sid) return;
+    // Mark the abort as user-initiated before requesting it, so the error
+    // that comes back over the SSE is recognised as a Stop, not a failure,
+    // and its cue is suppressed. (turnErroredRef still trips, so the
+    // trailing completion effect stays silent too.)
+    stoppingRef.current = true;
     try {
       await api.stopSession(project, sid);
       toast('Stop requested');
@@ -1025,7 +1341,7 @@ export function Session(props: SessionProps = {}) {
       bypassPermissions: 'Bypass all',
     };
     const onKey = (e: Event) => {
-      if (!focused) return; // canvas tiles only respond when active
+      if (!focused || hasActiveModal()) return; // canvas tiles only respond when active and no modal is covering them
       const ke = e as unknown as { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void };
       if (ke.key !== 'Tab' || !ke.shiftKey || ke.ctrlKey || ke.metaKey || ke.altKey) return;
       ke.preventDefault();
@@ -1073,6 +1389,7 @@ export function Session(props: SessionProps = {}) {
               permissionId: t.permissionId,
               toolName: t.toolName,
               input: t.input,
+              suggestion: t.suggestion,
               status: t.status,
             };
           }
@@ -1112,6 +1429,9 @@ export function Session(props: SessionProps = {}) {
         setPolling(false);
         setSending(false);
         clearLive(sid);
+        // Follow-up suggestions stream AFTER `done` over an independent
+        // channel (subscribeFollowup), so clearing the live store here is
+        // safe — the stop semantics are identical to before the feature.
         // Let the parent (draft-tile owner) drop this sid from its
         // pending set so a later refresh doesn't re-enter this branch.
         onPendingConsumed?.();
@@ -1137,6 +1457,26 @@ export function Session(props: SessionProps = {}) {
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
 
+  // Opening an already-idle session (last item is an assistant reply, nothing
+  // streaming) surfaces follow-ups too — not only the instant a turn ends.
+  // Fires once per sid: after our OWN turn `onDone` flips `sending` false while
+  // the message stream is still open, so without this latch the effect would
+  // re-run and fire a duplicate /followups query — bumping the generation and
+  // starving the in-flight post-turn deltas. sid change ⇒ remount ⇒ ref resets.
+  const lastItemKind = items[items.length - 1]?.kind;
+  const idleFollowupFired = useRef(false);
+  useEffect(() => {
+    if (isNew || isPending || sending || polling) return;
+    if (lastItemKind !== 'assistant' || followupRaw || idleFollowupFired.current) return;
+    idleFollowupFired.current = true;
+    const gen = ++followupGen.current;
+    void streamSession(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/followups`,
+      {},
+      { onFollowupDelta: (t) => { if (followupGen.current === gen) setFollowupRaw((prev) => prev + t); } },
+    );
+  }, [project, sid, isNew, isPending, sending, polling, lastItemKind]);
+
   // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
   // The status bar mirrors the current in-progress task + progress fraction.
   const currentTodo = useMemo(() => {
@@ -1160,6 +1500,66 @@ export function Session(props: SessionProps = {}) {
   // column-reverse so the browser anchors scroll at the visual bottom
   // automatically — new content pushes existing content up without us
   // touching scrollTop. The user can freely scroll up to read history.
+
+  // ---- Activity timeline: one rail node per tool call in the session -----
+  // Built from the persisted `items`, so live-turn tools join once the jsonl
+  // reloads. Todo / genui calls are surfaced too (they're tool calls the CLI
+  // renders specially). `id` matches each row's `data-item-id` for click-jump.
+  const timelineEntries = useMemo<TimelineEntry[]>(() => {
+    const out: TimelineEntry[] = [];
+    for (const it of items) {
+      if (it.kind === 'tool') {
+        out.push({
+          id: it.id,
+          icon: toolIcon(it.name),
+          label: toolLabel(it.name),
+          summary: toolHeader(it.name, it.input),
+          durationMs: it.durationMs,
+          status: it.isError ? 'error' : it.result !== undefined ? 'ok' : 'pending',
+        });
+      } else if (it.kind === 'todo') {
+        const done = it.todos.filter((t) => t.status === 'completed').length;
+        out.push({ id: it.id, icon: toolIcon('TodoWrite'), label: 'Todo', summary: `${done}/${it.todos.length} done`, status: 'ok' });
+      } else if (it.kind === 'genui') {
+        out.push({ id: it.id, icon: '🎨', label: 'render_ui', summary: it.prompt, status: it.status === 'error' ? 'error' : it.status === 'ready' ? 'ok' : 'pending' });
+      }
+    }
+    return out;
+  }, [items]);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+
+  // Request a jump to a rail node's target row. If the row is older than the
+  // paginated window, widen `shown` first. The scroll runs in the effect below,
+  // once React has committed the wider window — doing it inline (even in a rAF)
+  // races the commit and silently misses rows that aren't mounted yet.
+  const jumpToItem = useCallback(
+    (id: string) => {
+      const idx = items.findIndex((it) => it.id === id);
+      if (idx >= 0) {
+        const fromTail = items.length - idx;
+        if (fromTail > shown) setShown((s) => Math.max(s, fromTail));
+      }
+      setActiveItemId(id);
+      setPendingJumpId(id);
+    },
+    [items, shown],
+  );
+
+  // Resolve a pending jump after the target row is committed. Re-runs when
+  // `shown` widens (which mounts older rows), so jumps into hidden history land
+  // reliably instead of no-oping when the row wasn't mounted in time.
+  useEffect(() => {
+    if (!pendingJumpId) return;
+    const el = threadRef.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(pendingJumpId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('ti-jump-flash');
+    // Force reflow so re-adding the class restarts the flash animation.
+    void el.offsetWidth;
+    el.classList.add('ti-jump-flash');
+    setPendingJumpId(null);
+  }, [pendingJumpId, shown]);
 
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
@@ -1208,18 +1608,25 @@ export function Session(props: SessionProps = {}) {
   }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
-    async (e?: FormEvent) => {
-      e?.preventDefault();
-      const text = input.trim();
-      if ((!text && images.length === 0) || sending) return;
-      const sentImages = images;
-      setInput('');
-      setImages([]);
-      // Persist to prompt history + reset navigation state.
+    async (opts?: { text?: string; images?: AttachedImage[] }) => {
+      // `opts` present = programmatic send (auto-dequeue / send-now / the
+      // $macaron/chat bridge) with the given text; absent = the user submitting
+      // the composer's current draft.
+      const text = (opts?.text ?? input).trim();
+      const sentImages = opts ? (opts.images ?? []) : images;
+      if ((!text && sentImages.length === 0) || sending) return;
+      if (!opts) {
+        setInput('');
+        setImages([]);
+        setHistoryIdx(null);
+        draftInputRef.current = '';
+      }
+      // New turn ⇒ new follow-up generation: clears the chips and invalidates
+      // any deltas still streaming from the previous turn's follow-up query.
+      const fGen = resetFollowups();
+      // Persist to prompt history (manual and queued sends alike).
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
-      setHistoryIdx(null);
-      draftInputRef.current = '';
       // Roll the *previous* turn's live buffers into history before we
       // clobber them with this turn's user text — otherwise typing a second
       // message erases the first reply until the next page refresh.
@@ -1234,6 +1641,10 @@ export function Session(props: SessionProps = {}) {
       setLiveUserImages(sentImages);
       setLiveTurn([]);
       setOutputTokens(-1);
+      // Fresh turn: clear the Stop latch so a prior Stop can't suppress
+      // this turn's error cue. (turnErroredRef is cleared by the completion
+      // effect when the previous turn settled.)
+      stoppingRef.current = false;
 
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
@@ -1313,10 +1724,9 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolInputDone: ({ id, name, final_json }) => {
-            if (!isRenderUITool(name)) return;
             try {
               const obj = JSON.parse(final_json);
-              if (typeof obj?.code === 'string') {
+              if (isRenderUITool(name) && typeof obj?.code === 'string') {
                 setLiveTurn((cur) =>
                   cur.map((t) =>
                     t.kind === 'genui' && t.toolUseId === id
@@ -1324,14 +1734,19 @@ export function Session(props: SessionProps = {}) {
                       : t,
                   ),
                 );
+              } else if (isDiffTool(name)) {
+                setLiveTurn((cur) =>
+                  cur.map((t) => (t.kind === 'tool' && t.id === `live-${id}` ? { ...t, input: obj } : t)),
+                );
               }
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
-          onPermissionRequest: ({ id, toolName, input }) => {
+          onPermissionRequest: ({ id, toolName, input, suggestion }) => {
             // Nudge the user via native notification when a tool needs
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
             // acted on.
+            playSound('permission');
             notify({
               title: 'Macaron · permission needed',
               body: `${toolName} wants to run` + (
@@ -1353,6 +1768,7 @@ export function Session(props: SessionProps = {}) {
                 permissionId: id,
                 toolName,
                 input,
+                suggestion,
                 status: 'pending',
               },
             ]);
@@ -1374,7 +1790,7 @@ export function Session(props: SessionProps = {}) {
                   return { ...t, status: 'ready' };
                 }
                 if (t.kind === 'tool' && (t.id === `live-${tool_use_id}`)) {
-                  return { ...t, result: resultText };
+                  return { ...t, result: resultText, isError };
                 }
                 return t;
               }),
@@ -1384,6 +1800,11 @@ export function Session(props: SessionProps = {}) {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            turnErroredRef.current = true;
+            // A user Stop surfaces here as an error — suppress the error cue
+            // in that case (turnErroredRef above already keeps the trailing
+            // completion effect silent, so the Stop makes no sound at all).
+            if (!stoppingRef.current) playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               const chunk = `\n[error] ${err}`;
@@ -1404,13 +1825,102 @@ export function Session(props: SessionProps = {}) {
             // and a page refresh reloads the canonical jsonl.
             setSending(false);
           },
+          onFollowupDelta: (t) => {
+            if (followupGen.current === fGen) setFollowupRaw((prev) => prev + t);
+          },
         },
       );
     },
     [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
 
+  // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
+  // next queued message. Edge-guarded so exactly one message goes per turn —
+  // send() flips `sending` back to true synchronously, re-arming the guard.
+  const runningRef = useRef(false);
+  useEffect(() => {
+    const running = sending || polling;
+    const wasRunning = runningRef.current;
+    runningRef.current = running;
+    if (wasRunning && !running && queue.length > 0) {
+      const [head, ...rest] = queue;
+      setQueue(rest);
+      void send({ text: head!.text });
+    }
+  }, [sending, polling, queue, send]);
+
+  // Chat bridge: a sandboxed render_ui widget imports sendUserMessage from
+  // '$macaron/chat', and the shim (web/public/genui-shim/chat.mjs) dispatches
+  // the payload to this host global slot ('$app/chat'), which relays it into
+  // send() as a programmatic user turn. Only the focused session registers —
+  // canvas multi-tile mounts share one slot, so the widget the user is actually
+  // looking at owns the bridge.
+  useEffect(() => {
+    if (!focused) return;
+    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const bridge = (prompt: string) => { void send({ text: prompt }); };
+    g['$app/chat'] = bridge;
+    return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
+  }, [focused, send]);
+
+  // ---- Slash palette derivation + keyboard reconciliation ----------------
+  // Open only while the input is a bare `/word` — leading slash, no space yet
+  // (still typing the command name). `slashQuery` is everything after the `/`.
+  const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null;
+  const filteredCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.toLowerCase();
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.namespace ?? '').toLowerCase().includes(q),
+    );
+  }, [commands, slashQuery]);
+  const paletteOpen = slashQuery !== null && filteredCommands.length > 0;
+  // Clamp / reset the highlight whenever the filtered set changes.
+  useEffect(() => { setSlashIdx(0); }, [slashQuery]);
+
+  const pickCommand = useCallback((cmd: SlashCommand) => {
+    // Insert `/name ` (trailing space) and keep focus. The SDK expands it on
+    // send; the trailing space both closes the palette and readies args.
+    setInput(`/${cmd.name} `);
+    setHistoryIdx(null);
+  }, []);
+
+  // Returns true if the palette consumed the key (so the composer's own
+  // handler must not also act on it). Only called while the palette is open.
+  const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (e.nativeEvent.isComposing || composingRef.current) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.min(i + 1, filteredCommands.length - 1));
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.max(i - 1, 0));
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const cmd = filteredCommands[slashIdx];
+      if (cmd) {
+        e.preventDefault();
+        pickCommand(cmd);
+        return true;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Closing without a pick: append a space so the palette-open predicate
+      // (bare `/word`) goes false while keeping what the user typed.
+      setInput((v) => (v.startsWith('/') && !v.includes(' ') ? v + ' ' : v));
+      return true;
+    }
+    return false;
+  };
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Palette intercepts ↑/↓/Enter/Esc FIRST when open, then falls through
+    // untouched — history-nav + send keep their exact behaviour when closed.
+    if (paletteOpen && handlePaletteKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1420,7 +1930,7 @@ export function Session(props: SessionProps = {}) {
         return;
       }
       e.preventDefault();
-      send();
+      submitComposer();
       return;
     }
     // Shell-style history navigation: ArrowUp when already in history mode
@@ -1498,6 +2008,8 @@ export function Session(props: SessionProps = {}) {
         </div>
       )}
 
+      <ActivityTimeline entries={timelineEntries} activeId={activeItemId} onJump={jumpToItem} />
+
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
         oldest. Everything that should appear at the visual TOP (load-earlier
@@ -1505,6 +2017,28 @@ export function Session(props: SessionProps = {}) {
       */}
       <div className="thread tui" ref={threadRef}>
         {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
+        {/* Suggested follow-ups from the throwaway cache-hit query. Rendered
+            ABOVE liveTurn in DOM (so BELOW it visually — column-reverse)
+            i.e. just above the input area, right under the latest reply.
+            Clicking fills the textarea (setInput), doesn't auto-send. The row
+            stays mounted (reserving its height) whenever the feature is on so
+            chips streaming in never shift the thread; off ⇒ no slot at all. */}
+        {followupsEnabled && !isNew && (
+          <div className="ti-followups">
+            {followups.map((q, i) => (
+              <button
+                key={`${q}-${i}`}
+                className="ti-followup-chip"
+                onClick={() => {
+                  resetFollowups();
+                  setInput(q);
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Single ordered timeline for the current turn. Items are appended
             to `liveTurn` in exact SSE arrival order, so reversing here
             (thread is column-reverse) puts the newest at the visual bottom
@@ -1534,7 +2068,7 @@ export function Session(props: SessionProps = {}) {
           <ItemView key={it.id} it={it} />
         ))}
         {[...tail].reverse().map((it) => (
-          <ItemView key={it.id} it={it} onRewind={handleRewind} />
+          <ItemView key={it.id} it={it} onRewind={handleRewind} onFork={handleFork} />
         ))}
         {hidden > 0 && (
           <button className="ghost load-earlier" onClick={() => setShown((s) => s + PAGE_SIZE)}>
@@ -1574,7 +2108,7 @@ export function Session(props: SessionProps = {}) {
       <div className="session-input-inner">
       <form
         className={`session-input${dragOver ? ' drag-over' : ''}`}
-        onSubmit={send}
+        onSubmit={(e) => { e.preventDefault(); submitComposer(); }}
         onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
         onDragLeave={(e) => {
           // Only clear when leaving the form itself, not when entering a child
@@ -1586,6 +2120,12 @@ export function Session(props: SessionProps = {}) {
           if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
         }}
       >
+        <PendingQueue
+          queue={queue}
+          onRemove={removeQueued}
+          onMove={moveQueued}
+          onEdit={editQueued}
+        />
         {images.length > 0 && (
           <div className="img-chips">
             {images.map((img) => (
@@ -1601,12 +2141,20 @@ export function Session(props: SessionProps = {}) {
             ))}
           </div>
         )}
+        {paletteOpen && (
+          <SlashPalette
+            commands={filteredCommands}
+            activeIndex={slashIdx}
+            onPick={pickCommand}
+            onHover={setSlashIdx}
+          />
+        )}
         <textarea
           rows={2}
-          placeholder="Reply to Claude…"
+          placeholder={sending ? 'Queue a message…' : 'Reply to Claude…'}
           value={input}
-          disabled={sending}
           onChange={(e) => {
+            if (followupRaw) resetFollowups();
             setInput(e.target.value);
             // Any manual edit exits history-navigation mode — pressing
             // Send now sends the (possibly edited) text as a fresh entry.
@@ -1662,21 +2210,48 @@ export function Session(props: SessionProps = {}) {
             disabled={isNew || sending}
             busyCompact={busyCompact}
             onCompact={() => void handleCompact()}
+            onExport={handleExport}
           />
           <div className="session-input-spacer" />
           {sending ? (
-            <button
-              type="button"
-              className="primary send-btn stop-btn"
-              onClick={() => void handleStop()}
-              disabled={!sid}
-              title="Stop generation"
-              aria-label="Stop"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="1.5" />
-              </svg>
-            </button>
+            <>
+              {input.trim() && (
+                <>
+                  <button
+                    type="button"
+                    className="ghost small send-now-btn"
+                    onClick={handleSendNow}
+                    disabled={!sid}
+                    title="Interrupt the current turn and send this now"
+                  >
+                    Send now
+                  </button>
+                  <button
+                    className="primary send-btn queue-btn"
+                    type="submit"
+                    title="Queue — sends after the current turn finishes"
+                    aria-label="Queue message"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="primary send-btn stop-btn"
+                onClick={() => void handleStop()}
+                disabled={!sid}
+                title="Stop generation"
+                aria-label="Stop"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                </svg>
+              </button>
+            </>
           ) : (
             <button
               className="primary send-btn"

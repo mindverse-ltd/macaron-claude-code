@@ -3,7 +3,12 @@ node_modules/
 .pnp
 .pnp.js
 
-# Build output
+# Build output — never committed. start.sh builds on first launch via
+# `corepack pnpm build`; subsequent launches skip the rebuild when source
+# mtimes are unchanged. Reason we don't ship prebuilt: every commit
+# regenerating dist created rebase-hell across concurrent PRs (dist churn
+# in every diff). CC / Codex agents can self-heal a first-run build
+# failure by reading start.sh's error output.
 dist/
 build/
 *.tsbuildinfo
