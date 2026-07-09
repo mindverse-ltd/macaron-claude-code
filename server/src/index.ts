@@ -53,6 +53,11 @@ const app = Fastify({
   ignoreTrailingSlash: true,
   // Allow large request bodies (genui prompts can grow).
   bodyLimit: 2 * 1024 * 1024,
+  // Worktree cwds can be long (deep repo paths encoded as path params), and
+  // Fastify caps a single param at 100 chars by default — a worktree under
+  // .../macaron-genui-demo/.claude/worktrees/<name> blows past it and 414s every
+  // /api/.../:project route. Raise it well above any plausible cwd.
+  maxParamLength: 4000,
 });
 
 // Gate the API/relay behind a shared token when the server is reachable from
