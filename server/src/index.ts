@@ -23,6 +23,7 @@ import { registerConfigFileRoutes } from './routes/config-files.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerShareRoutes } from './routes/share.js';
+import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
 const app = Fastify({
@@ -65,6 +66,7 @@ await app.register(async (instance) => {
   await registerSessionRoutes(instance);
   await registerCodexRoutes(instance);
   await registerShareRoutes(instance);
+  await registerTerminalRoutes(instance);
   await registerFileRoutes(instance);
 });
 
