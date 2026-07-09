@@ -4,6 +4,7 @@ import { api, basename, type Workspace, type SessionListItem, type WorktreeInfo 
 import { useToast } from './Toast';
 import { useConfirm } from './Confirm';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { RateLimitMeters } from './RateLimitMeters';
 import {
   getCanvasSids,
   toggleCanvasSid,
@@ -455,6 +456,7 @@ export function Sidebar() {
       </Link>
 
       <footer className="sb-footer">
+        <RateLimitMeters />
         <div className={'sb-status sb-status-' + status}>
           {status === 'ok'
             ? `online · ${model}`
