@@ -14,6 +14,7 @@ import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner
 import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
+import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -324,7 +325,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
             safeSend({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
           }
           else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-          else if (ev.kind === 'permission_request') safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion });
+          else if (ev.kind === 'permission_request') { safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
           else if (ev.kind === 'permission_resolved') safeSend({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
           else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
           else if (ev.kind === 'message') safeSend({ type: 'event', event: 'system', subtype: ev.subtype });
@@ -332,6 +333,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           else if (ev.kind === 'done') {
             safeSend({ type: 'done', exitCode: ev.exitCode });
             endRun(sid);
+            pushSessionDone(project, sid);
             // After the main turn: stream a throwaway follow-up-suggestions
             // query resuming the same session (shared prefix → provider cache
             // hit, near-free). persistSession:false keeps it off disk. Each
