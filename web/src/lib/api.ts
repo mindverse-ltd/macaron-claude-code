@@ -5,6 +5,8 @@ export type {
   Block,
   Message,
   SessionDetail,
+  MessageSearchHit,
+  MessageSearchResponse,
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
@@ -26,6 +28,7 @@ import type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   SessionDetail,
+  MessageSearchResponse,
   HealthResponse,
   CreateShareResponse,
   SharedSessionResponse,
@@ -173,6 +176,10 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  searchMessages: (q: string, limit = 30) =>
+    getJSON<MessageSearchResponse>(
+      `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>
