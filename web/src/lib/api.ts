@@ -8,6 +8,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
   ConfigFileId,
   ConfigFileFormat,
   ConfigFileMeta,
@@ -22,6 +24,8 @@ import type {
   WorkspaceDetailResponse,
   SessionDetail,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
   ConfigFileId,
   ConfigFileMeta,
   ConfigFile,
@@ -231,6 +235,20 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
       },
     ),
+  createShare: (project: string, sid: string) =>
+    req<CreateShareResponse>('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  revokeShare: (project: string, sid: string) =>
+    req<{ ok: boolean }>('/api/share/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  sharedSession: (token: string) =>
+    getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
   listFiles: (project: string, path = '') =>
     getJSON<FileListResponse>(
       `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,
