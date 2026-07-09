@@ -22,3 +22,13 @@ export type SessionStreamEvent =
   | { type: 'done'; exitCode: number; error?: string }
   | { type: 'followup_delta'; text: string }
   | { type: 'live-end'; reason?: string };
+
+// PTY terminal protocol, streamed over /api/terminal/.../stream (SSE).
+// `history` is the FULL scrollback snapshot (client applies reset+write, so
+// replay on (re)connect is idempotent); `output` is an incremental chunk.
+// Client→server input/resize go over sibling POST routes, not this stream.
+export type TerminalStreamEvent =
+  | { type: 'history'; data: string }
+  | { type: 'output'; data: string }
+  | { type: 'exit'; exitCode: number }
+  | { type: 'error'; error: string };
