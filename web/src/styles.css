@@ -1,6 +1,11 @@
-/* Macaron WebUI — Claude-inspired paper theme. */
+/* Macaron WebUI — Claude-inspired paper theme.
+   Colors are centralized as CSS variables so the whole UI re-themes from the
+   palette below. index.html sets data-theme before first paint (FOUC-safe);
+   src/lib/theme.ts keeps it in sync at runtime. Add a color to the dark block
+   only when a hardcoded value below reads wrong on the dark surfaces. */
 
-:root {
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
   --bg: #FAF9F5;
   --surface: #FFFFFF;
@@ -30,6 +35,33 @@
     "Times New Roman", serif;
   --font-mono: "Söhne Mono", ui-monospace, SFMono-Regular, "JetBrains Mono",
     Menlo, Consolas, monospace;
+}
+
+/* Dark theme — warm charcoal counterpart to the paper palette. Only the color
+   tokens change; fonts and layout are inherited from :root above. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1F1E1B;
+  --surface: #262521;
+  --surface-2: #2C2B26;
+  --surface-3: #35332C;
+  --code-bg: #2C2B26;
+  --border: #38362F;
+  --border-strong: #48453B;
+
+  --text: #EDEAE0;
+  --text-2: #C9C4B5;
+  --muted: #948E7D;
+  --muted-2: #6E6A5C;
+
+  --accent: #E08159;
+  --accent-hover: #EC8F67;
+  --accent-soft: rgba(224, 129, 89, 0.14);
+  --accent-soft-2: rgba(224, 129, 89, 0.24);
+
+  --good: #7FB279;
+  --warn: #D4A857;
+  --bad: #E0736B;
 }
 
 * { box-sizing: border-box; }
@@ -940,6 +972,34 @@ textarea:focus, select:focus, input:focus {
 }
 .settings-row-head h2.sec-title { margin: 0; }
 
+/* Appearance: light/dark/system segmented control */
+.theme-row { display: flex; flex-direction: column; gap: 8px; }
+.theme-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.theme-seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 6px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.theme-seg-btn:hover { color: var(--text); }
+.theme-seg-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 2px var(--accent-soft);
+}
+
 .prov-list {
   display: flex;
   flex-direction: column;
@@ -1189,13 +1249,11 @@ textarea:focus, select:focus, input:focus {
   color: rgb(215, 119, 87);
   opacity: 0.95;
 }
-@media (prefers-color-scheme: dark) {
-  .ti-thinking-star,
-  .ti-thinking-verb,
-  .ti-thinking-tail {
-    /* CLI's dark theme uses rgb(255,153,51). */
-    color: rgb(255, 153, 51);
-  }
+:root[data-theme="dark"] .ti-thinking-star,
+:root[data-theme="dark"] .ti-thinking-verb,
+:root[data-theme="dark"] .ti-thinking-tail {
+  /* CLI's dark theme uses rgb(255,153,51). */
+  color: rgb(255, 153, 51);
 }
 
 /* ---------- inline GenUI preview (Macaron render_ui) ---------- */
@@ -2433,7 +2491,7 @@ textarea:focus, select:focus, input:focus {
   bottom: 10px; right: 12px;
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: #fff;
+  color: var(--bg);  /* reversed pill: fg tracks page bg; #fff would vanish on dark's near-white --text */
   background: var(--text);
   padding: 4px 11px;
   border-radius: 999px;
@@ -2441,8 +2499,8 @@ textarea:focus, select:focus, input:focus {
   box-shadow: 0 2px 8px rgba(61, 57, 41, 0.2);
   z-index: 5;
 }
-.genui-status.ok  { background: var(--good); }
-.genui-status.err { background: var(--bad); }
+.genui-status.ok  { color: #fff; background: var(--good); }
+.genui-status.err { color: #fff; background: var(--bad); }
 .genui-err {
   position: absolute;
   top: 0; left: 0; right: 0;
