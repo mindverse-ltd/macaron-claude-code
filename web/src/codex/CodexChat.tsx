@@ -7,7 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
-import { sendCodexMessage, startCodexThread } from './stream';
+import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
 
@@ -93,6 +93,67 @@ function historyToItems(detail: SessionDetail): Item[] {
   };
   for (const m of detail.messages) walk(m.blocks, m.role);
   return out;
+}
+
+function reconcileHistoryWithLive(history: Item[], live: Item[]): Item[] {
+  const liveUser = live.find((it): it is Extract<Item, { kind: 'user' }> => it.kind === 'user');
+  const liveText = liveUser?.text.trim();
+  if (!liveText) return history;
+
+  // Codex may have already appended part of the in-flight turn to its rollout.
+  // When that latest user bubble matches the live snapshot, let the snapshot own
+  // the whole turn so partial disk blocks are not rendered a second time.
+  for (let i = history.length - 1; i >= 0; i--) {
+    const item = history[i]!;
+    if (item.kind !== 'user') continue;
+    return item.text.trim() === liveText ? history.slice(0, i) : history;
+  }
+  return history;
+}
+
+function withUser(cur: Item[], text: string, images?: ComposerImage[]): Item[] {
+  return [
+    ...cur,
+    { id: `u-${Date.now()}-${cur.length}`, kind: 'user', text, images: images?.length ? images : undefined },
+  ];
+}
+
+function withAssistantDelta(cur: Item[], text: string): Item[] {
+  const last = cur[cur.length - 1];
+  if (last?.kind === 'assistant') {
+    return [...cur.slice(0, -1), { ...last, text: last.text + text }];
+  }
+  return [...cur, { id: `a-${Date.now()}-${cur.length}`, kind: 'assistant', text }];
+}
+
+function withTool(cur: Item[], id: string, name: string, input: unknown): Item[] {
+  if (isRenderUiTool(name)) {
+    const code = String((input as { code?: unknown } | null)?.code || '');
+    return [
+      ...cur,
+      {
+        id: `genui-${id}`,
+        kind: 'genui',
+        toolUseId: id,
+        code,
+        status: 'ready',
+      },
+    ];
+  }
+  return [...cur, { id, kind: 'tool', name, input }];
+}
+
+function withToolResult(cur: Item[], toolUseId: string, text: string, isError: boolean): Item[] {
+  return cur.map((it) => {
+    if (it.kind === 'tool' && it.id === toolUseId) return { ...it, result: text, isError };
+    if (it.kind === 'genui' && it.toolUseId === toolUseId) {
+      const flagged = isError || text.startsWith('Rendered inline, but the TSX has issues');
+      return flagged
+        ? { ...it, status: 'error' as const, error: text }
+        : it;
+    }
+    return it;
+  });
 }
 
 function Reasoning({ text }: { text: string }) {
@@ -219,9 +280,8 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  // True after the user actually kicked off a turn on THIS mount, so the
-  // done-notification only fires for turns they submitted (not the initial
-  // jsonl replay). Mirrors the Claude-side `streamedRef` in Session.tsx.
+  // True only after the user kicks off a turn on THIS mount. A server-side
+  // reattach also flips `sending`, but must not create a completion notification.
   const streamedRef = useRef(false);
 
   useEffect(() => { onSendingChange?.(sending); }, [sending, onSendingChange]);
@@ -230,10 +290,7 @@ export function CodexChat(props: CodexChatProps = {}) {
   // (NotifyStack is mounted in CodexApp). Click routes to the thread's
   // canvas view so the user lands on the right tile.
   useEffect(() => {
-    if (sending) {
-      streamedRef.current = true;
-      return;
-    }
+    if (sending) return;
     if (!streamedRef.current) return;
     streamedRef.current = false;
     if (!sid) return;
@@ -249,12 +306,60 @@ export function CodexChat(props: CodexChatProps = {}) {
   }, [sending, sid, detail?.project]);
 
   useEffect(() => {
-    if (isNew) { setDetail(null); setLive([]); setError(''); return; }
+    if (isNew) {
+      setDetail(null);
+      setLive([]);
+      setSending(false);
+      setError('');
+      return;
+    }
+    let active = true;
+    let hasLiveSnapshot = false;
     setLive([]);
-    codexApi.thread(sid).then(setDetail).catch((e) => setError((e as Error).message));
+    setSending(false);
+    setError('');
+    void codexApi.thread(sid)
+      .then((next) => { if (active) setDetail(next); })
+      .catch((e) => { if (active && !hasLiveSnapshot) setError((e as Error).message); });
+
+    const unsubscribe = subscribeCodexLive(sid, {
+      // `meta` is present only when the registry has a snapshot. Reset first so
+      // a fresh subscription is idempotent if this effect reruns.
+      onMeta: () => {
+        if (!active) return;
+        hasLiveSnapshot = true;
+        setLive([]);
+        setSending(true);
+        setError('');
+      },
+      onUserText: (text) => { if (active) setLive((cur) => withUser(cur, text)); },
+      onDelta: (text) => { if (active) setLive((cur) => withAssistantDelta(cur, text)); },
+      onToolUse: (ev) => { if (active) setLive((cur) => withTool(cur, ev.id, ev.name, ev.input)); },
+      onToolResult: (ev) => {
+        if (active) setLive((cur) => withToolResult(cur, ev.tool_use_id, ev.text, ev.isError));
+      },
+      onError: (message) => { if (active) setError(message); },
+      onDone: () => {
+        if (!active) return;
+        setSending(false);
+        // Keep the complete live buffer visible while the Codex rollout catches
+        // up asynchronously; refresh metadata without clearing that buffer.
+        void codexApi.thread(sid).then((next) => { if (active) setDetail(next); }).catch(() => {});
+      },
+      onLiveEnd: () => { if (active) setSending(false); },
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [sid, isNew, refreshKey]);
 
-  const history = useMemo(() => (detail ? historyToItems(detail) : []), [detail]);
+  const diskHistory = useMemo(() => (detail ? historyToItems(detail) : []), [detail]);
+  const history = useMemo(
+    () => reconcileHistoryWithLive(diskHistory, live),
+    [diskHistory, live],
+  );
   const items = useMemo(() => [...history, ...live], [history, live]);
 
   useEffect(() => {
@@ -263,45 +368,12 @@ export function CodexChat(props: CodexChatProps = {}) {
   }, [items.length, live[live.length - 1]]);
 
   const appendUser = (text: string, imgs?: ComposerImage[]) =>
-    setLive((cur) => [...cur, { id: `u-${Date.now()}`, kind: 'user', text, images: imgs?.length ? imgs : undefined }]);
-  const appendAssistantDelta = (text: string) => {
-    setLive((cur) => {
-      const last = cur[cur.length - 1];
-      if (last?.kind === 'assistant') {
-        return [...cur.slice(0, -1), { ...last, text: last.text + text }];
-      }
-      return [...cur, { id: `a-${Date.now()}-${cur.length}`, kind: 'assistant', text }];
-    });
-  };
-  const appendTool = (id: string, name: string, input: unknown) => {
-    setLive((cur) => {
-      if (isRenderUiTool(name)) {
-        const code = String((input as { code?: unknown } | null)?.code || '');
-        return [
-          ...cur,
-          {
-            id: `genui-${id}`,
-            kind: 'genui',
-            toolUseId: id,
-            code,
-            status: 'ready',
-          },
-        ];
-      }
-      return [...cur, { id, kind: 'tool', name, input }];
-    });
-  };
+    setLive((cur) => withUser(cur, text, imgs));
+  const appendAssistantDelta = (text: string) => setLive((cur) => withAssistantDelta(cur, text));
+  const appendTool = (id: string, name: string, input: unknown) =>
+    setLive((cur) => withTool(cur, id, name, input));
   const applyToolResult = (toolUseId: string, text: string, isError: boolean) => {
-    setLive((cur) => cur.map((it) => {
-      if (it.kind === 'tool' && it.id === toolUseId) return { ...it, result: text, isError };
-      if (it.kind === 'genui' && it.toolUseId === toolUseId) {
-        const flagged = isError || text.startsWith('Rendered inline, but the TSX has issues');
-        return flagged
-          ? { ...it, status: 'error' as const, error: text }
-          : it;
-      }
-      return it;
-    }));
+    setLive((cur) => withToolResult(cur, toolUseId, text, isError));
   };
 
   const stop = useCallback(async () => {
@@ -316,6 +388,7 @@ export function CodexChat(props: CodexChatProps = {}) {
     const wire = sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl }));
     setPending('');
     setImages([]);
+    streamedRef.current = true;
     setSending(true);
     setError('');
     appendUser(text, sentImages);
