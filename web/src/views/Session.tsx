@@ -13,6 +13,7 @@ import {
 } from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { peekPendingCwd, takePendingCwd } from '../lib/newSession';
 import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import { SlashPalette } from '../components/SlashPalette';
@@ -1652,13 +1653,20 @@ export function Session(props: SessionProps = {}) {
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
         // buffers deltas, and resolves with the real sid as soon as meta lands.
+        // Peek the directory-picker cwd without consuming it so a failed first
+        // send can be retried against the same chosen folder.
+        const pendingCwd = peekPendingCwd(project);
         try {
           const newSid = await startNewSession(project, {
             text,
             permissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
             isolate,
+            // Directory-picker path: start this brand-new session in the chosen
+            // folder. Undefined for sessions opened inside an existing workspace.
+            cwd: pendingCwd,
           });
+          takePendingCwd(project);
           if (onCreated) {
             // Canvas draft-tile path: hand the real sid to the parent so it
             // can swap the draft sentinel in place. Session then remounts
@@ -2083,9 +2091,15 @@ export function Session(props: SessionProps = {}) {
           <div className="thread-banner">Showing tail only — full session is {(data.totalBytes! / 1024 / 1024).toFixed(1)} MB.</div>
         )}
         {data && total === 0 && !polling && !liveUser && <div className="placeholder">No messages yet.</div>}
-        {isNew && !liveUser && !sending && (
-          <div className="placeholder">Start a new session — set permissions below and send your first message.</div>
-        )}
+        {isNew && !liveUser && !sending && (() => {
+          const pendingCwd = peekPendingCwd(project);
+          return (
+            <div className="placeholder">
+              Start a new session — set permissions below and send your first message.
+              {pendingCwd && <div className="new-session-cwd">in <code>{pendingCwd}</code></div>}
+            </div>
+          );
+        })()}
         {/* Only show "Loading…" if we truly have nothing to render — hide it
             when live buffers or completed turns already show content, since
             the canonical jsonl may just be a beat behind the CLI. */}

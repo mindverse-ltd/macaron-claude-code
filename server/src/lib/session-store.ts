@@ -435,11 +435,15 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
 }
 
 export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
-  const byCwd = new Map<string, Workspace>();
+  // Group by `project` (the encoded repo root), not cwd: a session running in a
+  // worktree has cwd = <repo>/.claude/worktrees/<name>, but its `project` is the
+  // repo root — grouping by cwd would split one repo into N sidebar entries that
+  // share a project id and collide on React keys.
+  const byProject = new Map<string, Workspace>();
   for (const s of sessions) {
-    const key = s.cwd || s.project;
-    if (!byCwd.has(key)) {
-      byCwd.set(key, {
+    const key = s.project;
+    if (!byProject.has(key)) {
+      byProject.set(key, {
         cwd: s.cwd,
         project: s.project,
         name: basename(s.cwd) || s.project,
@@ -449,7 +453,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
         lastPreview: '',
       });
     }
-    const w = byCwd.get(key)!;
+    const w = byProject.get(key)!;
     w.sessionCount++;
     if (s.mtime > w.lastActivity) {
       w.lastActivity = s.mtime;
@@ -458,7 +462,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
       w.project = s.project;
     }
   }
-  const arr = Array.from(byCwd.values());
+  const arr = Array.from(byProject.values());
   arr.sort((a, b) => b.lastActivity - a.lastActivity);
   return arr;
 }
