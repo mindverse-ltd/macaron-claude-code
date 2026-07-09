@@ -19,6 +19,7 @@ import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
+import { registerFileRoutes } from './routes/files.js';
 const app = Fastify({
     logger: {
         level: process.env.MACARON_LOG_LEVEL || 'info',
@@ -54,6 +55,7 @@ await app.register(async (instance) => {
     await registerWorkspaceRoutes(instance);
     await registerSessionRoutes(instance);
     await registerCodexRoutes(instance);
+    await registerFileRoutes(instance);
 });
 // Static assets + SPA fallback. In dev (vite dev server on :5173 with proxy),
 // WEB_DIST may not exist — just register a 404 handler in that case.
