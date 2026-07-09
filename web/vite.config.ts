@@ -28,7 +28,12 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // 5273 instead of vite's default 5173: locally the maintainer often has
+    // another vite project holding 5173, and vite silently falls back to a
+    // random high port when the default is busy, which breaks the /codex.html
+    // link in dev docs. strictPort forces a hard fail if 5273 is also busy.
+    port: 5273,
+    strictPort: true,
     proxy: {
       '/api': { target: 'http://127.0.0.1:7878', changeOrigin: true },
       '/mindlab-symbol.svg': { target: 'http://127.0.0.1:7878', changeOrigin: true },

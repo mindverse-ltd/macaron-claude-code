@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Macaron · WebUI</title>
+    <link rel="icon" type="image/svg+xml" href="/mindlab-symbol.svg" />
+    <script>
+      // Set data-theme before first paint so there's no flash of the wrong
+      // theme (FOUC). Runtime sync lives in src/lib/theme.ts — keep the storage
+      // key and resolution rule below identical to it.
+      (function () {
+        try {
+          var t = localStorage.getItem('macaron-theme');
+          if (t !== 'light' && t !== 'dark') t = 'system';
+          var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/main-DS7dSYN9.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/__vite-browser-external-By5dMCKs.js">
+    <link rel="modulepreload" crossorigin href="/assets/StaticGenUIRenderer--ye_IFYF.js">
+    <link rel="stylesheet" crossorigin href="/assets/StaticGenUIRenderer-fDJYM3n0.css">
+    <link rel="stylesheet" crossorigin href="/assets/main-GXp-xlmf.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

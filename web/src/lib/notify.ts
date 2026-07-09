@@ -14,9 +14,12 @@ export type NotifyOptions = {
   // Sticky: don't auto-dismiss. Used for permission requests that need an
   // explicit user action.
   requireInteraction?: boolean;
-  // Where clicking the card should take the user. When present, the renderer
-  // navigates to `/w/:project/s/:sid` (the Workspace route auto-adds the
-  // session to canvas + focuses it). Falls back to `onClick` alone if unset.
+  // Where clicking the card should take the user. Priority order:
+  //   1. `href` — explicit route (used by Codex, whose routes differ from Claude's)
+  //   2. `project + sid` — Claude convention, navigates to `/w/:project/s/:sid`
+  //      (the Workspace route auto-adds the session to canvas + focuses it)
+  //   3. neither set — click just fires onClick / dismisses
+  href?: string;
   project?: string;
   sid?: string;
   // Extra side-effect on click (e.g. focus a canvas tile that's already on

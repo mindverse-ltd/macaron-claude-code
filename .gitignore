@@ -8,6 +8,16 @@ dist/
 build/
 *.tsbuildinfo
 
+# EXCEPT: web/dist and server/dist ship as prebuilt artifacts so the
+# plugin marketplace flow (`codex plugin marketplace add …`, `/plugin
+# install`) works without a client-side npm install + build. Rebuild
+# with `npm run build` before committing when web/src, server/src or
+# shared/src changed.
+!web/dist/
+!web/dist/**
+!server/dist/
+!server/dist/**
+
 # Env / secrets
 .env
 .env.*
