@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -31,6 +31,12 @@ const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWit
 const PAGE_SIZE = 80;
 
 type AttachedImage = { id: string; name: string; mimeType: string; dataUrl: string };
+
+// A message the user typed while a turn was still running. Held client-side
+// (macaron's runner is single-shot — one `/message` POST per turn — so there
+// is no persistent stdin to inject into) and auto-sent when the turn finishes.
+type QueuedMessage = { id: string; text: string };
+const queueId = (prefix = 'q') => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -742,6 +748,71 @@ function SessionActionsMenu({
   );
 }
 
+// ---- Pending queue --------------------------------------------------------
+
+// Messages the user lined up while a turn was running. Rendered above the
+// composer (mirrors the img-chips row). Each row can be reordered, edited
+// (pulled back into the composer), or removed.
+function PendingQueue({
+  queue,
+  onRemove,
+  onMove,
+  onEdit,
+}: {
+  queue: QueuedMessage[];
+  onRemove: (id: string) => void;
+  onMove: (id: string, dir: -1 | 1) => void;
+  onEdit: (id: string) => void;
+}) {
+  if (queue.length === 0) return null;
+  return (
+    <div className="pending-queue">
+      <div className="pending-queue-head">
+        {queue.length} queued · sends when the current turn finishes
+      </div>
+      {queue.map((q, idx) => (
+        <div key={q.id} className="pending-item">
+          <span className="pending-item-idx">{idx + 1}</span>
+          <button
+            type="button"
+            className="pending-item-text"
+            title={q.text}
+            aria-label="Edit queued message"
+            onClick={() => onEdit(q.id)}
+          >
+            {q.text}
+          </button>
+          <span className="pending-item-actions">
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Move up"
+              aria-label="Move up"
+              disabled={idx === 0}
+              onClick={() => onMove(q.id, -1)}
+            >↑</button>
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Move down"
+              aria-label="Move down"
+              disabled={idx === queue.length - 1}
+              onClick={() => onMove(q.id, 1)}
+            >↓</button>
+            <button
+              type="button"
+              className="icon-btn pending-item-btn"
+              title="Remove"
+              aria-label="Remove"
+              onClick={() => onRemove(q.id)}
+            >×</button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---- Session view ---------------------------------------------------------
 
 export type SessionProps = {
@@ -940,6 +1011,9 @@ export function Session(props: SessionProps = {}) {
   // @-mention file autocomplete over the project tree. Inserts `@relpath`
   // tokens the CLI resolves natively; no server-side prompt rewriting.
   const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef, composingRef });
+  // Messages the user lined up while the current turn was still streaming.
+  // Auto-sent one at a time as each turn completes (see the dequeue effect).
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
@@ -1314,25 +1388,26 @@ export function Session(props: SessionProps = {}) {
   }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
-    async (e?: FormEvent | string) => {
-      // A string arg is a programmatic send (the $macaron/chat bridge); a
-      // FormEvent is the composer submit. Bridge text bypasses the input box.
-      const override = typeof e === 'string' ? e : undefined;
-      if (typeof e !== 'string') e?.preventDefault();
-      const text = (override ?? input).trim();
-      if ((!text && images.length === 0) || sending) return;
-      // A bridge send carries only its own text — leave the user's in-progress
-      // composer draft and attachments untouched.
-      const sentImages = override ? [] : images;
-      if (!override) { mention.close(); setInput(''); setImages([]); }
+    async (opts?: { text?: string; images?: AttachedImage[] }) => {
+      // `opts` present = programmatic send (auto-dequeue / send-now / the
+      // $macaron/chat bridge) with the given text; absent = the user submitting
+      // the composer's current draft.
+      const text = (opts?.text ?? input).trim();
+      const sentImages = opts ? (opts.images ?? []) : images;
+      if ((!text && sentImages.length === 0) || sending) return;
+      if (!opts) {
+        mention.close();
+        setInput('');
+        setImages([]);
+        setHistoryIdx(null);
+        draftInputRef.current = '';
+      }
       // New turn ⇒ new follow-up generation: clears the chips and invalidates
       // any deltas still streaming from the previous turn's follow-up query.
       const fGen = resetFollowups();
-      // Persist to prompt history + reset navigation state.
+      // Persist to prompt history (manual and queued sends alike).
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
-      setHistoryIdx(null);
-      draftInputRef.current = '';
       // Roll the *previous* turn's live buffers into history before we
       // clobber them with this turn's user text — otherwise typing a second
       // message erases the first reply until the next page refresh.
@@ -1540,6 +1615,94 @@ export function Session(props: SessionProps = {}) {
     [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history, mention.close],
   );
 
+  // Enqueue a message typed while a turn is running. macaron's runner is
+  // single-shot (no stdin into the live turn), so we hold it client-side and
+  // auto-send it once the turn finishes.
+  const enqueue = useCallback((text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    setQueue((q) => [...q, { id: queueId(), text: t }]);
+  }, []);
+
+  // The composer's submit path: while a turn runs, Enter/Send queues the text
+  // instead of being blocked; when idle it sends immediately. Images ride the
+  // immediate path only (first increment), so they stay attached while busy.
+  const submitComposer = useCallback(() => {
+    const text = input.trim();
+    if (!text && images.length === 0) return;
+    if (sending) {
+      if (!text) return; // nothing queueable (images can't be queued yet)
+      enqueue(text);
+      mention.close();
+      setInput('');
+      setHistoryIdx(null);
+      draftInputRef.current = '';
+      return;
+    }
+    void send();
+  }, [input, images, sending, enqueue, send, mention.close]);
+
+  // Send now: interrupt the running turn and send this message next. macaron's
+  // only interrupt primitive is /stop (abort the subprocess), so we push the
+  // text to the FRONT of the queue and stop — the idle-edge dequeue effect
+  // below then sends it first. Graceful mid-tool steer would need the SDK's
+  // streaming-input mode, which the single-shot runner doesn't use (follow-up).
+  const handleSendNow = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setQueue((q) => [{ id: queueId('q-now'), text }, ...q]);
+    mention.close();
+    setInput('');
+    setHistoryIdx(null);
+    draftInputRef.current = '';
+    void handleStop();
+  }, [input, handleStop, mention.close]);
+
+  const removeQueued = useCallback((id: string) => {
+    setQueue((q) => q.filter((m) => m.id !== id));
+  }, []);
+
+  const moveQueued = useCallback((id: string, dir: -1 | 1) => {
+    setQueue((q) => {
+      const i = q.findIndex((m) => m.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= q.length) return q;
+      const next = [...q];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
+  }, []);
+
+  // Edit a queued message: pull it back into the composer (removing it from
+  // the queue). If the composer already holds a draft, keep that safe by
+  // prepending it back onto the queue front.
+  const editQueued = useCallback((id: string) => {
+    setQueue((q) => {
+      const target = q.find((m) => m.id === id);
+      if (!target) return q;
+      const rest = q.filter((m) => m.id !== id);
+      const draft = input.trim();
+      setInput(target.text);
+      if (draft) return [{ id: queueId('q-draft'), text: draft }, ...rest];
+      return rest;
+    });
+  }, [input]);
+
+  // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
+  // next queued message. Edge-guarded so exactly one message goes per turn —
+  // send() flips `sending` back to true synchronously, re-arming the guard.
+  const runningRef = useRef(false);
+  useEffect(() => {
+    const running = sending || polling;
+    const wasRunning = runningRef.current;
+    runningRef.current = running;
+    if (wasRunning && !running && queue.length > 0) {
+      const [head, ...rest] = queue;
+      setQueue(rest);
+      void send({ text: head!.text });
+    }
+  }, [sending, polling, queue, send]);
+
   // Chat bridge: a sandboxed render_ui widget imports sendUserMessage from
   // '$macaron/chat', and the shim (web/public/genui-shim/chat.mjs) dispatches
   // the payload to this host global slot ('$app/chat'), which relays it into
@@ -1549,7 +1712,7 @@ export function Session(props: SessionProps = {}) {
   useEffect(() => {
     if (!focused) return;
     const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
-    const bridge = (prompt: string) => { void send(prompt); };
+    const bridge = (prompt: string) => { void send({ text: prompt }); };
     g['$app/chat'] = bridge;
     return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
   }, [focused, send]);
@@ -1568,7 +1731,7 @@ export function Session(props: SessionProps = {}) {
     if (mention.onKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      send();
+      submitComposer();
       return;
     }
     // Shell-style history navigation: ArrowUp when already in history mode
@@ -1744,7 +1907,7 @@ export function Session(props: SessionProps = {}) {
       <div className="session-input-inner">
       <form
         className={`session-input${dragOver ? ' drag-over' : ''}`}
-        onSubmit={send}
+        onSubmit={(e) => { e.preventDefault(); submitComposer(); }}
         onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
         onDragLeave={(e) => {
           // Only clear when leaving the form itself, not when entering a child
@@ -1756,6 +1919,12 @@ export function Session(props: SessionProps = {}) {
           if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
         }}
       >
+        <PendingQueue
+          queue={queue}
+          onRemove={removeQueued}
+          onMove={moveQueued}
+          onEdit={editQueued}
+        />
         {images.length > 0 && (
           <div className="img-chips">
             {images.map((img) => (
@@ -1776,7 +1945,7 @@ export function Session(props: SessionProps = {}) {
         <textarea
           ref={textareaRef}
           rows={2}
-          placeholder={sending ? 'Draft next message…' : 'Reply to Claude…'}
+          placeholder={sending ? 'Queue a message…' : 'Reply to Claude…'}
           value={input}
           onChange={(e) => {
             if (followupRaw) resetFollowups();
@@ -1841,18 +2010,44 @@ export function Session(props: SessionProps = {}) {
           />
           <div className="session-input-spacer" />
           {sending ? (
-            <button
-              type="button"
-              className="primary send-btn stop-btn"
-              onClick={() => void handleStop()}
-              disabled={!sid}
-              title="Stop generation"
-              aria-label="Stop"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="1.5" />
-              </svg>
-            </button>
+            <>
+              {input.trim() && (
+                <>
+                  <button
+                    type="button"
+                    className="ghost small send-now-btn"
+                    onClick={handleSendNow}
+                    disabled={!sid}
+                    title="Interrupt the current turn and send this now"
+                  >
+                    Send now
+                  </button>
+                  <button
+                    className="primary send-btn queue-btn"
+                    type="submit"
+                    title="Queue — sends after the current turn finishes"
+                    aria-label="Queue message"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="primary send-btn stop-btn"
+                onClick={() => void handleStop()}
+                disabled={!sid}
+                title="Stop generation"
+                aria-label="Stop"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                </svg>
+              </button>
+            </>
           ) : (
             <button
               className="primary send-btn"
