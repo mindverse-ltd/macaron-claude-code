@@ -1,12 +1,22 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, groupWorkspaces, listAllSessions, readSessionSummary, } from '../lib/session-store.js';
+import { groupWorkspaces, listAllSessions, resolveProjectCwd, searchProjectFiles, } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
-import { runClaude } from '../lib/claude-runner.js';
+import { runClaude, runFollowup } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
-import { getActiveProviderEnv } from '../lib/settings-store.js';
+import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+function firstQuery(v) {
+    if (Array.isArray(v))
+        return typeof v[0] === 'string' ? v[0] : undefined;
+    return typeof v === 'string' ? v : undefined;
+}
+function numberQuery(v, fallback) {
+    const raw = firstQuery(v);
+    if (raw === undefined)
+        return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+}
 export async function registerWorkspaceRoutes(app) {
     app.get('/api/workspaces', async () => {
         const sessions = await listAllSessions();
@@ -26,6 +36,17 @@ export async function registerWorkspaceRoutes(app) {
         };
         return { workspace: meta, sessions: mine };
     });
+    // Fuzzy-ish file search under the project's cwd for the composer's @-mention
+    // autocomplete. Substring match on repo-relative paths; capped + skip-listed.
+    app.get('/api/workspaces/:project/files', async (req, reply) => {
+        try {
+            const limit = numberQuery(req.query?.limit, 50);
+            return await searchProjectFiles(req.params.project, firstQuery(req.query?.q) ?? '', limit);
+        }
+        catch (e) {
+            return reply.status(400).send({ error: e.message });
+        }
+    });
     app.post('/api/workspaces/:project/sessions', async (req, reply) => {
         const project = req.params.project;
         const text = String(req.body?.text || '').trim();
@@ -39,23 +60,7 @@ export async function registerWorkspaceRoutes(app) {
         const { model, env: providerEnv } = getActiveProviderEnv();
         // Derive cwd from any existing session in this project, else decode the
         // project name (which mirrors claude-cli's encoding).
-        let cwd = decodeClaudeProjectName(project);
-        try {
-            const projDir = path.join(CLAUDE_PROJECTS, project);
-            const files = await fs.readdir(projDir);
-            for (const f of files) {
-                if (!f.endsWith('.jsonl'))
-                    continue;
-                const meta = await readSessionSummary(path.join(projDir, f));
-                if (meta?.cwd) {
-                    cwd = meta.cwd;
-                    break;
-                }
-            }
-        }
-        catch {
-            /* no sessions yet — fall back to decoded name */
-        }
+        const cwd = await resolveProjectCwd(project);
         try {
             const st = await fs.stat(cwd);
             if (!st.isDirectory())
@@ -127,7 +132,7 @@ export async function registerWorkspaceRoutes(app) {
                         livePush(capturedSid, payload);
                 }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
                     if (capturedSid)
                         livePush(capturedSid, payload);
@@ -159,6 +164,22 @@ export async function registerWorkspaceRoutes(app) {
                     if (capturedSid) {
                         liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
                         endRun(capturedSid);
+                    }
+                    // Same post-turn follow-up as the resume path: stream a throwaway,
+                    // persistSession:false query resuming this fresh session (shared
+                    // prefix → cache hit). Best-effort; never blocks the turn close.
+                    // Gated on exitCode 0 so an abort/error stays identical to before.
+                    if (!clientGone && capturedSid && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+                        try {
+                            for await (const delta of runFollowup({ resume: capturedSid, cwd, model, envOverrides: providerEnv })) {
+                                if (clientGone)
+                                    break;
+                                safeSend({ type: 'followup_delta', text: delta });
+                            }
+                        }
+                        catch {
+                            /* swallow: follow-up is enrichment, never fatal */
+                        }
                     }
                     if (!clientGone)
                         sseDone(reply);

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import ignore from 'ignore';
 import { CLAUDE_PROJECTS, HOME } from '../config.js';
 export function basename(p) {
     if (!p)
@@ -13,6 +14,7 @@ export function decodeClaudeProjectName(encoded) {
 // File-keyed mtime cache so we only re-parse jsonl when claude appends to it.
 const summaryCache = new Map();
 const HEAD_BYTES = 96 * 1024;
+const CWD_TAIL_BYTES = 64 * 1024;
 export async function deleteSession(project, sid) {
     const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
     await fs.unlink(filePath);
@@ -207,8 +209,165 @@ export async function readSessionSummary(filePath) {
     catch {
         /* swallow */
     }
+    // cwd sits at the END of each jsonl line (after `message`), so a huge first
+    // paste can push the head's only cwd-bearing line past HEAD_BYTES, truncating
+    // it unparseably. The same cwd repeats on every later line, and trailing lines
+    // are usually small — so when the head read came up empty on a truncated file,
+    // recover cwd (and gitBranch) from a tail read instead.
+    if (summary.truncated && !summary.cwd) {
+        try {
+            const fh = await fs.open(filePath, 'r');
+            try {
+                const len = Math.min(st.size, CWD_TAIL_BYTES);
+                const buf = Buffer.alloc(len);
+                await fh.read(buf, 0, len, st.size - len);
+                const text = buf.toString('utf8');
+                const lines = text.split('\n');
+                // Drop the first slice — it's a partial line cut by the seek offset.
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (!line.trim())
+                        continue;
+                    try {
+                        const o = JSON.parse(line);
+                        if (o.cwd)
+                            summary.cwd = o.cwd;
+                        if (!summary.gitBranch && o.gitBranch)
+                            summary.gitBranch = o.gitBranch;
+                    }
+                    catch {
+                        /* skip malformed line */
+                    }
+                }
+            }
+            finally {
+                await fh.close();
+            }
+        }
+        catch {
+            /* swallow — fall back to decoded project name upstream */
+        }
+    }
     summaryCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, summary });
     return summary;
+}
+// Resolve a claude project-dir name back to its working directory: prefer the
+// cwd embedded in any existing session's jsonl, else decode the encoded name
+// (which mirrors claude-cli's dir encoding). Same logic the new-session route
+// uses to pick a spawn cwd.
+async function cwdFromProjectSessions(project, files) {
+    try {
+        const projDir = path.join(CLAUDE_PROJECTS, project);
+        const names = files ?? await fs.readdir(projDir);
+        for (const f of names) {
+            if (!f.endsWith('.jsonl'))
+                continue;
+            const meta = await readSessionSummary(path.join(projDir, f));
+            if (meta?.cwd)
+                return meta.cwd;
+        }
+    }
+    catch {
+        /* no sessions yet */
+    }
+    return null;
+}
+export async function resolveProjectCwd(project) {
+    return (await cwdFromProjectSessions(project)) ?? decodeClaudeProjectName(project);
+}
+// Directories never worth walking for an @-mention: build output, vendored
+// deps, caches. Mirrors fafawlf/claude-code-web's skip-list. Applied on top
+// of the repo's own `.gitignore` (loaded per root below).
+const FILE_SEARCH_SKIP_DIRS = new Set([
+    'node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '.venv', 'venv',
+    '__pycache__', '.pytest_cache', 'target', '.cache', '.turbo', '.parcel-cache',
+    'coverage', '.idea', '.vscode',
+]);
+const FILE_SEARCH_MAX_DEPTH = 8;
+const FILE_SEARCH_MAX_ENTRIES_PER_DIR = 2000;
+// Best-effort `.gitignore` matcher for the repo root. Returns null when the
+// file is absent/unreadable so the walk falls back to the skip-list alone.
+// Only the root `.gitignore` is honoured (nested ones are ignored) — enough to
+// keep top-level secrets like `.env` / `*.local` out of the picker per issue #20.
+async function loadGitignore(root) {
+    try {
+        const raw = await fs.readFile(path.join(root, '.gitignore'), 'utf8');
+        return ignore().add(raw);
+    }
+    catch {
+        return null;
+    }
+}
+async function walkFiles(root, dir, needle, out, limit, depth, ig) {
+    if (out.length >= limit || depth > FILE_SEARCH_MAX_DEPTH)
+        return;
+    let entries;
+    try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+    }
+    catch {
+        return;
+    }
+    if (entries.length > FILE_SEARCH_MAX_ENTRIES_PER_DIR)
+        entries = entries.slice(0, FILE_SEARCH_MAX_ENTRIES_PER_DIR);
+    for (const e of entries) {
+        if (out.length >= limit)
+            return;
+        if (e.name.startsWith('.'))
+            continue;
+        if (FILE_SEARCH_SKIP_DIRS.has(e.name))
+            continue;
+        const full = path.join(dir, e.name);
+        const rel = path.relative(root, full).split(path.sep).join('/');
+        if (e.isDirectory()) {
+            // `ignore` does no fs.stat — a trailing slash tells it `rel` is a dir, so
+            // a `foo/` rule matches. Skipping here also prunes the whole subtree.
+            if (ig?.ignores(rel + '/'))
+                continue;
+            await walkFiles(root, full, needle, out, limit, depth + 1, ig);
+        }
+        else if (e.isFile()) {
+            if (ig?.ignores(rel))
+                continue;
+            if (!needle || rel.toLowerCase().includes(needle))
+                out.push(rel);
+        }
+    }
+}
+// Recursively list files under a project's cwd, substring-matched on the
+// repo-relative path. Skips build/vendor/cache dirs, dotfiles, and anything the
+// repo's root `.gitignore` excludes; bounded by depth, per-dir entry count, and
+// a hard result cap. Powers the composer's @-mention autocomplete.
+export async function searchProjectFiles(project, needle, limit) {
+    const projDir = path.join(CLAUDE_PROJECTS, project);
+    let files;
+    try {
+        files = await fs.readdir(projDir);
+    }
+    catch {
+        throw new Error('project not found');
+    }
+    const cwd = await cwdFromProjectSessions(project, files);
+    if (!cwd)
+        throw new Error('project has no sessions');
+    const results = [];
+    const ig = await loadGitignore(cwd);
+    await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0, ig);
+    return { cwd, results };
+}
+// Resolve a session's working directory. The project name IS the cwd (encoded
+// by claude-cli), so it's the safe default — the jsonl's head read is capped at
+// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
+// the decoded name and only override with the embedded cwd when we got one.
+export async function resolveSessionCwd(project, sid) {
+    let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+    try {
+        const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+        if (head?.cwd)
+            cwd = head.cwd;
+    }
+    catch { /* fall back to decoded project name */ }
+    return cwd;
 }
 export async function listAllSessions() {
     let projects;

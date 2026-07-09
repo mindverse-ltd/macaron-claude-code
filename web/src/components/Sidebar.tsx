@@ -296,6 +296,18 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
+      <button
+        type="button"
+        className="sb-settings-link sb-shortcuts-btn"
+        onClick={() => window.dispatchEvent(new CustomEvent('macaron:shortcuts'))}
+        title="Keyboard shortcuts"
+      >
+        <span aria-hidden="true">⌨</span>
+        <span>Shortcuts</span>
+        <span className="sb-spacer" />
+        <kbd className="sb-shortcuts-kbd" aria-hidden="true">?</kbd>
+      </button>
+
       <Link className="sb-settings-link" to="/settings">
         <span>⚙</span>
         <span>Settings</span>

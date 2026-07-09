@@ -1,5 +1,6 @@
 export type PermissionDecision = {
     decision: 'allow';
+    scope?: 'once' | 'session' | 'always';
 } | {
     decision: 'deny';
     reason?: string;

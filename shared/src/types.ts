@@ -24,6 +24,9 @@ export type SessionListItem = {
   gitBranch?: string;
   sessionId: string;
   preview: string;
+  // Generated human-readable label. Codex-only for now (see codex-title.ts);
+  // the sidebar prefers it over `preview` when present.
+  title?: string;
   messageCount: number;
   messageCountSuffix?: string;
   mtime: number;
@@ -86,6 +89,7 @@ export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionL
 // under the workspace cwd, matched by substring on the needle.
 export type FileSearchResponse = { cwd: string; results: string[] };
 export type HealthResponse = { ok: boolean; model: string };
+export type AuthStatusResponse = { required: boolean };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };

@@ -1,4 +1,6 @@
 // Parse OpenAI-style SSE (Macaron, used by GenUI).
+import { authedFetch } from './auth';
+
 export type OpenAIStreamHandlers = {
   onDelta?: (text: string) => void;
   onReasoning?: (text: string) => void;
@@ -15,7 +17,7 @@ export async function streamOpenAI(
 ): Promise<void> {
   let resp: Response;
   try {
-    resp = await fetch(url, {
+    resp = await authedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -80,7 +82,7 @@ export type SessionStreamHandlers = {
   onToolInputDelta?: (t: { id: string; name: string; partial_json: string; accumulated: string }) => void;
   onToolInputDone?: (t: { id: string; name: string; final_json: string }) => void;
   onToolResult?: (t: { tool_use_id: string; text: string; isError: boolean }) => void;
-  onPermissionRequest?: (p: { id: string; toolName: string; input: unknown }) => void;
+  onPermissionRequest?: (p: { id: string; toolName: string; input: unknown; suggestion?: { label: string } }) => void;
   onPermissionResolved?: (p: { id: string; decision: 'allow' | 'deny' }) => void;
   onUsage?: (u: { outputTokens: number; thinkingTokens?: number }) => void;
   onError?: (msg: string) => void;
@@ -95,7 +97,7 @@ export async function streamSession(
 ): Promise<void> {
   let resp: Response;
   try {
-    resp = await fetch(url, {
+    resp = await authedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
