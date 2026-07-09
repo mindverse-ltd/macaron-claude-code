@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
+import type { CodexRuntimeOverride } from './api';
 import { sendCodexMessage, startCodexThread } from './stream';
 import { CodexComposer } from './CodexComposer';
 import { notify } from '../lib/notify';
@@ -213,6 +214,12 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Per-turn runtime override from the composer's picker; kept in a ref so
+  // submit() reads the latest choice without re-subscribing. The setter is
+  // stable so the picker only reloads its persisted pref when the workspace
+  // changes, not on every keystroke.
+  const runtimeRef = useRef<CodexRuntimeOverride>({});
+  const setRuntime = useCallback((ov: CodexRuntimeOverride) => { runtimeRef.current = ov; }, []);
   // True after the user actually kicked off a turn on THIS mount, so the
   // done-notification only fires for turns they submitted (not the initial
   // jsonl replay). Mirrors the Claude-side `streamedRef` in Session.tsx.
@@ -313,7 +320,7 @@ export function CodexChat(props: CodexChatProps = {}) {
     try {
       if (isNew) {
         let newSid = '';
-        await startCodexThread({ text }, {
+        await startCodexThread({ text, runtime: runtimeRef.current }, {
           onMeta: (s) => { newSid = s; },
           onDelta: appendAssistantDelta,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
@@ -325,7 +332,7 @@ export function CodexChat(props: CodexChatProps = {}) {
           },
         });
       } else {
-        await sendCodexMessage(sid, { text }, {
+        await sendCodexMessage(sid, { text, runtime: runtimeRef.current }, {
           onDelta: appendAssistantDelta,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
@@ -401,6 +408,8 @@ export function CodexChat(props: CodexChatProps = {}) {
             disabled={sending}
             running={sending && !isNew}
             placeholder={sending ? 'Draft next message…' : undefined}
+            project={detail?.project ?? params.project ?? ''}
+            onRuntime={setRuntime}
           />
         </div>
       </div>

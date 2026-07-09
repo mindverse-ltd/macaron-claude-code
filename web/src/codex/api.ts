@@ -42,6 +42,15 @@ export type CodexRuntimeOptions = {
   approvalPolicy: CodexApprovalPolicy;
 };
 
+// Per-turn override sent alongside a new/resumed thread. Every field is
+// optional — omitted ones fall back to the global config on the server.
+export type CodexRuntimeOverride = {
+  reasoningEffort?: CodexReasoningEffort;
+  sandboxMode?: CodexSandboxMode;
+  approvalPolicy?: CodexApprovalPolicy;
+  webSearchEnabled?: boolean;
+};
+
 export type PublicCodexSettings = {
   activeProviderId: string;
   builtins: PublicCodexBuiltin[];

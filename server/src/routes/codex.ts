@@ -29,14 +29,29 @@ import {
   updateCodexRuntime,
   type CodexCustomProvider,
   type CodexRuntimeOptions,
+  type CodexRuntimeOverride,
 } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import type { AttachedImage } from '../lib/claude-runner.js';
 
 type SidParams = { sid: string };
-type NewThreadBody = { text?: string; cwd?: string; images?: AttachedImage[] };
-type MessageBody = { text?: string; images?: AttachedImage[] };
+type NewThreadBody = { text?: string; cwd?: string; images?: AttachedImage[]; runtime?: CodexRuntimeOverride };
+type MessageBody = { text?: string; images?: AttachedImage[]; runtime?: CodexRuntimeOverride };
+
+// Pull the per-turn runtime override off a request body, keeping only the
+// fields the client actually sent. Mirrors the light typeof checks used by
+// the /config/runtime handler — codex rejects any bad enum value downstream.
+function pickRuntimeOverride(b: { runtime?: CodexRuntimeOverride } | undefined): CodexRuntimeOverride | undefined {
+  const r = b?.runtime;
+  if (!r || typeof r !== 'object') return undefined;
+  const o: CodexRuntimeOverride = {};
+  if (typeof r.reasoningEffort === 'string') o.reasoningEffort = r.reasoningEffort;
+  if (typeof r.sandboxMode === 'string') o.sandboxMode = r.sandboxMode;
+  if (typeof r.approvalPolicy === 'string') o.approvalPolicy = r.approvalPolicy;
+  if (typeof r.webSearchEnabled === 'boolean') o.webSearchEnabled = r.webSearchEnabled;
+  return Object.keys(o).length ? o : undefined;
+}
 
 export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
   // --- Threads -----------------------------------------------------------
@@ -143,7 +158,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     startSSE(reply);
     sseSend(reply, { type: 'starting', cwd });
     const abortController = new AbortController();
-    const stream = runCodex({ prompt: text, cwd, images, abortController });
+    const stream = runCodex({ prompt: text, cwd, images, abortController, runtime: pickRuntimeOverride(req.body) });
     // Register the abort under the sid once we learn it.
     (async () => {
       // Peek at first session event so we can wire the abort — but pipeCodexToSSE
@@ -180,7 +195,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
       const abortController = new AbortController();
       registerRun(sid, abortController);
-      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid);
+      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController, runtime: pickRuntimeOverride(req.body) }), sid);
     },
   );
 
