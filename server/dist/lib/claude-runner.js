@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { macaronMcpServer } from './macaron-mcp.js';
 import { registerPending } from './permission-registry.js';
+import { computeRuleKeys, isAllowed, rememberSession, rememberProject } from './permission-rules.js';
 import { getYoloMode } from './settings-store.js';
 function buildPromptInput(opts) {
     if (!opts.images || opts.images.length === 0)
@@ -74,6 +75,10 @@ export async function* runClaude(opts) {
     // can exit cleanly.
     void (async () => {
         let sessionEmitted = false;
+        // Tracks the session this run belongs to so canUseTool can scope
+        // "remember for session" rules. Known upfront when resuming; for a brand
+        // new session it's filled in once the first `session` message arrives.
+        let currentSid = opts.resume ?? '';
         try {
             // YOLO mode (global Settings toggle) forces bypassPermissions for
             // every run, regardless of what the WebUI requested. This is the
@@ -111,12 +116,33 @@ export async function* runClaude(opts) {
                     // this callback — every tool auto-approves. That's the intended
                     // "yolo" UX.
                     canUseTool: async (toolName, input) => {
+                        // Remembered rules: if a prior "Session"/"Always" decision already
+                        // covers every part of this call, auto-approve silently — no card,
+                        // no round-trip. Empty/unknown key sets never match, so this can
+                        // only ever skip a prompt the user already answered.
+                        const { keys, label } = computeRuleKeys(toolName, input);
+                        if (isAllowed(currentSid, opts.cwd, keys)) {
+                            return { behavior: 'allow', updatedInput: input };
+                        }
                         const id = randomUUID();
                         const decision = await new Promise((resolve) => {
                             registerPending(id, resolve);
-                            push({ kind: 'permission_request', id, toolName, input });
+                            push({ kind: 'permission_request', id, toolName, input, ...(label ? { suggestion: { label } } : {}) });
                         });
                         if (decision.decision === 'allow') {
+                            if (decision.scope === 'session')
+                                rememberSession(currentSid, keys);
+                            // A persist failure must not strand the callback: the user already
+                            // clicked Allow, so log and proceed rather than leaving the SDK's
+                            // pending promise (and their tool call) hung forever.
+                            else if (decision.scope === 'always') {
+                                try {
+                                    await rememberProject(opts.cwd, keys);
+                                }
+                                catch (e) {
+                                    console.error('[permission-rules] persist failed:', e);
+                                }
+                            }
                             push({ kind: 'permission_resolved', id, decision: 'allow' });
                             return { behavior: 'allow', updatedInput: input };
                         }
@@ -129,6 +155,7 @@ export async function* runClaude(opts) {
             for await (const m of stream) {
                 if (!sessionEmitted && 'session_id' in m && m.session_id) {
                     sessionEmitted = true;
+                    currentSid = m.session_id;
                     push({ kind: 'session', sessionId: m.session_id });
                 }
                 if (m.type === 'stream_event') {

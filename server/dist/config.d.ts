@@ -1,5 +1,6 @@
 export declare const PORT: number;
 export declare const HOST: string;
+export declare const AUTH_TOKEN: string;
 export declare const MACARON_API_BASE: string;
 export declare const MACARON_API_KEY: string;
 export declare const MACARON_MODEL: string;

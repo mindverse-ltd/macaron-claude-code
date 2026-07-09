@@ -127,7 +127,7 @@ export async function registerWorkspaceRoutes(app) {
                         livePush(capturedSid, payload);
                 }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
                     if (capturedSid)
                         livePush(capturedSid, payload);

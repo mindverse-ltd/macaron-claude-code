@@ -93,6 +93,7 @@ const BASE_IMPORTS: Record<string, string> = (() => {
     'framer-motion': origin + '/genui-shim/motion.mjs',
     motion: origin + '/genui-shim/motion.mjs',
     'motion/react': origin + '/genui-shim/motion.mjs',
+    '$macaron/chat': origin + '/genui-shim/chat.mjs',
   };
 })();
 

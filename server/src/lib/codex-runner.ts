@@ -21,14 +21,18 @@
 // bubble to render; can be split later if the SDK adds mid-turn updates.
 
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import type {
   CodexOptions,
+  Input,
   ThreadEvent,
   ThreadItem,
   ThreadOptions,
+  UserInput,
 } from '@openai/codex-sdk';
 import { getActiveCodexProvider, getCodexConfig } from './codex-config.js';
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
@@ -90,7 +94,7 @@ function detectCodexBinary(): string | undefined {
     return undefined;
   }
 }
-const CODEX_BINARY = detectCodexBinary();
+export const CODEX_BINARY = detectCodexBinary();
 
 export type CodexRunOptions = {
   prompt: string;
@@ -188,12 +192,32 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
   };
 }
 
-// Build the SDK Input from a text prompt + optional base64 images. Codex
-// only supports `local_image` (path on disk), not inline data URLs — we
-// write each attached image to a temp file first. For MVP we skip images.
-function buildInput(opts: CodexRunOptions): string {
-  // TODO: write opts.images to tmp and pass [{type:'local_image', path}, {type:'text', text}]
-  return opts.prompt;
+// Build the SDK Input from a text prompt + optional base64 images. Codex only
+// accepts `local_image` (a path on disk), not inline data URLs, so each
+// attached image is written to a temp file; the caller must remove the
+// returned `tmpFiles` once the turn ends.
+const IMAGE_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+function buildInput(opts: CodexRunOptions): { input: Input; tmpFiles: string[] } {
+  if (!opts.images?.length) return { input: opts.prompt, tmpFiles: [] };
+  const tmpFiles: string[] = [];
+  const items: UserInput[] = [];
+  for (const img of opts.images) {
+    const m = /^data:([^;]+);base64,(.*)$/.exec(img.dataUrl);
+    const mime = m?.[1] || img.mimeType || 'image/png';
+    const data = m?.[2] || '';
+    if (!data) continue;
+    const file = path.join(os.tmpdir(), `macaron-codex-${randomUUID()}.${IMAGE_EXT[mime] || 'png'}`);
+    writeFileSync(file, Buffer.from(data, 'base64'));
+    tmpFiles.push(file);
+    items.push({ type: 'local_image', path: file });
+  }
+  if (opts.prompt) items.push({ type: 'text', text: opts.prompt });
+  return { input: items, tmpFiles };
 }
 
 export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEvent> {
@@ -378,6 +402,8 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
 
   void (async () => {
     let sessionEmitted = false;
+    // Temp files backing local_image inputs; removed once the turn ends.
+    let tmpFiles: string[] = [];
     try {
       // Lazy-import so the default (claude) engine never loads @openai/codex-sdk
       // — the bundled tarball (server/dist/index.js only) has no node_modules, so
@@ -395,7 +421,9 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
         push({ kind: 'session', sessionId: opts.resume });
       }
 
-      const streamed = await thread.runStreamed(buildInput(opts), {
+      const built = buildInput(opts);
+      tmpFiles = built.tmpFiles;
+      const streamed = await thread.runStreamed(built.input, {
         signal: opts.abortController?.signal,
       });
 
@@ -445,6 +473,7 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
       push({ kind: 'error', error: (err as Error).message });
       push({ kind: 'done', exitCode: -1 });
     } finally {
+      for (const f of tmpFiles) { try { unlinkSync(f); } catch { /* already gone */ } }
       finish();
     }
   })();

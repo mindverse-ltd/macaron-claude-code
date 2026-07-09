@@ -136,7 +136,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             safeSend(payload);
             if (capturedSid) livePush(capturedSid, payload);
           } else if (ev.kind === 'permission_request') {
-            const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input };
+            const payload = { type: 'permission_request' as const, id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
             safeSend(payload);
             if (capturedSid) livePush(capturedSid, payload);
           } else if (ev.kind === 'permission_resolved') {
