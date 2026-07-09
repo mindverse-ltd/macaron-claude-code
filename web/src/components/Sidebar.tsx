@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { api, basename, type Workspace, type SessionListItem } from '../lib/api';
+import { api, basename, type Workspace, type SessionListItem, type WorktreeInfo } from '../lib/api';
 import { useToast } from './Toast';
+import { useConfirm } from './Confirm';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { RateLimitMeters } from './RateLimitMeters';
 import {
@@ -31,9 +32,13 @@ export function Sidebar() {
   const [renamingSid, setRenamingSid] = useState<string>('');
   const [renameDraft, setRenameDraft] = useState<string>('');
   const renameDoneRef = useRef(false);
+  // sessionId → active worktree, so a session row's context menu can offer
+  // merge/discard only for sessions that actually run in a worktree.
+  const [worktrees, setWorktrees] = useState<Record<string, WorktreeInfo>>({});
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const loadData = useCallback(async () => {
     try {
@@ -49,6 +54,10 @@ export function Sidebar() {
         }),
       );
       setWorkspaces(results);
+      try {
+        const wt = await api.worktrees();
+        setWorktrees(Object.fromEntries(wt.worktrees.map((w) => [w.sessionId, w])));
+      } catch {}
     } catch {}
   }, []);
 
@@ -170,10 +179,8 @@ export function Sidebar() {
   const sessMenu = (w: WsData, s: SessionListItem, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
+    const wt = worktrees[s.sessionId];
+    const items: MenuItem[] = [
         {
           icon: '◎',
           label: 'Focus Session',
@@ -231,8 +238,54 @@ export function Sidebar() {
             }
           },
         },
-        'separator',
-        {
+    ];
+    if (wt) {
+      items.push('separator', {
+        icon: '⭱',
+        label: wt.dirty ? 'Merge worktree (commit first)' : 'Merge worktree → base',
+        onClick: async () => {
+          try {
+            await api.mergeWorktree(s.sessionId);
+            toast(`merged ${wt.branch} → ${wt.baseBranch}`);
+            loadData();
+          } catch (err) {
+            toast(`merge failed: ${(err as Error).message}`);
+          }
+        },
+      }, {
+        icon: '🗑',
+        label: 'Discard worktree',
+        danger: true,
+        onClick: async () => {
+          try {
+            await api.discardWorktree(s.sessionId, false);
+            toast(`discarded ${wt.branch}`);
+            loadData();
+          } catch (err) {
+            const msg = (err as Error).message;
+            if (!msg.includes('409')) {
+              toast(`discard failed: ${msg}`);
+              return;
+            }
+            const ok = await confirm({
+              title: 'Discard dirty worktree?',
+              body: `Uncommitted changes on ${wt.branch} will be lost.`,
+              confirmLabel: 'Discard',
+              destructive: true,
+            });
+            if (!ok) return;
+            try {
+              await api.discardWorktree(s.sessionId, true);
+              toast(`discarded ${wt.branch}`);
+              loadData();
+            } catch (err2) {
+              toast(`discard failed: ${(err2 as Error).message}`);
+            }
+          }
+        },
+      });
+    }
+    items.push('separator', {
           icon: '✕',
           label: 'Delete Session',
           danger: true,
@@ -245,9 +298,8 @@ export function Sidebar() {
               toast(`delete failed: ${(err as Error).message}`);
             }
           },
-        },
-      ],
     });
+    setCtxMenu({ x: e.clientX, y: e.clientY, items });
   };
 
   return (

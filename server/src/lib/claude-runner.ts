@@ -14,6 +14,9 @@ export type AttachedImage = { mimeType: string; dataUrl: string };
 export type RunnerEvent =
   | { kind: 'session'; sessionId: string }
   | { kind: 'delta'; text: string }
+  // Reasoning/thinking stream, kept separate from `delta` so downstream can
+  // render it as its own collapsible block.
+  | { kind: 'reasoning'; text: string }
   // Emitted when the model starts a tool_use block (carries id+name).
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
   // Token-level streaming of the tool's JSON input. partial_json is a chunk
@@ -177,7 +180,7 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
             }
             const id = randomUUID();
             const decision = await new Promise<
-              { decision: 'allow'; scope?: 'once' | 'session' | 'always' } | { decision: 'deny'; reason?: string }
+              { decision: 'allow'; mode?: PermissionMode; scope?: 'once' | 'session' | 'always' } | { decision: 'deny'; reason?: string }
             >((resolve) => {
               registerPending(id, resolve);
               push({ kind: 'permission_request', id, toolName, input, ...(label ? { suggestion: { label } } : {}) });
@@ -191,7 +194,14 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
                 try { await rememberProject(opts.cwd, keys); } catch (e) { console.error('[permission-rules] persist failed:', e); }
               }
               push({ kind: 'permission_resolved', id, decision: 'allow' });
-              return { behavior: 'allow', updatedInput: input };
+              // A `mode` rides along when the plan-approval panel exits plan
+              // mode: setMode(session) switches how subsequent edits are
+              // gated (acceptEdits = auto, default = ask each time).
+              return {
+                behavior: 'allow',
+                updatedInput: input,
+                ...(decision.mode ? { updatedPermissions: [{ type: 'setMode', mode: decision.mode, destination: 'session' }] } : {}),
+              };
             }
             push({ kind: 'permission_resolved', id, decision: 'deny' });
             return { behavior: 'deny', message: decision.reason || 'denied by user', interrupt: false };

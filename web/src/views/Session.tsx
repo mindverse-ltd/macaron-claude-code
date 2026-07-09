@@ -3,11 +3,19 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sessionToMarkdown } from '@macaron/shared';
-import { api, basename, downloadTextFile, type Message, type SessionDetail } from '../lib/api';
+import {
+  api,
+  basename,
+  downloadTextFile,
+  type Message,
+  type SessionDetail,
+  type SlashCommand,
+} from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
 import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
+import { SlashPalette } from '../components/SlashPalette';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -18,6 +26,7 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { ActivityTimeline, toolIcon, toolLabel, type TimelineEntry } from '../components/ActivityTimeline';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
@@ -62,7 +71,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -88,7 +97,13 @@ function isNoisyUserText(t: string): boolean {
 export function flatten(messages: Message[]): Item[] {
   const out: Item[] = [];
   let i = 0;
-  let lastTool: Extract<Item, { kind: 'tool' }> | null = null;
+  type PairedTool = Extract<Item, { kind: 'tool' | 'genui' }>;
+  type PendingTool = { item: PairedTool; ts?: string };
+  const pendingTools = new Map<string, PendingTool>();
+  // Legacy fallback for older/malformed transcripts without toolUseId. Normal
+  // Claude turns can emit multiple tool_use blocks before any tool_result, so
+  // id-based pairing below is the load-bearing path.
+  let fallbackTool: PendingTool | null = null;
   // TodoWrite fires repeatedly with the full task list each time. Only the
   // latest snapshot is meaningful, so we track its slot in `out` and splice
   // out the previous one when a new one arrives — this mirrors the CLI which
@@ -104,7 +119,7 @@ export function flatten(messages: Message[]): Item[] {
           out.push({ id: `sys${i++}`, kind: 'system_event', eventType: b.eventType, text: b.text });
         }
       }
-      lastTool = null;
+      fallbackTool = null;
       continue;
     }
     // Collect any text + image blocks the user sent in this message into a
@@ -125,14 +140,14 @@ export function flatten(messages: Message[]): Item[] {
     for (const b of m.blocks) {
       if (m.role !== 'user' && b.kind === 'text') {
         if (b.text.trim()) out.push({ id: `a${i++}`, kind: 'assistant', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'thinking') {
         if (b.text.trim()) out.push({ id: `t${i++}`, kind: 'thinking', text: b.text });
-        lastTool = null;
+        fallbackTool = null;
       } else if (m.role !== 'user' && b.kind === 'image') {
         // Very rare — assistant emitting an image. Keep in its own row.
         out.push({ id: `img${i++}`, kind: 'assistant-image', mimeType: b.mimeType, data: b.data });
-        lastTool = null;
+        fallbackTool = null;
       } else if (b.kind === 'tool_use') {
         if (isTodoWriteTool(b.name)) {
           const input = (b.input || {}) as { todos?: TodoEntry[] };
@@ -147,7 +162,7 @@ export function flatten(messages: Message[]): Item[] {
           out.push({ id: `todo${i++}`, kind: 'todo', todos });
           // TodoWrite's tool_result is just an ACK — don't chain it to
           // anything real.
-          lastTool = null;
+          fallbackTool = null;
         } else if (isRenderUITool(b.name)) {
           // Claude writes the TSX directly into the tool_use input.code field;
           // jsonl persists it. We use that as the rendered code immediately.
@@ -170,9 +185,11 @@ export function flatten(messages: Message[]): Item[] {
             status: code ? 'ready' : 'pending',
           };
           out.push(it);
-          // Reuse lastTool slot so the next tool_result lands here.
-          lastTool = it as unknown as Extract<Item, { kind: 'tool' }>;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         } else {
+          const toolUseId = (b as unknown as { id?: string }).id || `synthetic-${i}`;
           const it: Extract<Item, { kind: 'tool' }> = {
             id: `tool${i++}`,
             kind: 'tool',
@@ -180,12 +197,16 @@ export function flatten(messages: Message[]): Item[] {
             input: b.input,
           };
           out.push(it);
-          lastTool = it;
+          const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
         }
       } else if (b.kind === 'tool_result') {
-        if (lastTool) {
-          if ((lastTool as unknown as Item).kind === 'genui') {
-            const g = lastTool as unknown as Extract<Item, { kind: 'genui' }>;
+        const pending = b.toolUseId ? pendingTools.get(b.toolUseId) : fallbackTool;
+        const item = pending?.item;
+        if (item) {
+          if (item.kind === 'genui') {
+            const g = item;
             const t = b.text || '';
             if (t.startsWith('render_ui failed:')) {
               g.status = 'error';
@@ -194,7 +215,15 @@ export function flatten(messages: Message[]): Item[] {
               g.status = 'ready';
             }
           } else {
-            lastTool.result = (lastTool.result ? lastTool.result + '\n' : '') + b.text;
+            item.result = (item.result ? item.result + '\n' : '') + b.text;
+            if (b.isError) item.isError = true;
+            // Wall-clock = result message time − tool_use message time. Both
+            // are best-effort ISO strings; leave undefined if either is absent
+            // or the delta is nonsensical (clock skew / same-line messages).
+            if (pending.ts && m.timestamp) {
+              const d = new Date(m.timestamp).getTime() - new Date(pending.ts).getTime();
+              if (Number.isFinite(d) && d >= 0) item.durationMs = d;
+            }
           }
         }
       }
@@ -205,7 +234,7 @@ export function flatten(messages: Message[]): Item[] {
 
 // ---- Tool header formatting (Bash → command first line, etc.) -------------
 
-function toolHeader(name: string, input: any): string {
+export function toolHeader(name: string, input: any): string {
   if (!input || typeof input !== 'object') return '';
   if (name === 'Bash') {
     return String(input.command || '').replace(/\s+/g, ' ').slice(0, 240);
@@ -263,7 +292,7 @@ const TODO_STATUS_ORDER: Record<TodoEntry['status'], number> = {
   completed: 2,
 };
 
-function TodoItem({ todos }: { todos: TodoEntry[] }) {
+function TodoItem({ id, todos }: { id?: string; todos: TodoEntry[] }) {
   const [expanded, setExpanded] = useState(false);
   const total = todos.length;
   const done = todos.filter((t) => t.status === 'completed').length;
@@ -291,7 +320,7 @@ function TodoItem({ todos }: { todos: TodoEntry[] }) {
   const hiddenCompleted = Math.max(0, done - completedShown);
 
   return (
-    <div className="ti-todo">
+    <div className="ti-todo" data-item-id={id}>
       <div className="ti-todo-stats">
         <strong>{total} tasks</strong> ({done} done, {inProg} in progress, {open} open)
       </div>
@@ -435,7 +464,7 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
 
 const PREVIEW_LINES = 2;
 
-function ToolItem({ name, input, result }: { name: string; input: unknown; result?: string }) {
+function ToolItem({ id, name, input, result, durationMs, isError }: { id?: string; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }) {
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
   const resultText = (result ?? '').replace(/\n+$/, '');
@@ -444,15 +473,16 @@ function ToolItem({ name, input, result }: { name: string; input: unknown; resul
   const extra = Math.max(0, allLines.length - PREVIEW_LINES);
 
   return (
-    <div className="ti-tool">
+    <div className="ti-tool" data-item-id={id}>
       <div className="ti-tool-head">
-        <span className="ti-dot">●</span>
+        <span className={`ti-dot${isError ? ' ti-dot-error' : ''}`}>●</span>
         <span className="ti-tool-name">{name}</span>
         {header && (
           <span className="ti-tool-args" title={header}>
             ({header})
           </span>
         )}
+        {durationMs != null && <span className="ti-tool-dur">{formatDuration(durationMs)}</span>}
       </div>
       {result !== undefined && allLines.length > 0 && (
         <div className="ti-tool-out">
@@ -549,20 +579,20 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 
   if (it.status === 'error') {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-error">render_ui failed: {it.error || 'unknown error'}</div>
       </div>
     );
   }
   if (!code) {
     return (
-      <div className="ti-genui">
+      <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-pending">generating UI…</div>
       </div>
     );
   }
   return (
-    <div className="ti-genui">
+    <div className="ti-genui" data-item-id={it.id}>
       <StaticGenUIRenderer
         code={code}
         active
@@ -641,6 +671,47 @@ function PermissionItem({
   );
 }
 
+// Plan-mode approval panel — shown when the model calls `ExitPlanMode` to
+// present a plan. Three choices map to how the run proceeds once plan mode
+// exits: auto-accept edits (acceptEdits), approve each edit (default), or
+// keep planning (deny — the model refines and re-proposes).
+function PlanApprovalItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
+}) {
+  if (it.status !== 'pending') return null;
+  const rawPlan = (it.input as { plan?: unknown } | null)?.plan;
+  const plan = typeof rawPlan === 'string' ? rawPlan : '';
+  return (
+    <div className="ti-plan">
+      <div className="ti-plan-head">
+        <span className="ti-plan-icon">📋</span>
+        <span className="ti-plan-title">Ready to code?</span>
+        <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
+      </div>
+      {plan && (
+        <div className="ti-plan-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+        </div>
+      )}
+      <div className="ti-plan-actions">
+        <button type="button" className="primary small" onClick={() => onDecide(it.permissionId, 'allow', 'acceptEdits')}>
+          Yes, and auto-accept edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'allow', 'default')}>
+          Yes, and manually approve edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'deny')}>
+          No, keep planning
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ItemView({
   it,
   onRewind,
@@ -650,7 +721,10 @@ export function ItemView({
   it: Item;
   onRewind?: (uuid: string) => void;
   onFork?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
+  // 3rd arg is a scope ('once'/'session'/'always') from PermissionItem or a plan-mode
+  // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
+  // handler serves both. This wider param is assignable to both child onDecide props.
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -675,22 +749,26 @@ export function ItemView({
       // Edit/Write/MultiEdit render as an inline diff card; every other tool
       // (and any edit whose input hasn't fully streamed yet) uses the plain row.
       const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
-      return diff ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} /> : <ToolItem name={it.name} input={it.input} result={it.result} />;
+      return diff
+        ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} />
+        : <ToolItem id={it.id} name={it.name} input={it.input} result={it.result} durationMs={it.durationMs} isError={it.isError} />;
     }
     case 'todo':
-      return <TodoItem todos={it.todos} />;
+      return <TodoItem id={it.id} todos={it.todos} />;
     case 'system_event':
       return <SystemEventItem eventType={it.eventType} text={it.text} />;
     case 'genui':
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
-    case 'permission':
-      return onPermissionDecide ? (
-        <PermissionItem it={it} onDecide={onPermissionDecide} />
+    case 'permission': {
+      const decide = onPermissionDecide ?? (() => {});
+      return it.toolName === 'ExitPlanMode' ? (
+        <PlanApprovalItem it={it} onDecide={decide} />
       ) : (
-        <PermissionItem it={it} onDecide={() => {}} />
+        <PermissionItem it={it} onDecide={decide} />
       );
+    }
   }
 }
 
@@ -1016,12 +1094,26 @@ export function Session(props: SessionProps = {}) {
   // lazily so each new mount picks up entries appended by sibling tiles.
   const [history, setHistory] = useState<string[]>(() => loadHistory(project));
   useEffect(() => { setHistory(loadHistory(project)); }, [project]);
+  // Fetch the slash-command list once per project (built-ins + custom
+  // `.claude/commands`). Best-effort — a failure just leaves the palette empty.
+  useEffect(() => {
+    if (!project) return;
+    let alive = true;
+    api.commands(project).then((r) => { if (alive) setCommands(r.commands); }).catch(() => {});
+    return () => { alive = false; };
+  }, [project]);
   // Navigation state. null = user is composing a fresh draft; otherwise
   // 0 = latest sent, 1 = one before, … history.length-1 = oldest. When we
   // enter history navigation we stash the draft so ArrowDown-past-latest
   // can restore it.
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const draftInputRef = useRef<string>('');
+  // Slash-command palette. `commands` is fetched once per session; the palette
+  // opens while the input is a bare `/name` (no space yet) and `slashIdx`
+  // tracks the keyboard-highlighted row. The SDK expands the picked `/name` on
+  // send, so this is purely a discoverability helper.
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [slashIdx, setSlashIdx] = useState(0);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   // Shift+Tab cycles through permission modes globally on the Session view
@@ -1030,6 +1122,9 @@ export function Session(props: SessionProps = {}) {
   const permissionModeRef = useRef<PermissionMode>('default');
   permissionModeRef.current = permissionMode;
   const [images, setImages] = useState<AttachedImage[]>([]);
+  // New-session-only: run the first turn in a dedicated git worktree+branch so
+  // parallel sessions in one repo don't share a working tree. Ignored on resume.
+  const [isolate, setIsolate] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1169,7 +1264,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny', scope: 'once' | 'session' | 'always' = 'once') => {
+    (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -1177,7 +1272,16 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision, { scope }).catch((e) => {
+      // The 3rd arg is either a plan-mode (from PlanApprovalItem) or a remember-scope
+      // (from PermissionItem) — disjoint value sets, so route by value.
+      const mode = arg === 'default' || arg === 'acceptEdits' || arg === 'plan' || arg === 'bypassPermissions' ? arg : undefined;
+      const scope = arg === 'once' || arg === 'session' || arg === 'always' ? arg : undefined;
+      // A plan approval switches the session out of plan mode (server-side via
+      // setMode). Mirror that in the local mode state so the next send() and
+      // the status bar reflect it — otherwise the composer would silently
+      // re-enter plan mode on the following turn.
+      if (decision === 'allow' && mode) setPermissionMode(mode);
+      api.permissionDecision(permissionId, decision, { scope, mode }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
@@ -1400,6 +1504,66 @@ export function Session(props: SessionProps = {}) {
   // automatically — new content pushes existing content up without us
   // touching scrollTop. The user can freely scroll up to read history.
 
+  // ---- Activity timeline: one rail node per tool call in the session -----
+  // Built from the persisted `items`, so live-turn tools join once the jsonl
+  // reloads. Todo / genui calls are surfaced too (they're tool calls the CLI
+  // renders specially). `id` matches each row's `data-item-id` for click-jump.
+  const timelineEntries = useMemo<TimelineEntry[]>(() => {
+    const out: TimelineEntry[] = [];
+    for (const it of items) {
+      if (it.kind === 'tool') {
+        out.push({
+          id: it.id,
+          icon: toolIcon(it.name),
+          label: toolLabel(it.name),
+          summary: toolHeader(it.name, it.input),
+          durationMs: it.durationMs,
+          status: it.isError ? 'error' : it.result !== undefined ? 'ok' : 'pending',
+        });
+      } else if (it.kind === 'todo') {
+        const done = it.todos.filter((t) => t.status === 'completed').length;
+        out.push({ id: it.id, icon: toolIcon('TodoWrite'), label: 'Todo', summary: `${done}/${it.todos.length} done`, status: 'ok' });
+      } else if (it.kind === 'genui') {
+        out.push({ id: it.id, icon: '🎨', label: 'render_ui', summary: it.prompt, status: it.status === 'error' ? 'error' : it.status === 'ready' ? 'ok' : 'pending' });
+      }
+    }
+    return out;
+  }, [items]);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+
+  // Request a jump to a rail node's target row. If the row is older than the
+  // paginated window, widen `shown` first. The scroll runs in the effect below,
+  // once React has committed the wider window — doing it inline (even in a rAF)
+  // races the commit and silently misses rows that aren't mounted yet.
+  const jumpToItem = useCallback(
+    (id: string) => {
+      const idx = items.findIndex((it) => it.id === id);
+      if (idx >= 0) {
+        const fromTail = items.length - idx;
+        if (fromTail > shown) setShown((s) => Math.max(s, fromTail));
+      }
+      setActiveItemId(id);
+      setPendingJumpId(id);
+    },
+    [items, shown],
+  );
+
+  // Resolve a pending jump after the target row is committed. Re-runs when
+  // `shown` widens (which mounts older rows), so jumps into hidden history land
+  // reliably instead of no-oping when the row wasn't mounted in time.
+  useEffect(() => {
+    if (!pendingJumpId) return;
+    const el = threadRef.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(pendingJumpId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('ti-jump-flash');
+    // Force reflow so re-adding the class restarts the flash animation.
+    void el.offsetWidth;
+    el.classList.add('ti-jump-flash');
+    setPendingJumpId(null);
+  }, [pendingJumpId, shown]);
+
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
   // Session start time from the earliest message timestamp — mirrors the CLI's
@@ -1493,6 +1657,7 @@ export function Session(props: SessionProps = {}) {
             text,
             permissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
+            isolate,
           });
           if (onCreated) {
             // Canvas draft-tile path: hand the real sid to the parent so it
@@ -1670,7 +1835,7 @@ export function Session(props: SessionProps = {}) {
         },
       );
     },
-    [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
+    [project, sid, input, sending, load, images, permissionMode, isolate, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
 
   // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
@@ -1702,7 +1867,64 @@ export function Session(props: SessionProps = {}) {
     return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
   }, [focused, send]);
 
+  // ---- Slash palette derivation + keyboard reconciliation ----------------
+  // Open only while the input is a bare `/word` — leading slash, no space yet
+  // (still typing the command name). `slashQuery` is everything after the `/`.
+  const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null;
+  const filteredCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.toLowerCase();
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.namespace ?? '').toLowerCase().includes(q),
+    );
+  }, [commands, slashQuery]);
+  const paletteOpen = slashQuery !== null && filteredCommands.length > 0;
+  // Clamp / reset the highlight whenever the filtered set changes.
+  useEffect(() => { setSlashIdx(0); }, [slashQuery]);
+
+  const pickCommand = useCallback((cmd: SlashCommand) => {
+    // Insert `/name ` (trailing space) and keep focus. The SDK expands it on
+    // send; the trailing space both closes the palette and readies args.
+    setInput(`/${cmd.name} `);
+    setHistoryIdx(null);
+  }, []);
+
+  // Returns true if the palette consumed the key (so the composer's own
+  // handler must not also act on it). Only called while the palette is open.
+  const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (e.nativeEvent.isComposing || composingRef.current) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.min(i + 1, filteredCommands.length - 1));
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.max(i - 1, 0));
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const cmd = filteredCommands[slashIdx];
+      if (cmd) {
+        e.preventDefault();
+        pickCommand(cmd);
+        return true;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Closing without a pick: append a space so the palette-open predicate
+      // (bare `/word`) goes false while keeping what the user typed.
+      setInput((v) => (v.startsWith('/') && !v.includes(' ') ? v + ' ' : v));
+      return true;
+    }
+    return false;
+  };
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Palette intercepts ↑/↓/Enter/Esc FIRST when open, then falls through
+    // untouched — history-nav + send keep their exact behaviour when closed.
+    if (paletteOpen && handlePaletteKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1789,6 +2011,8 @@ export function Session(props: SessionProps = {}) {
           </div>
         </div>
       )}
+
+      <ActivityTimeline entries={timelineEntries} activeId={activeItemId} onJump={jumpToItem} />
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
@@ -1921,6 +2145,14 @@ export function Session(props: SessionProps = {}) {
             ))}
           </div>
         )}
+        {paletteOpen && (
+          <SlashPalette
+            commands={filteredCommands}
+            activeIndex={slashIdx}
+            onPick={pickCommand}
+            onHover={setSlashIdx}
+          />
+        )}
         <textarea
           rows={2}
           placeholder={sending ? 'Queue a message…' : 'Reply to Claude…'}
@@ -1984,6 +2216,24 @@ export function Session(props: SessionProps = {}) {
             onCompact={() => void handleCompact()}
             onExport={handleExport}
           />
+          {isNew && (
+            <button
+              type="button"
+              className={`icon-btn iso-toggle${isolate ? ' active' : ''}`}
+              title={isolate ? 'Isolated: runs in a dedicated git worktree + branch' : 'Run in a dedicated git worktree + branch (no-op if not a git repo)'}
+              aria-label="Toggle worktree isolation"
+              aria-pressed={isolate}
+              onClick={() => setIsolate((v) => !v)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="3" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="9" r="3" />
+                <path d="M6 9v6" />
+                <path d="M18 12a6 6 0 0 1-6 6H9" />
+              </svg>
+            </button>
+          )}
           <div className="session-input-spacer" />
           {sending ? (
             <>
