@@ -16,6 +16,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Block, Message, SessionDetail, SessionListItem } from '@macaron/shared';
 import { HOME } from '../config.js';
+import { deleteCodexTitle, getCodexTitle } from './codex-titles.js';
 
 const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
@@ -162,6 +163,7 @@ export async function listCodexSessions(): Promise<SessionListItem[]> {
           gitBranch: summary.meta.gitBranch,
           sessionId: sid,
           preview: (summary.firstUserText || '').slice(0, 220),
+          title: getCodexTitle(sid),
           messageCount: summary.approxMessages,
           messageCountSuffix: '',
           mtime: st.mtimeMs,
@@ -355,4 +357,5 @@ export async function deleteCodexSession(sid: string): Promise<void> {
   if (!filePath) throw new Error(`codex session not found: ${sid}`);
   await fs.unlink(filePath);
   summaryCache.delete(filePath);
+  await deleteCodexTitle(sid);
 }

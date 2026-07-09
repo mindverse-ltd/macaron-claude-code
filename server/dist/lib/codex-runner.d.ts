@@ -1,4 +1,5 @@
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
+export declare const CODEX_BINARY: string | undefined;
 export type CodexRunOptions = {
     prompt: string;
     cwd: string;

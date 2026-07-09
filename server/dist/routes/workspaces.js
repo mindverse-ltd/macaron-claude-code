@@ -7,6 +7,7 @@ import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, runFollowup } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 export async function registerWorkspaceRoutes(app) {
     app.get('/api/workspaces', async () => {
         const sessions = await listAllSessions();
@@ -127,10 +128,12 @@ export async function registerWorkspaceRoutes(app) {
                         livePush(capturedSid, payload);
                 }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
-                    if (capturedSid)
+                    if (capturedSid) {
                         livePush(capturedSid, payload);
+                        pushPermissionRequest(project, capturedSid, ev.toolName);
+                    }
                 }
                 else if (ev.kind === 'permission_resolved') {
                     const payload = { type: 'permission_resolved', id: ev.id, decision: ev.decision };
@@ -159,6 +162,7 @@ export async function registerWorkspaceRoutes(app) {
                     if (capturedSid) {
                         liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
                         endRun(capturedSid);
+                        pushSessionDone(project, capturedSid);
                     }
                     // Same post-turn follow-up as the resume path: stream a throwaway,
                     // persistSession:false query resuming this fresh session (shared

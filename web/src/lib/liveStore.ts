@@ -31,6 +31,7 @@ export type LiveTurnItem =
       permissionId: string;
       toolName: string;
       input: unknown;
+      suggestion?: { label: string };
       status: 'pending' | 'allow' | 'deny';
     };
 
@@ -252,6 +253,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                     permissionId: p.id,
                     toolName: p.toolName,
                     input: p.input,
+                    suggestion: p.suggestion,
                     status: 'pending',
                   });
                   notify(sid);
