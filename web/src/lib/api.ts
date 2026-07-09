@@ -5,6 +5,8 @@ export type {
   Block,
   Message,
   SessionDetail,
+  MessageSearchHit,
+  MessageSearchResponse,
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
@@ -13,6 +15,7 @@ export type {
   SharedSessionResponse,
   UsageResponse,
   RateLimitWindow,
+  SlashCommand,
   ConfigFileId,
   ConfigFileFormat,
   ConfigFileMeta,
@@ -26,11 +29,13 @@ import type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   SessionDetail,
+  MessageSearchResponse,
   HealthResponse,
   FileSearchResponse,
   CreateShareResponse,
   SharedSessionResponse,
   UsageResponse,
+  CommandsResponse,
   ConfigFileId,
   ConfigFileMeta,
   ConfigFile,
@@ -173,6 +178,10 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  searchMessages: (q: string, limit = 30) =>
+    getJSON<MessageSearchResponse>(
+      `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   searchFiles: (project: string, q: string, limit = 50) =>
@@ -182,6 +191,10 @@ export const api = {
   session: (project: string, sid: string) =>
     getJSON<SessionDetail>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,
+    ),
+  commands: (project: string) =>
+    getJSON<CommandsResponse>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/commands`,
     ),
   deleteSession: async (project: string, sid: string): Promise<void> => {
     const r = await authedFetch(
@@ -207,12 +220,12 @@ export const api = {
   permissionDecision: (
     id: string,
     decision: 'allow' | 'deny',
-    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string },
+    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string; mode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' },
   ) =>
     req<{ ok: boolean }>('/api/permission-decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason }),
+      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason, mode: opts?.mode }),
     }),
   stopSession: (project: string, sid: string) =>
     req<{ ok: boolean; running: boolean }>(
