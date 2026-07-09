@@ -18,8 +18,10 @@ import {
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
+import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -53,7 +55,7 @@ type Item =
   | { id: string; kind: 'user'; parts: MsgPart[]; uuid?: string }
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
-  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string }
+  | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; isError?: boolean }
   // A spawned custom subagent (the `Agent` tool). Drills into the child
   // transcript stored under <sid>/subagents/, linked back by toolUseId.
   | { id: string; kind: 'subagent'; agentType: string; description: string; toolUseId: string; result?: string }
@@ -732,8 +734,12 @@ function ItemView({
       return <LiveAssistantItem text={it.text} />;
     case 'thinking':
       return <ThinkingItem text={it.text} />;
-    case 'tool':
-      return <ToolItem name={it.name} input={it.input} result={it.result} />;
+    case 'tool': {
+      // Edit/Write/MultiEdit render as an inline diff card; every other tool
+      // (and any edit whose input hasn't fully streamed yet) uses the plain row.
+      const diff = isDiffTool(it.name) ? extractDiff(it.name, it.input) : null;
+      return diff ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} /> : <ToolItem name={it.name} input={it.input} result={it.result} />;
+    }
     case 'subagent':
       return <SubagentItem it={it} project={project} sid={sid} />;
     case 'todo':
@@ -883,6 +889,15 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Set when the current turn hit onError, so the completion effect below can
+  // skip the 'complete' cue — onDone still runs after a stream error, and a
+  // failed turn shouldn't sound like a success.
+  const turnErroredRef = useRef(false);
+  // Set while a user-initiated Stop is in flight. Stop aborts the SDK
+  // stream, which claude-runner's catch surfaces as an onError (it doesn't
+  // filter AbortError) — so without this the deliberate Stop would play the
+  // 'error' cue as if the turn had actually failed.
+  const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -904,6 +919,11 @@ export function Session(props: SessionProps = {}) {
     }
     if (!streamedRef.current) return;
     streamedRef.current = false;
+    // A turn that ended in onError already played the 'error' cue; don't also
+    // play 'complete' (onDone still fires after a stream error).
+    const errored = turnErroredRef.current;
+    turnErroredRef.current = false;
+    if (!errored) playSound('complete');
     notify({
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
@@ -1119,6 +1139,11 @@ export function Session(props: SessionProps = {}) {
   // the existing `done` handler.
   const handleStop = useCallback(async () => {
     if (!sid) return;
+    // Mark the abort as user-initiated before requesting it, so the error
+    // that comes back over the SSE is recognised as a Stop, not a failure,
+    // and its cue is suppressed. (turnErroredRef still trips, so the
+    // trailing completion effect stays silent too.)
+    stoppingRef.current = true;
     try {
       await api.stopSession(project, sid);
       toast('Stop requested');
@@ -1405,6 +1430,10 @@ export function Session(props: SessionProps = {}) {
       setLiveUserImages(sentImages);
       setLiveTurn([]);
       setOutputTokens(-1);
+      // Fresh turn: clear the Stop latch so a prior Stop can't suppress
+      // this turn's error cue. (turnErroredRef is cleared by the completion
+      // effect when the previous turn settled.)
+      stoppingRef.current = false;
 
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
@@ -1484,16 +1513,19 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolInputDone: ({ id, name, final_json }) => {
-            if (!isRenderUITool(name)) return;
             try {
               const obj = JSON.parse(final_json);
-              if (typeof obj?.code === 'string') {
+              if (isRenderUITool(name) && typeof obj?.code === 'string') {
                 setLiveTurn((cur) =>
                   cur.map((t) =>
                     t.kind === 'genui' && t.toolUseId === id
                       ? { ...t, status: 'ready', code: obj.code }
                       : t,
                   ),
+                );
+              } else if (isDiffTool(name)) {
+                setLiveTurn((cur) =>
+                  cur.map((t) => (t.kind === 'tool' && t.id === `live-${id}` ? { ...t, input: obj } : t)),
                 );
               }
             } catch { /* tolerate parse fail; stream still delivers */ }
@@ -1503,6 +1535,7 @@ export function Session(props: SessionProps = {}) {
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
             // acted on.
+            playSound('permission');
             notify({
               title: 'Macaron · permission needed',
               body: `${toolName} wants to run` + (
@@ -1546,7 +1579,7 @@ export function Session(props: SessionProps = {}) {
                   return { ...t, status: 'ready' };
                 }
                 if (t.kind === 'tool' && (t.id === `live-${tool_use_id}`)) {
-                  return { ...t, result: resultText };
+                  return { ...t, result: resultText, isError };
                 }
                 return t;
               }),
@@ -1556,6 +1589,11 @@ export function Session(props: SessionProps = {}) {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            turnErroredRef.current = true;
+            // A user Stop surfaces here as an error — suppress the error cue
+            // in that case (turnErroredRef above already keeps the trailing
+            // completion effect silent, so the Stop makes no sound at all).
+            if (!stoppingRef.current) playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               const chunk = `\n[error] ${err}`;
