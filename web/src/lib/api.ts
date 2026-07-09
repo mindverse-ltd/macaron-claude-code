@@ -10,6 +10,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  DirEntry,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   WorktreeInfo,
@@ -31,6 +33,7 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   WorktreeInfo,
@@ -192,6 +195,8 @@ export const api = {
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+  listDirs: (path?: string) =>
+    getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>

@@ -99,6 +99,8 @@ export type MessageSearchHit = {
   mtime: number;
 };
 
+export type DirEntry = { name: string; path: string };
+export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
 // to /api/push/subscribe and stored server-side; `notify` is the JSON payload
 // the server ships to the SW's `push` handler (see web/public/sw.js).
