@@ -10,6 +10,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
   ConfigFileId,
   ConfigFileFormat,
   ConfigFileMeta,
@@ -25,6 +27,8 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  CreateShareResponse,
+  SharedSessionResponse,
   ConfigFileId,
   ConfigFileMeta,
   ConfigFile,
@@ -183,6 +187,15 @@ export const api = {
     );
     if (!r.ok) throw new Error(`http ${r.status}`);
   },
+  setSessionLabel: (project: string, sid: string, name: string) =>
+    req<{ ok: true; label: string }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/label`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      },
+    ),
   duplicateSession: (project: string, sid: string) =>
     req<{ ok: true; newSid: string }>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/duplicate`,
@@ -212,6 +225,15 @@ export const api = {
         body: JSON.stringify({ uuid }),
       },
     ),
+  forkSession: (project: string, sid: string, uuid: string) =>
+    req<{ ok: true; newSid: string; kept: number }>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/fork`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid }),
+      },
+    ),
   compactSession: (project: string, sid: string) =>
     req<{ ok: true; summary: string; backupPath: string; kept: number }>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/compact`,
@@ -220,6 +242,20 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
       },
     ),
+  createShare: (project: string, sid: string) =>
+    req<CreateShareResponse>('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  revokeShare: (project: string, sid: string) =>
+    req<{ ok: boolean }>('/api/share/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, sid }),
+    }),
+  sharedSession: (token: string) =>
+    getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
   listFiles: (project: string, path = '') =>
     getJSON<FileListResponse>(
       `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,
