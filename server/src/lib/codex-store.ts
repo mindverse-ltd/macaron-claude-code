@@ -15,10 +15,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Block, Message, SessionDetail, SessionListItem } from '@macaron/shared';
-import { HOME } from '../config.js';
+import { CODEX_SESSIONS } from '../config.js';
 import { deleteCodexTitle, getCodexTitle } from './codex-titles.js';
-
-const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
 type CodexMeta = {
   id: string;

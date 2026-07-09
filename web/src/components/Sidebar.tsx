@@ -9,6 +9,7 @@ import {
   focusCanvasSid,
   subscribeCanvas,
 } from '../lib/canvas';
+import { subscribeSystemEvents } from '../lib/systemEvents';
 
 type WsData = Workspace & { sessions: SessionListItem[] };
 
@@ -56,7 +57,15 @@ export function Sidebar() {
       .catch(() => setStatus('bad'));
     loadData();
     const t = setInterval(loadData, 10_000);
-    return () => clearInterval(t);
+    // Refresh immediately when a claude session changes on disk (e.g. a
+    // terminal run) — the interval above stays as a fallback.
+    const unsub = subscribeSystemEvents((ev) => {
+      if (ev.engine === 'claude') void loadData();
+    });
+    return () => {
+      clearInterval(t);
+      unsub();
+    };
   }, [loadData]);
 
   // Track canvas state per workspace. On every workspaces refresh (or

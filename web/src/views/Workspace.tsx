@@ -26,6 +26,7 @@ import {
   type TileGeom,
 } from '../lib/canvas';
 import { Session } from './Session';
+import { subscribeSystemEvents } from '../lib/systemEvents';
 import { Terminal } from '../components/Terminal';
 import { isTerminalSid, killTerminal } from '../lib/terminal';
 
@@ -76,7 +77,16 @@ export function Workspace() {
     setSessions(null);
     load();
     const t = setInterval(load, 15_000);
-    return () => clearInterval(t);
+    // Live-refresh on a claude disk change (e.g. a terminal-started session
+    // in this workspace) so its tile picks up new turns without a manual
+    // refresh.
+    const unsub = subscribeSystemEvents((ev) => {
+      if (ev.engine === 'claude') load();
+    });
+    return () => {
+      clearInterval(t);
+      unsub();
+    };
   }, [project, load]);
 
   // Back-compat: URLs like /w/:project/s/:sid pin + focus + rewrite.
