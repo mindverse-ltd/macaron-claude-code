@@ -1192,6 +1192,15 @@ textarea:focus, select:focus, input:focus {
 .mcp-kv-chip { margin-right: 5px; }
 .settings-hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 .settings-hint.ok { color: #4a8; }
+/* Prompt-body textarea in the Prompts library editor. Monospace so $ARGUMENTS
+   and template markers read as code. */
+.settings-input.prompt-body {
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 120px;
+}
+.muted-inline { color: var(--muted-2); }
 .settings-actions {
   display: flex;
   align-items: center;

@@ -86,6 +86,19 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// A saved prompt / custom slash command — one `.md` file under
+// ~/.claude/commands/. `name` is the filename stem (invoked as `/name`);
+// `description` and `argumentHint` come from the YAML frontmatter; `body` is
+// the prompt template (may reference $ARGUMENTS / $1 / $2 …). Project-scoped
+// commands (.claude/commands/) are deferred to a follow-up.
+export type SavedCommand = {
+  name: string;
+  description: string;
+  argumentHint: string;
+  body: string;
+  mtime: number;
+};
+
 // A transcript-search match — one message whose text contains the query.
 // The palette deep-links into the session via project+sessionId, and uses
 // `uuid` to scroll to the exact message when the session view is mounted.
@@ -98,7 +111,6 @@ export type MessageSearchHit = {
   preview: string;
   mtime: number;
 };
-
 export type DirEntry = { name: string; path: string };
 export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
@@ -211,6 +223,7 @@ export type FileListResponse = { root: string; path: string; entries: FileEntry[
 export type FileReadResponse = { path: string; content: string; size: number };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type SavedCommandsResponse = { commands: SavedCommand[] };
 export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type SchedulesResponse = { schedules: Schedule[] };

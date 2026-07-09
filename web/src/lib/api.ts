@@ -10,6 +10,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  SavedCommand,
+  SavedCommandsResponse,
   DirEntry,
   DirListing,
   CreateShareResponse,
@@ -36,6 +38,8 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  SavedCommand,
+  SavedCommandsResponse,
   DirListing,
   CreateShareResponse,
   SharedSessionResponse,
@@ -97,6 +101,11 @@ export type ProviderInput = {
   apiKey?: string;
 };
 
+export type CommandInput = {
+  description?: string;
+  argumentHint?: string;
+  body: string;
+};
 export type McpTransport = 'stdio' | 'http' | 'sse';
 export type PublicMcpServer = {
   name: string;
@@ -162,6 +171,23 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
+    }),
+  savedCommands: () => getJSON<SavedCommandsResponse>('/api/commands'),
+  createCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ...input }),
+    }),
+  updateCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteCommand: (name: string) =>
+    req<{ ok: true }>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }),
   mcpServers: () => getJSON<{ servers: PublicMcpServer[] }>('/api/mcp/servers'),
   addMcpServer: (input: McpServerInput) =>
