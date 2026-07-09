@@ -6,7 +6,7 @@ argument-hint: "[port]"
 
 Start the Macaron WebUI server. The port defaults to 7878; the user may pass an alternate port as `$1`.
 
-The plugin ships prebuilt (`web/dist/` and `server/dist/` are committed). `start.sh` handles port collisions, installs runtime deps only if missing (~10s one-off), and prints the URL. **Do NOT** rm node_modules, run npm install, run npm run build, or otherwise "prepare" the plugin before invoking `start.sh` — it does everything it needs internally. Just call it.
+The plugin arrives as source (no committed `dist/`) — `start.sh` uses `corepack pnpm` to install and build on first launch (~60s), then reuses the cached build on subsequent launches. Port collisions, install / build retries, and URL printing are all handled inside the script. **Do NOT** rm node_modules, run npm install, run npm run build, or otherwise "prepare" the plugin before invoking `start.sh` — call it once and let it print. If it errors out, follow the "fix:" line it prints on stderr and try again.
 
 Run exactly this and nothing else. `MACARON_ENGINE=claude` is explicit so a stray shell export (e.g. from a prior Codex-side session) can't flip the WebUI to the wrong engine:
 
@@ -23,4 +23,8 @@ After the server prints `Macaron WebUI (engine=claude): http://localhost:<port>`
 - **Session** — full transcript (thinking, tool calls, live GenUI previews) + follow-up chat
 - **Settings** — manage Anthropic-compatible providers (Macaron, OpenRouter, LiteLLM, …) and pick the active one
 
-If `start.sh` prints an error (e.g. it can't reclaim port 7878), report the error verbatim and ask the user for a free port to retry with as `$1`.
+If `start.sh` prints an error:
+
+- **Port busy**: report the error verbatim and ask the user for a free port to retry as `$1`.
+- **Install / build failed**: `start.sh` prints one or more `[macaron] fix: <command>` lines on stderr. Run each printed fix command in order and retry `start.sh` after each; report the outcome to the user.
+- **Anything else**: quote the raw stderr, then check `/tmp/macaron-plugin.log` for the server-side tail before proposing next steps.
