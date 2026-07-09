@@ -14,6 +14,9 @@ export type AttachedImage = { mimeType: string; dataUrl: string };
 export type RunnerEvent =
   | { kind: 'session'; sessionId: string }
   | { kind: 'delta'; text: string }
+  // Reasoning/thinking stream, kept separate from `delta` so downstream can
+  // render it as its own collapsible block.
+  | { kind: 'reasoning'; text: string }
   // Emitted when the model starts a tool_use block (carries id+name).
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
   // Token-level streaming of the tool's JSON input. partial_json is a chunk
