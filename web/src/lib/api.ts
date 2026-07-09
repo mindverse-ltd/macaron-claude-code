@@ -9,6 +9,9 @@ export type {
   WorkspaceDetailResponse,
   HealthResponse,
   WorktreeInfo,
+  FileEntry,
+  FileListResponse,
+  FileReadResponse,
 } from '@macaron/shared';
 
 import type {
@@ -17,6 +20,8 @@ import type {
   SessionDetail,
   HealthResponse,
   WorktreeInfo,
+  FileListResponse,
+  FileReadResponse,
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
@@ -154,6 +159,28 @@ export const api = {
     req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),
   discardWorktree: (sid: string, force = false) =>
     req<{ ok: true }>(`/api/worktrees/${encodeURIComponent(sid)}/discard${force ? '?force=1' : ''}`, { method: 'POST' }),
+  listFiles: (project: string, path = '') =>
+    getJSON<FileListResponse>(
+      `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,
+    ),
+  readFile: async (project: string, path: string): Promise<FileReadResponse> => {
+    const r = await authedFetch(
+      `/api/files/${encodeURIComponent(project)}/read?path=${encodeURIComponent(path)}`,
+    );
+    if (!r.ok) {
+      // Surface the server's reason (e.g. "binary file", "file too large") so
+      // the editor can show a helpful placeholder instead of "http 415".
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || `http ${r.status}`);
+    }
+    return r.json() as Promise<FileReadResponse>;
+  },
+  writeFile: (project: string, path: string, content: string) =>
+    req<{ ok: true; bytes: number }>(`/api/files/${encodeURIComponent(project)}/write`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    }),
 };
 
 export function basename(p: string): string {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   DndContext,
   PointerSensor,
@@ -212,6 +212,9 @@ export function Workspace() {
           </span>
         </div>
         <div className="ws-canvas-actions">
+          <Link className="ghost small" to={`/w/${encodeURIComponent(project)}/files`}>
+            Files
+          </Link>
           <button className="ghost small" onClick={handleNewSession}>
             + New Session
           </button>
