@@ -99,6 +99,8 @@ export type MessageSearchHit = {
   mtime: number;
 };
 
+export type DirEntry = { name: string; path: string };
+export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
 // to /api/push/subscribe and stored server-side; `notify` is the JSON payload
 // the server ships to the SW's `push` handler (see web/public/sw.js).
@@ -147,6 +149,39 @@ export type UsageResponse = {
   sevenDay: RateLimitWindow | null;
 };
 
+// A saved cron/one-time prompt. The scheduler fires it by spawning a fresh
+// session (runClaude/runCodex, no resume) at `nextRunAt`, exactly as the
+// "+ New Session" POST does — just with no client attached.
+export type Schedule = {
+  id: string;
+  name: string;
+  prompt: string;
+  engine: SessionKind;
+  cwd: string;
+  // 5-field cron string (recurring) OR an ISO-8601 local datetime (one-time).
+  // croner parses both; `oneShot` only records which input mode the user chose
+  // (for the UI badge + create-time validation) — after a one-shot fires,
+  // its nextRun() is naturally null, so the same fire path ends it.
+  pattern: string;
+  oneShot: boolean;
+  status: 'active' | 'paused' | 'done';
+  nextRunAt: number | null; // unix ms; null when paused/done or unschedulable
+  lastRunAt: number | null;
+  lastStatus: 'ok' | 'error' | null;
+  lastSessionId: string | null; // sid of the most recent fired session
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ScheduleInput = {
+  name: string;
+  prompt: string;
+  engine: SessionKind;
+  cwd: string;
+  pattern: string;
+  oneShot: boolean;
+};
+
 // A slash command surfaced in the composer palette. `name` is the bare
 // command (no leading slash). `builtin` = a CLI command worth listing;
 // `project`/`user` come from `.claude/commands/**/*.md` (cwd / $HOME). A
@@ -178,6 +213,7 @@ export type FileReadResponse = { path: string; content: string; size: number };
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
+export type SchedulesResponse = { schedules: Schedule[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
 

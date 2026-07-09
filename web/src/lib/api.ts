@@ -10,11 +10,16 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  DirEntry,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
+  Schedule,
+  ScheduleInput,
+  SessionKind,
   SlashCommand,
   ConfigFileId,
   ConfigFileFormat,
@@ -31,12 +36,16 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   VoiceHealthResponse,
   TranscribeResponse,
   WorktreeInfo,
   UsageResponse,
+  Schedule,
+  ScheduleInput,
+  SchedulesResponse,
   CommandsResponse,
   ConfigFileId,
   ConfigFileMeta,
@@ -46,9 +55,19 @@ import type {
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
+// Thrown by every non-2xx response. Carries the status so callers can branch on
+// it (e.g. worktree discard's 409 → confirm-dirty prompt) instead of grepping
+// the message string.
+export class HttpError extends Error {
+  constructor(readonly status: number, body: string) {
+    super(`http ${status}: ${body.slice(0, 200)}`);
+    this.name = 'HttpError';
+  }
+}
+
 export async function getJSON<T>(url: string): Promise<T> {
   const r = await authedFetch(url);
-  if (!r.ok) throw new Error(`http ${r.status}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
@@ -103,7 +122,7 @@ export type McpServerInput = {
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
   const r = await authedFetch(url, init);
-  if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
@@ -194,6 +213,8 @@ export const api = {
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+  listDirs: (path?: string) =>
+    getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>
@@ -280,6 +301,29 @@ export const api = {
     }),
   sharedSession: (token: string) =>
     getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
+  schedules: () => getJSON<SchedulesResponse>('/api/schedules'),
+  createSchedule: (input: ScheduleInput) =>
+    req<Schedule>('/api/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateSchedule: (id: string, patch: Partial<ScheduleInput>) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteSchedule: async (id: string): Promise<void> => {
+    const r = await authedFetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`http ${r.status}`);
+  },
+  pauseSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  resumeSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  runScheduleNow: (id: string) =>
+    req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}/run-now`, { method: 'POST' }),
   worktrees: () => getJSON<{ worktrees: WorktreeInfo[] }>('/api/worktrees'),
   mergeWorktree: (sid: string) =>
     req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),
