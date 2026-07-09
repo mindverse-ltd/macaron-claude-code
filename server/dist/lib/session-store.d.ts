@@ -24,6 +24,7 @@ export declare function writeCompactedSession(project: string, sid: string, summ
 }>;
 export declare function readSessionSummary(filePath: string): Promise<SessionSummary | null>;
 export declare function resolveSessionCwd(project: string, sid: string): Promise<string>;
+export declare function resolveProjectCwd(project: string): Promise<string | null>;
 export declare function listAllSessions(): Promise<SessionListItem[]>;
 export declare function groupWorkspaces(sessions: SessionListItem[]): Workspace[];
 export declare function readSessionMessages(project: string, sid: string): Promise<SessionDetail>;
