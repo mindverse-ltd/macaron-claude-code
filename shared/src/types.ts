@@ -126,6 +126,19 @@ export type AnalyticsResponse = {
   bySession: UsageBySession[];
 };
 
+// A transcript-search match — one message whose text contains the query.
+// The palette deep-links into the session via project+sessionId, and uses
+// `uuid` to scroll to the exact message when the session view is mounted.
+export type MessageSearchHit = {
+  project: string;
+  sessionId: string;
+  uuid?: string;
+  role: 'user' | 'assistant';
+  snippet: string;
+  preview: string;
+  mtime: number;
+};
+
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
 // to /api/push/subscribe and stored server-side; `notify` is the JSON payload
 // the server ships to the SW's `push` handler (see web/public/sw.js).
@@ -158,6 +171,19 @@ export type UsageResponse = {
   sevenDay: RateLimitWindow | null;
 };
 
+// A slash command surfaced in the composer palette. `name` is the bare
+// command (no leading slash). `builtin` = a CLI command worth listing;
+// `project`/`user` come from `.claude/commands/**/*.md` (cwd / $HOME). A
+// subdirectory becomes `namespace` for display only — it does NOT change the
+// command name the SDK expands.
+export type SlashCommand = {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: 'builtin' | 'project' | 'user';
+  namespace?: string;
+};
+
 // ---- File explorer -------------------------------------------------------
 // A single entry in a directory listing. `path` is relative to the project
 // cwd (root = ''), so the web tree can request children without knowing the
@@ -174,6 +200,7 @@ export type FileListResponse = { root: string; path: string; entries: FileEntry[
 export type FileReadResponse = { path: string; content: string; size: number };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
@@ -207,3 +234,4 @@ export type ConfigFileMeta = {
 export type ConfigFile = ConfigFileMeta & { content: string };
 
 export type ConfigFilesResponse = { files: ConfigFileMeta[] };
+export type CommandsResponse = { commands: SlashCommand[] };

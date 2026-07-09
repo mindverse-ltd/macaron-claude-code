@@ -369,6 +369,10 @@ export function CodexChat(props: CodexChatProps = {}) {
 
   const appendUser = (text: string, imgs?: ComposerImage[]) =>
     setLive((cur) => withUser(cur, text, imgs));
+  // Codex emits each reasoning item atomically on completed, so every event
+  // is one full thinking block — append, don't concat.
+  const appendReasoning = (text: string) =>
+    setLive((cur) => [...cur, { id: `r-${Date.now()}-${cur.length}`, kind: 'reasoning', text }]);
   const appendAssistantDelta = (text: string) => setLive((cur) => withAssistantDelta(cur, text));
   const appendTool = (id: string, name: string, input: unknown) =>
     setLive((cur) => withTool(cur, id, name, input));
@@ -398,6 +402,7 @@ export function CodexChat(props: CodexChatProps = {}) {
         await startCodexThread({ text, images: wire }, {
           onMeta: (s) => { newSid = s; },
           onDelta: appendAssistantDelta,
+          onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
           onError: (m) => setError(m),
@@ -409,6 +414,7 @@ export function CodexChat(props: CodexChatProps = {}) {
       } else {
         await sendCodexMessage(sid, { text, images: wire }, {
           onDelta: appendAssistantDelta,
+          onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
           onError: (m) => setError(m),

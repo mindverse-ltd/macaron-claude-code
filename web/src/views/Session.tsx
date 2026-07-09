@@ -3,11 +3,19 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sessionToMarkdown } from '@macaron/shared';
-import { api, basename, downloadTextFile, type Message, type SessionDetail } from '../lib/api';
+import {
+  api,
+  basename,
+  downloadTextFile,
+  type Message,
+  type SessionDetail,
+  type SlashCommand,
+} from '../lib/api';
 import { streamSession } from '../lib/sse';
 import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
 import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
+import { SlashPalette } from '../components/SlashPalette';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -641,6 +649,47 @@ function PermissionItem({
   );
 }
 
+// Plan-mode approval panel — shown when the model calls `ExitPlanMode` to
+// present a plan. Three choices map to how the run proceeds once plan mode
+// exits: auto-accept edits (acceptEdits), approve each edit (default), or
+// keep planning (deny — the model refines and re-proposes).
+function PlanApprovalItem({
+  it,
+  onDecide,
+}: {
+  it: Extract<Item, { kind: 'permission' }>;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', mode?: PermissionMode) => void;
+}) {
+  if (it.status !== 'pending') return null;
+  const rawPlan = (it.input as { plan?: unknown } | null)?.plan;
+  const plan = typeof rawPlan === 'string' ? rawPlan : '';
+  return (
+    <div className="ti-plan">
+      <div className="ti-plan-head">
+        <span className="ti-plan-icon">📋</span>
+        <span className="ti-plan-title">Ready to code?</span>
+        <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
+      </div>
+      {plan && (
+        <div className="ti-plan-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+        </div>
+      )}
+      <div className="ti-plan-actions">
+        <button type="button" className="primary small" onClick={() => onDecide(it.permissionId, 'allow', 'acceptEdits')}>
+          Yes, and auto-accept edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'allow', 'default')}>
+          Yes, and manually approve edits
+        </button>
+        <button type="button" className="ghost small" onClick={() => onDecide(it.permissionId, 'deny')}>
+          No, keep planning
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ItemView({
   it,
   onRewind,
@@ -650,7 +699,10 @@ export function ItemView({
   it: Item;
   onRewind?: (uuid: string) => void;
   onFork?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
+  // 3rd arg is a scope ('once'/'session'/'always') from PermissionItem or a plan-mode
+  // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
+  // handler serves both. This wider param is assignable to both child onDecide props.
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -685,12 +737,14 @@ export function ItemView({
       return <GenuiItem it={it} />;
     case 'assistant-image':
       return <AssistantImageItem mimeType={it.mimeType} data={it.data} />;
-    case 'permission':
-      return onPermissionDecide ? (
-        <PermissionItem it={it} onDecide={onPermissionDecide} />
+    case 'permission': {
+      const decide = onPermissionDecide ?? (() => {});
+      return it.toolName === 'ExitPlanMode' ? (
+        <PlanApprovalItem it={it} onDecide={decide} />
       ) : (
-        <PermissionItem it={it} onDecide={() => {}} />
+        <PermissionItem it={it} onDecide={decide} />
       );
+    }
   }
 }
 
@@ -1016,12 +1070,26 @@ export function Session(props: SessionProps = {}) {
   // lazily so each new mount picks up entries appended by sibling tiles.
   const [history, setHistory] = useState<string[]>(() => loadHistory(project));
   useEffect(() => { setHistory(loadHistory(project)); }, [project]);
+  // Fetch the slash-command list once per project (built-ins + custom
+  // `.claude/commands`). Best-effort — a failure just leaves the palette empty.
+  useEffect(() => {
+    if (!project) return;
+    let alive = true;
+    api.commands(project).then((r) => { if (alive) setCommands(r.commands); }).catch(() => {});
+    return () => { alive = false; };
+  }, [project]);
   // Navigation state. null = user is composing a fresh draft; otherwise
   // 0 = latest sent, 1 = one before, … history.length-1 = oldest. When we
   // enter history navigation we stash the draft so ArrowDown-past-latest
   // can restore it.
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const draftInputRef = useRef<string>('');
+  // Slash-command palette. `commands` is fetched once per session; the palette
+  // opens while the input is a bare `/name` (no space yet) and `slashIdx`
+  // tracks the keyboard-highlighted row. The SDK expands the picked `/name` on
+  // send, so this is purely a discoverability helper.
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [slashIdx, setSlashIdx] = useState(0);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   // Shift+Tab cycles through permission modes globally on the Session view
@@ -1169,7 +1237,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny', scope: 'once' | 'session' | 'always' = 'once') => {
+    (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -1177,7 +1245,16 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision, { scope }).catch((e) => {
+      // The 3rd arg is either a plan-mode (from PlanApprovalItem) or a remember-scope
+      // (from PermissionItem) — disjoint value sets, so route by value.
+      const mode = arg === 'default' || arg === 'acceptEdits' || arg === 'plan' || arg === 'bypassPermissions' ? arg : undefined;
+      const scope = arg === 'once' || arg === 'session' || arg === 'always' ? arg : undefined;
+      // A plan approval switches the session out of plan mode (server-side via
+      // setMode). Mirror that in the local mode state so the next send() and
+      // the status bar reflect it — otherwise the composer would silently
+      // re-enter plan mode on the following turn.
+      if (decision === 'allow' && mode) setPermissionMode(mode);
+      api.permissionDecision(permissionId, decision, { scope, mode }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
@@ -1702,7 +1779,64 @@ export function Session(props: SessionProps = {}) {
     return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
   }, [focused, send]);
 
+  // ---- Slash palette derivation + keyboard reconciliation ----------------
+  // Open only while the input is a bare `/word` — leading slash, no space yet
+  // (still typing the command name). `slashQuery` is everything after the `/`.
+  const slashQuery = input.startsWith('/') && !input.includes(' ') ? input.slice(1) : null;
+  const filteredCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.toLowerCase();
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.namespace ?? '').toLowerCase().includes(q),
+    );
+  }, [commands, slashQuery]);
+  const paletteOpen = slashQuery !== null && filteredCommands.length > 0;
+  // Clamp / reset the highlight whenever the filtered set changes.
+  useEffect(() => { setSlashIdx(0); }, [slashQuery]);
+
+  const pickCommand = useCallback((cmd: SlashCommand) => {
+    // Insert `/name ` (trailing space) and keep focus. The SDK expands it on
+    // send; the trailing space both closes the palette and readies args.
+    setInput(`/${cmd.name} `);
+    setHistoryIdx(null);
+  }, []);
+
+  // Returns true if the palette consumed the key (so the composer's own
+  // handler must not also act on it). Only called while the palette is open.
+  const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (e.nativeEvent.isComposing || composingRef.current) return false;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.min(i + 1, filteredCommands.length - 1));
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSlashIdx((i) => Math.max(i - 1, 0));
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const cmd = filteredCommands[slashIdx];
+      if (cmd) {
+        e.preventDefault();
+        pickCommand(cmd);
+        return true;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Closing without a pick: append a space so the palette-open predicate
+      // (bare `/word`) goes false while keeping what the user typed.
+      setInput((v) => (v.startsWith('/') && !v.includes(' ') ? v + ' ' : v));
+      return true;
+    }
+    return false;
+  };
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Palette intercepts ↑/↓/Enter/Esc FIRST when open, then falls through
+    // untouched — history-nav + send keep their exact behaviour when closed.
+    if (paletteOpen && handlePaletteKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       // Some IMEs emit the confirming Enter just after compositionend; keep it
       // reserved for candidate selection instead of submitting the prompt.
@@ -1920,6 +2054,14 @@ export function Session(props: SessionProps = {}) {
               </div>
             ))}
           </div>
+        )}
+        {paletteOpen && (
+          <SlashPalette
+            commands={filteredCommands}
+            activeIndex={slashIdx}
+            onPick={pickCommand}
+            onHover={setSlashIdx}
+          />
         )}
         <textarea
           rows={2}

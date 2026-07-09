@@ -4,8 +4,10 @@ import {
   duplicateSession,
   forkSession,
   readSessionMessages,
+  resolveProjectCwd,
   resolveSessionCwd,
   rewindSession,
+  searchMessages,
   writeCompactedSession,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
@@ -16,6 +18,7 @@ import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabl
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
+import { listSlashCommands } from '../lib/slash-commands.js';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -26,6 +29,17 @@ type MessageBody = {
 };
 
 export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
+  // Grep claude transcripts for a substring — backs the command palette's
+  // message search. Newest-first, capped at `limit` hits (see searchMessages).
+  app.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/messages',
+    async ({ query }) => {
+      const q = String(query?.q || '');
+      const limit = Math.min(100, Math.max(1, parseInt(query?.limit || '30', 10) || 30));
+      return { hits: await searchMessages(q, limit) };
+    },
+  );
+
   app.get<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {
       return await readSessionMessages(params.project, params.sid);
@@ -33,6 +47,21 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       return reply.status(404).send({ error: (e as Error).message });
     }
   });
+
+  // List slash commands available for this session's cwd: curated built-ins
+  // plus project (`<cwd>/.claude/commands`) and user (`~/.claude/commands`)
+  // custom commands. Read-only, best-effort — never 500 on a missing dir.
+  // The palette only *lists*; the SDK already expands `/name` prompts itself.
+  app.get<{ Params: { project: string } }>(
+    '/api/sessions/claude/:project/commands',
+    async ({ params }) => {
+      // Resolve the real cwd from a jsonl head — the decoded project name is
+      // lossy and would send walkCommands to a non-existent dir, dropping
+      // every project-scoped command (see resolveProjectCwd).
+      const cwd = await resolveProjectCwd(params.project);
+      return { commands: await listSlashCommands(cwd || '') };
+    },
+  );
 
   app.delete<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {
@@ -68,8 +97,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     },
   );
 
-  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', scope?, reason? }.
-  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; scope?: 'once' | 'session' | 'always'; reason?: string } }>(
+  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', scope?, reason?, mode? }.
+  // `mode` (allow only) exits plan mode into the chosen permission mode. Only the two
+  // modes the plan-approval panel offers are honored — the Body type is advisory
+  // (Fastify doesn't enforce it), so anything else (e.g. `bypassPermissions`) is
+  // dropped here to keep a crafted POST from escalating the session's permissions.
+  // `scope` (allow only): 'once' (default), 'session' (remember this server session),
+  // or 'always' (persist for this project cwd).
+  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string; scope?: 'once' | 'session' | 'always'; mode?: 'default' | 'acceptEdits' } }>(
     '/api/permission-decision',
     async (req, reply) => {
       const id = String(req.body?.id || '').trim();
@@ -77,10 +112,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!id || (dec !== 'allow' && dec !== 'deny')) {
         return reply.status(400).send({ error: 'id + decision required' });
       }
+      const mode = dec === 'allow' && (req.body?.mode === 'default' || req.body?.mode === 'acceptEdits') ? req.body.mode : undefined;
       const scope = req.body?.scope === 'session' || req.body?.scope === 'always' ? req.body.scope : 'once';
       const ok = resolvePending(
         id,
-        dec === 'allow' ? { decision: 'allow', scope } : { decision: 'deny', reason: req.body?.reason },
+        dec === 'allow' ? { decision: 'allow', mode, scope } : { decision: 'deny', reason: req.body?.reason },
       );
       return reply.send({ ok });
     },
