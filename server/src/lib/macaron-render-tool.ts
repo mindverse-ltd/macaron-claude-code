@@ -52,8 +52,8 @@ Media/decor: Avatar+AvatarImage+AvatarFallback, Tilt, GlowEffect, ProgressiveBlu
 
 # Sending messages back to chat (interactive widgets)
 - Import from \`$macaron/chat\`: \`import { sendUserMessage } from '$macaron/chat';\`
-- \`sendUserMessage(text)\` or \`sendUserMessage({ text, data })\` posts a message to the chat as if the user typed it, driving the next assistant turn. Use it when a widget action should continue the conversation: form submits, choice confirmations, apply/regenerate buttons, wizard steps.
-- \`text\` is a short user-facing summary of the action (e.g. "Book the 3pm slot"); optional \`data\` is a structured payload appended to the message as a fenced JSON block for you to parse on the next turn.
+- \`sendUserMessage(prompt)\` takes a single string and posts it to the chat as if the user typed it, driving the next assistant turn. Use it when a widget action should continue the conversation: form submits, choice confirmations, apply/regenerate buttons, wizard steps.
+- \`prompt\` is the message the next turn receives — write it as the user would (e.g. "Book the 3pm slot"); fold any structured context the next turn needs directly into that string.
 - Call it ONLY from event handlers or effects, never during render, and at most once per user gesture. For a purely display-only UI, don't call it.
 
 # When to use this tool

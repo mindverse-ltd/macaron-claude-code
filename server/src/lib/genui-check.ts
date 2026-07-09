@@ -48,7 +48,7 @@ const compilerOptions: ts.CompilerOptions = {
 // instead of a TS2307.
 const AMBIENT_DECLARATIONS =
   `declare module "https://*";\ndeclare module "http://*";\n` +
-  `declare module "$macaron/chat" {\n  export type SendUserMessageInput = string | { text: string; data?: unknown };\n  export function sendUserMessage(input: SendUserMessageInput): void;\n}\n`;
+  `declare module "$macaron/chat" {\n  export function sendUserMessage(prompt: string): void;\n}\n`;
 
 const toDiag = (d: ts.Diagnostic): GenUIDiagnostic => {
   const message = diagnosticMessage(ts, d);

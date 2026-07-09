@@ -1480,11 +1480,8 @@ export function Session(props: SessionProps = {}) {
   // looking at owns the bridge.
   useEffect(() => {
     if (!focused) return;
-    const g = globalThis as unknown as { '$app/chat'?: (p: { text: string; data?: unknown }) => void };
-    const bridge = (p: { text: string; data?: unknown }) => {
-      const body = p.data !== undefined ? `${p.text}\n\n\`\`\`json\n${JSON.stringify(p.data, null, 2)}\n\`\`\`` : p.text;
-      void send(body);
-    };
+    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const bridge = (prompt: string) => { void send(prompt); };
     g['$app/chat'] = bridge;
     return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
   }, [focused, send]);

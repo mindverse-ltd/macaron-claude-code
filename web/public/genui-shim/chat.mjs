@@ -4,14 +4,13 @@
 // dispatcher on globalThis['$app/chat'] (see Session.tsx); the preview
 // renders inline (not an iframe) so it shares globalThis with the host. No active
 // bridge = no-op + warn, matching display-only widget semantics.
-const dispatch = (payload) => {
+const dispatch = (text) => {
   const bridge = globalThis['$app/chat'];
   if (!bridge) { console.warn('[genui-shim/chat] no active chat bridge; message dropped'); return; }
-  bridge(payload);
+  bridge(text);
 };
 
-export function sendUserMessage(input) {
-  if (typeof input === 'string') return dispatch({ text: input });
-  if (input && typeof input === 'object' && typeof input.text === 'string') return dispatch({ text: input.text, data: input.data });
-  throw new TypeError('sendUserMessage expects a string or { text, data? }');
+export function sendUserMessage(prompt) {
+  if (typeof prompt !== 'string') throw new TypeError('sendUserMessage expects a string prompt');
+  dispatch(prompt);
 }
