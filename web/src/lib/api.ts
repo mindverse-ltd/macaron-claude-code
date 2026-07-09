@@ -13,8 +13,11 @@ export type {
   PrContext,
   CreatePrRequest,
   CreatePrResult,
+  DirEntry,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
+  WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
   SlashCommand,
@@ -36,8 +39,10 @@ import type {
   PrContext,
   CreatePrRequest,
   CreatePrResult,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
+  WorktreeInfo,
   UsageResponse,
   CommandsResponse,
   ConfigFileId,
@@ -48,9 +53,19 @@ import type {
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
+// Thrown by every non-2xx response. Carries the status so callers can branch on
+// it (e.g. worktree discard's 409 → confirm-dirty prompt) instead of grepping
+// the message string.
+export class HttpError extends Error {
+  constructor(readonly status: number, body: string) {
+    super(`http ${status}: ${body.slice(0, 200)}`);
+    this.name = 'HttpError';
+  }
+}
+
 export async function getJSON<T>(url: string): Promise<T> {
   const r = await authedFetch(url);
-  if (!r.ok) throw new Error(`http ${r.status}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
@@ -105,7 +120,7 @@ export type McpServerInput = {
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
   const r = await authedFetch(url, init);
-  if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
@@ -186,6 +201,8 @@ export const api = {
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+  listDirs: (path?: string) =>
+    getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
   session: (project: string, sid: string) =>
@@ -289,6 +306,11 @@ export const api = {
     }),
   sharedSession: (token: string) =>
     getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
+  worktrees: () => getJSON<{ worktrees: WorktreeInfo[] }>('/api/worktrees'),
+  mergeWorktree: (sid: string) =>
+    req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),
+  discardWorktree: (sid: string, force = false) =>
+    req<{ ok: true }>(`/api/worktrees/${encodeURIComponent(sid)}/discard${force ? '?force=1' : ''}`, { method: 'POST' }),
   listFiles: (project: string, path = '') =>
     getJSON<FileListResponse>(
       `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,

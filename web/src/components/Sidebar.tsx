@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { api, basename, type Workspace, type SessionListItem } from '../lib/api';
+import { api, basename, HttpError, type Workspace, type SessionListItem, type WorktreeInfo } from '../lib/api';
 import { useToast } from './Toast';
+import { useConfirm } from './Confirm';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { DirPicker } from './DirPicker';
+import { encodeClaudeProjectName, setPendingCwd } from '../lib/newSession';
 import { RateLimitMeters } from './RateLimitMeters';
 import {
   getCanvasSids,
@@ -24,6 +27,7 @@ export function Sidebar() {
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
   const [model, setModel] = useState('');
   const [ctxMenu, setCtxMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Per-workspace set of canvas-pinned sids, so the session rows can show
   // + / ✓ toggles. Re-reads from localStorage whenever a canvas changes.
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
@@ -31,9 +35,13 @@ export function Sidebar() {
   const [renamingSid, setRenamingSid] = useState<string>('');
   const [renameDraft, setRenameDraft] = useState<string>('');
   const renameDoneRef = useRef(false);
+  // sessionId → active worktree, so a session row's context menu can offer
+  // merge/discard only for sessions that actually run in a worktree.
+  const [worktrees, setWorktrees] = useState<Record<string, WorktreeInfo>>({});
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const loadData = useCallback(async () => {
     try {
@@ -49,6 +57,10 @@ export function Sidebar() {
         }),
       );
       setWorkspaces(results);
+      try {
+        const wt = await api.worktrees();
+        setWorktrees(Object.fromEntries(wt.worktrees.map((w) => [w.sessionId, w])));
+      } catch {}
     } catch {}
   }, []);
 
@@ -116,6 +128,16 @@ export function Sidebar() {
     return m ? decodeURIComponent(m[1]!) : '';
   })();
 
+  // Directory picker → start a session in any folder on disk. Encode the
+  // chosen path to its project key (claude-cli style), stash the raw cwd for
+  // the first-send POST, then navigate to that workspace so a draft opens.
+  const onPickDir = (cwd: string) => {
+    setPickerOpen(false);
+    const project = encodeClaudeProjectName(cwd);
+    setPendingCwd(project, cwd);
+    navigate(`/w/${encodeURIComponent(project)}`);
+  };
+
 
   const wsMenu = (w: WsData, e: React.MouseEvent) => {
     e.preventDefault();
@@ -170,10 +192,8 @@ export function Sidebar() {
   const sessMenu = (w: WsData, s: SessionListItem, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
+    const wt = worktrees[s.sessionId];
+    const items: MenuItem[] = [
         {
           icon: '◎',
           label: 'Focus Session',
@@ -231,8 +251,55 @@ export function Sidebar() {
             }
           },
         },
-        'separator',
-        {
+    ];
+    if (wt) {
+      items.push('separator', {
+        icon: '⭱',
+        label: wt.dirty ? 'Merge worktree (commit first)' : 'Merge worktree → base',
+        onClick: async () => {
+          try {
+            await api.mergeWorktree(s.sessionId);
+            toast(`merged ${wt.branch} → ${wt.baseBranch}`);
+            loadData();
+          } catch (err) {
+            toast(`merge failed: ${(err as Error).message}`);
+          }
+        },
+      }, {
+        icon: '🗑',
+        label: 'Discard worktree',
+        danger: true,
+        onClick: async () => {
+          const attempt = async (force: boolean) => {
+            await api.discardWorktree(s.sessionId, force);
+            toast(`discarded ${wt.branch}`);
+            loadData();
+          };
+          try {
+            await attempt(false);
+          } catch (err) {
+            // 409 = dirty tree: prompt before force-discarding real work.
+            if (!(err instanceof HttpError) || err.status !== 409) {
+              toast(`discard failed: ${(err as Error).message}`);
+              return;
+            }
+            const ok = await confirm({
+              title: 'Discard dirty worktree?',
+              body: `Uncommitted changes on ${wt.branch} will be lost.`,
+              confirmLabel: 'Discard',
+              destructive: true,
+            });
+            if (!ok) return;
+            try {
+              await attempt(true);
+            } catch (err2) {
+              toast(`discard failed: ${(err2 as Error).message}`);
+            }
+          }
+        },
+      });
+    }
+    items.push('separator', {
           icon: '✕',
           label: 'Delete Session',
           danger: true,
@@ -245,9 +312,8 @@ export function Sidebar() {
               toast(`delete failed: ${(err as Error).message}`);
             }
           },
-        },
-      ],
     });
+    setCtxMenu({ x: e.clientX, y: e.clientY, items });
   };
 
   return (
@@ -262,6 +328,15 @@ export function Sidebar() {
 
       <div className="sb-label">
         <span>WORKSPACES</span>
+        <button
+          type="button"
+          className="sb-new-session"
+          onClick={() => setPickerOpen(true)}
+          title="New session in a folder…"
+          aria-label="New session in a folder"
+        >
+          ＋
+        </button>
       </div>
 
       <div className="sb-ws-list">
@@ -422,6 +497,7 @@ export function Sidebar() {
           onClose={() => setCtxMenu(null)}
         />
       )}
+      {pickerOpen && <DirPicker onPick={onPickDir} onClose={() => setPickerOpen(false)} />}
     </aside>
   );
 }

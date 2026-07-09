@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
@@ -18,7 +19,9 @@ process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = process.env.CLAUDE_CODE_STREAM_CL
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
+import { registerFsRoutes } from './routes/fs.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerWorktreeRoutes } from './routes/worktrees.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
@@ -52,6 +55,11 @@ const app = Fastify({
   ignoreTrailingSlash: true,
   // Allow large request bodies (genui prompts can grow).
   bodyLimit: 2 * 1024 * 1024,
+  // Worktree cwds can be long (deep repo paths encoded as path params), and
+  // Fastify caps a single param at 100 chars by default — a worktree under
+  // .../macaron-genui-demo/.claude/worktrees/<name> blows past it and 414s every
+  // /api/.../:project route. Raise it well above any plausible cwd.
+  maxParamLength: 4000,
 });
 
 // Gate the API/relay behind a shared token when the server is reachable from
@@ -70,7 +78,9 @@ await app.register(async (instance) => {
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
+  await registerFsRoutes(instance);
   await registerSessionRoutes(instance);
+  await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
   await registerGitRoutes(instance);
   await registerShareRoutes(instance);
@@ -112,6 +122,7 @@ if (existsSync(WEB_DIST)) {
 
 try {
   await warmSettingsCache();
+  await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmLabelsCache();

@@ -116,6 +116,8 @@ export type PrContext = {
 export type CreatePrRequest = { title: string; body: string; draft: boolean };
 // `created` is false when we short-circuited to an already-open PR.
 export type CreatePrResult = { url: string; created: boolean };
+export type DirEntry = { name: string; path: string };
+export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
 // to /api/push/subscribe and stored server-side; `notify` is the JSON payload
 // the server ships to the SW's `push` handler (see web/public/sw.js).
@@ -130,6 +132,22 @@ export type PushNotifyPayload = {
   requireInteraction?: boolean;
   // Hash-route the SW opens/focuses on click, e.g. `#/w/:project/s/:sid`.
   url?: string;
+};
+
+// A per-session git worktree: the session's agent runs with cwd pointing at
+// `worktreePath` (a dedicated branch off `baseBranch`), so parallel sessions
+// in one repo never stomp each other's uncommitted changes. `exists` reflects
+// whether the worktree dir is still on disk (users can delete it manually);
+// `dirty` is set from `git status --porcelain` when the tree is present.
+export type WorktreeInfo = {
+  sessionId: string;
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseBranch: string;
+  status: 'active' | 'merged' | 'discarded';
+  exists: boolean;
+  dirty?: boolean;
 };
 
 // Rate-limit / usage state for the active Claude subscription, read from the
