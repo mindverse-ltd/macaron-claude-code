@@ -8,6 +8,7 @@
 // Session subscribes and gets the current buffer + live updates.
 
 import { extractPartialCode } from './partialJson';
+import { authedFetch } from './auth';
 
 // A single item on the timeline. Text chunks and tool calls are stored in
 // one ordered list so the UI renders them in the exact interleaved order
@@ -30,6 +31,7 @@ export type LiveTurnItem =
       permissionId: string;
       toolName: string;
       input: unknown;
+      suggestion?: { label: string };
       status: 'pending' | 'allow' | 'deny';
     };
 
@@ -61,6 +63,11 @@ function appendText(items: LiveTurnItem[], text: string): void {
 
 const states = new Map<string, LiveState>();
 const watchers = new Map<string, Set<(s: LiveState) => void>>();
+// Follow-up suggestions are an "add-on" stream: they arrive AFTER the main
+// turn's `done` (which clears the live store), so they ride a separate
+// channel with its own subscribers — independent of `states`/`watchers`
+// lifecycle. This keeps the main turn's stop semantics untouched.
+const followupWatchers = new Map<string, Set<(text: string) => void>>();
 
 export function getLive(sid: string): LiveState | undefined {
   return states.get(sid);
@@ -92,6 +99,22 @@ export function clearLive(sid: string): void {
   watchers.delete(sid);
 }
 
+// Subscribe to the add-on follow-up stream for a session. Callback fires per
+// text delta. Independent of clearLive — the main turn may finish (and clear
+// the live store) before any follow-up arrives, so this channel outlives it.
+export function subscribeFollowup(sid: string, cb: (text: string) => void): () => void {
+  let set = followupWatchers.get(sid);
+  if (!set) {
+    set = new Set();
+    followupWatchers.set(sid, set);
+  }
+  set.add(cb);
+  return () => {
+    set!.delete(cb);
+    if (set!.size === 0) followupWatchers.delete(sid);
+  };
+}
+
 export type NewSessionOptions = {
   text: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -108,7 +131,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
   return new Promise((resolve, reject) => {
     let resolved = false;
     let sid = '';
-    fetch(`/api/workspaces/${encodeURIComponent(project)}/sessions`, {
+    authedFetch(`/api/workspaces/${encodeURIComponent(project)}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -230,6 +253,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                     permissionId: p.id,
                     toolName: p.toolName,
                     input: p.input,
+                    suggestion: p.suggestion,
                     status: 'pending',
                   });
                   notify(sid);
@@ -251,6 +275,10 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                   s.outputTokens = p.outputTokens;
                   notify(sid);
                 }
+              } else if (sid && p.type === 'followup_delta') {
+                // Rides the independent follow-up channel — survives clearLive
+                // (the main turn's `done` clears states before this arrives).
+                followupWatchers.get(sid)?.forEach((cb) => cb(p.text));
               } else if (sid && p.type === 'done') {
                 const s = states.get(sid);
                 if (s) {

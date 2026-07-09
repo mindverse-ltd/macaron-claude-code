@@ -57,10 +57,11 @@ export function NotifyStack() {
   if (items.length === 0) return null;
 
   const handleClick = (it: NotifyItem) => {
-    // Navigate to the session's Workspace route — the route effect there
-    // auto-adds the sid to canvas + focuses it, so a click always lands the
-    // user in front of the session that finished.
-    if (it.project && it.sid) {
+    // Priority order for click target — see NotifyOptions for the rationale.
+    // Codex passes `href` (its routes differ from Claude's `/w/:project/s/:sid`).
+    if (it.href) {
+      navigate(it.href);
+    } else if (it.project && it.sid) {
       navigate(`/w/${encodeURIComponent(it.project)}/s/${encodeURIComponent(it.sid)}`);
     }
     try {
