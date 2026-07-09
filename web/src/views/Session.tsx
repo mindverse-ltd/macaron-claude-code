@@ -4,8 +4,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, basename, type Message, type SessionDetail } from '../lib/api';
 import { streamSession } from '../lib/sse';
-import { getLive, subscribeLive, clearLive, startNewSession } from '../lib/liveStore';
-import { extractPartialCode } from '../lib/partialJson';
+import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
+import { hasActiveModal } from '../lib/modal';
+import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import {
   THINKING_VERBS,
   SPINNER_FRAMES,
@@ -62,7 +63,7 @@ type Item =
   | { id: string; kind: 'live-assistant'; text: string }
   // Pending / resolved permission gate. Rendered as an inline card with
   // Allow/Deny buttons while `status === 'pending'`.
-  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; status: 'pending' | 'allow' | 'deny' };
+  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; suggestion?: { label: string }; status: 'pending' | 'allow' | 'deny' };
 
 const TODO_WRITE_NAMES = new Set(['TodoWrite', 'todo_write']);
 const isTodoWriteTool = (name: string) => TODO_WRITE_NAMES.has(name);
@@ -552,19 +553,21 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   );
 }
 
-// Inline permission gate — Allow / Deny buttons that POST the decision back
-// so the SDK's canUseTool callback resumes with the user's choice.
+// Inline permission gate. Deny / Allow-once always show; Session / Always
+// appear when the server sent a `suggestion` (i.e. there's a concrete rule to
+// remember) and POST the decision with a scope so canUseTool persists it.
 function PermissionItem({
   it,
   onDecide,
 }: {
   it: Extract<Item, { kind: 'permission' }>;
-  onDecide: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onDecide: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
 }) {
   // Only pending gates are worth showing — once resolved, the tool block
   // above already tells the story (Bash ran / didn't run).
   if (it.status !== 'pending') return null;
   const header = toolHeader(it.toolName, it.input);
+  const remember = it.suggestion?.label;
   return (
     <div className="ti-perm">
       <span className="ti-perm-icon">🔒</span>
@@ -586,11 +589,31 @@ function PermissionItem({
         </button>
         <button
           type="button"
-          className="primary small"
-          onClick={() => onDecide(it.permissionId, 'allow')}
+          className="ghost small"
+          onClick={() => onDecide(it.permissionId, 'allow', 'once')}
         >
-          Allow
+          Allow once
         </button>
+        {remember && (
+          <button
+            type="button"
+            className="ghost small"
+            title={`Don't ask again this session for: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'session')}
+          >
+            Session
+          </button>
+        )}
+        {remember && (
+          <button
+            type="button"
+            className="primary small"
+            title={`Always allow in this project: ${remember}`}
+            onClick={() => onDecide(it.permissionId, 'allow', 'always')}
+          >
+            Always
+          </button>
+        )}
       </span>
     </div>
   );
@@ -603,7 +626,7 @@ function ItemView({
 }: {
   it: Item;
   onRewind?: (uuid: string) => void;
-  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny') => void;
+  onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', scope?: 'once' | 'session' | 'always') => void;
 }) {
   switch (it.kind) {
     case 'user':
@@ -803,6 +826,35 @@ export function Session(props: SessionProps = {}) {
     });
   }, [sending, polling, sid, project]);
   const [liveUser, setLiveUser] = useState<string>('');
+  // Raw follow-up text streamed after each turn (a throwaway cache-hit
+  // query). Parsed incrementally with partial-json. Deltas can arrive from a
+  // stream that a newer send / session switch already superseded (e.g. click
+  // a chip and send while the previous follow-up is still streaming), so
+  // every producer captures its generation and stale deltas are dropped.
+  const [followupRaw, setFollowupRaw] = useState('');
+  const followupGen = useRef(0);
+  const followups = useMemo(() => parseFollowups(followupRaw), [followupRaw]);
+  // The row keeps a reserved slot (so streaming chips don't shove the thread
+  // up) ONLY while the feature is on — when it's off there's nothing to wait
+  // for, so we collapse the space entirely. Fetched once on mount.
+  const [followupsEnabled, setFollowupsEnabled] = useState(false);
+  useEffect(() => { api.settings().then((s) => setFollowupsEnabled(s.followupSuggestions)).catch(() => {}); }, []);
+  // Clear the chips and invalidate any deltas still streaming from a superseded
+  // follow-up query, atomically. Returns the new generation so a producer can
+  // capture it as its token; call sites that only need to reset ignore it.
+  const resetFollowups = useCallback(() => { setFollowupRaw(''); return ++followupGen.current; }, []);
+  // First-turn follow-ups stream over an independent live-store channel that
+  // outlives the main turn's `done` (which clears the live store). 2nd+ turns
+  // deliver follow-ups via streamSession's onFollowupDelta instead. Not gated
+  // on isPending — the canvas path flips it right at `done`, before the
+  // follow-up stream even starts.
+  useEffect(() => {
+    const gen = resetFollowups();
+    return subscribeFollowup(sid, (text) => {
+      if (followupGen.current !== gen) return;
+      setFollowupRaw((prev) => prev + text);
+    });
+  }, [sid]);
   // Single ordered timeline for the current turn: text chunks and tool
   // calls/permissions are interleaved in the same array so the render
   // matches Claude's actual "text → tool → text → tool" sequencing. Previous
@@ -959,7 +1011,7 @@ export function Session(props: SessionProps = {}) {
   // linger in "pending" — the server will echo a permission_resolved event
   // that overwrites the same status field anyway.
   const handlePermissionDecide = useCallback(
-    (permissionId: string, decision: 'allow' | 'deny') => {
+    (permissionId: string, decision: 'allow' | 'deny', scope: 'once' | 'session' | 'always' = 'once') => {
       setLiveTurn((cur) =>
         cur.map((t) =>
           t.kind === 'permission' && t.permissionId === permissionId
@@ -967,7 +1019,7 @@ export function Session(props: SessionProps = {}) {
             : t,
         ),
       );
-      api.permissionDecision(permissionId, decision).catch((e) => {
+      api.permissionDecision(permissionId, decision, { scope }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
     },
@@ -1025,7 +1077,7 @@ export function Session(props: SessionProps = {}) {
       bypassPermissions: 'Bypass all',
     };
     const onKey = (e: Event) => {
-      if (!focused) return; // canvas tiles only respond when active
+      if (!focused || hasActiveModal()) return; // canvas tiles only respond when active and no modal is covering them
       const ke = e as unknown as { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void };
       if (ke.key !== 'Tab' || !ke.shiftKey || ke.ctrlKey || ke.metaKey || ke.altKey) return;
       ke.preventDefault();
@@ -1073,6 +1125,7 @@ export function Session(props: SessionProps = {}) {
               permissionId: t.permissionId,
               toolName: t.toolName,
               input: t.input,
+              suggestion: t.suggestion,
               status: t.status,
             };
           }
@@ -1112,6 +1165,9 @@ export function Session(props: SessionProps = {}) {
         setPolling(false);
         setSending(false);
         clearLive(sid);
+        // Follow-up suggestions stream AFTER `done` over an independent
+        // channel (subscribeFollowup), so clearing the live store here is
+        // safe — the stop semantics are identical to before the feature.
         // Let the parent (draft-tile owner) drop this sid from its
         // pending set so a later refresh doesn't re-enter this branch.
         onPendingConsumed?.();
@@ -1136,6 +1192,26 @@ export function Session(props: SessionProps = {}) {
   const total = items.length;
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
+
+  // Opening an already-idle session (last item is an assistant reply, nothing
+  // streaming) surfaces follow-ups too — not only the instant a turn ends.
+  // Fires once per sid: after our OWN turn `onDone` flips `sending` false while
+  // the message stream is still open, so without this latch the effect would
+  // re-run and fire a duplicate /followups query — bumping the generation and
+  // starving the in-flight post-turn deltas. sid change ⇒ remount ⇒ ref resets.
+  const lastItemKind = items[items.length - 1]?.kind;
+  const idleFollowupFired = useRef(false);
+  useEffect(() => {
+    if (isNew || isPending || sending || polling) return;
+    if (lastItemKind !== 'assistant' || followupRaw || idleFollowupFired.current) return;
+    idleFollowupFired.current = true;
+    const gen = ++followupGen.current;
+    void streamSession(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/followups`,
+      {},
+      { onFollowupDelta: (t) => { if (followupGen.current === gen) setFollowupRaw((prev) => prev + t); } },
+    );
+  }, [project, sid, isNew, isPending, sending, polling, lastItemKind]);
 
   // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
   // The status bar mirrors the current in-progress task + progress fraction.
@@ -1208,13 +1284,20 @@ export function Session(props: SessionProps = {}) {
   }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
-    async (e?: FormEvent) => {
-      e?.preventDefault();
-      const text = input.trim();
+    async (e?: FormEvent | string) => {
+      // A string arg is a programmatic send (the $macaron/chat bridge); a
+      // FormEvent is the composer submit. Bridge text bypasses the input box.
+      const override = typeof e === 'string' ? e : undefined;
+      if (typeof e !== 'string') e?.preventDefault();
+      const text = (override ?? input).trim();
       if ((!text && images.length === 0) || sending) return;
-      const sentImages = images;
-      setInput('');
-      setImages([]);
+      // A bridge send carries only its own text — leave the user's in-progress
+      // composer draft and attachments untouched.
+      const sentImages = override ? [] : images;
+      if (!override) { setInput(''); setImages([]); }
+      // New turn ⇒ new follow-up generation: clears the chips and invalidates
+      // any deltas still streaming from the previous turn's follow-up query.
+      const fGen = resetFollowups();
       // Persist to prompt history + reset navigation state.
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
@@ -1327,7 +1410,7 @@ export function Session(props: SessionProps = {}) {
               }
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
-          onPermissionRequest: ({ id, toolName, input }) => {
+          onPermissionRequest: ({ id, toolName, input, suggestion }) => {
             // Nudge the user via native notification when a tool needs
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
@@ -1353,6 +1436,7 @@ export function Session(props: SessionProps = {}) {
                 permissionId: id,
                 toolName,
                 input,
+                suggestion,
                 status: 'pending',
               },
             ]);
@@ -1404,11 +1488,28 @@ export function Session(props: SessionProps = {}) {
             // and a page refresh reloads the canonical jsonl.
             setSending(false);
           },
+          onFollowupDelta: (t) => {
+            if (followupGen.current === fGen) setFollowupRaw((prev) => prev + t);
+          },
         },
       );
     },
     [project, sid, input, sending, load, images, permissionMode, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
+
+  // Chat bridge: a sandboxed render_ui widget imports sendUserMessage from
+  // '$macaron/chat', and the shim (web/public/genui-shim/chat.mjs) dispatches
+  // the payload to this host global slot ('$app/chat'), which relays it into
+  // send() as a programmatic user turn. Only the focused session registers —
+  // canvas multi-tile mounts share one slot, so the widget the user is actually
+  // looking at owns the bridge.
+  useEffect(() => {
+    if (!focused) return;
+    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const bridge = (prompt: string) => { void send(prompt); };
+    g['$app/chat'] = bridge;
+    return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
+  }, [focused, send]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1505,6 +1606,28 @@ export function Session(props: SessionProps = {}) {
       */}
       <div className="thread tui" ref={threadRef}>
         {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
+        {/* Suggested follow-ups from the throwaway cache-hit query. Rendered
+            ABOVE liveTurn in DOM (so BELOW it visually — column-reverse)
+            i.e. just above the input area, right under the latest reply.
+            Clicking fills the textarea (setInput), doesn't auto-send. The row
+            stays mounted (reserving its height) whenever the feature is on so
+            chips streaming in never shift the thread; off ⇒ no slot at all. */}
+        {followupsEnabled && !isNew && (
+          <div className="ti-followups">
+            {followups.map((q, i) => (
+              <button
+                key={`${q}-${i}`}
+                className="ti-followup-chip"
+                onClick={() => {
+                  resetFollowups();
+                  setInput(q);
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Single ordered timeline for the current turn. Items are appended
             to `liveTurn` in exact SSE arrival order, so reversing here
             (thread is column-reverse) puts the newest at the visual bottom
@@ -1603,10 +1726,10 @@ export function Session(props: SessionProps = {}) {
         )}
         <textarea
           rows={2}
-          placeholder="Reply to Claude…"
+          placeholder={sending ? 'Draft next message…' : 'Reply to Claude…'}
           value={input}
-          disabled={sending}
           onChange={(e) => {
+            if (followupRaw) resetFollowups();
             setInput(e.target.value);
             // Any manual edit exits history-navigation mode — pressing
             // Send now sends the (possibly edited) text as a fresh entry.
