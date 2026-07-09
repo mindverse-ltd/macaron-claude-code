@@ -54,8 +54,8 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     },
   );
 
-  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', reason? }.
-  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; reason?: string } }>(
+  // Resolve a pending canUseTool call — { id, decision:'allow'|'deny', scope?, reason? }.
+  app.post<{ Body: { id?: string; decision?: 'allow' | 'deny'; scope?: 'once' | 'session' | 'always'; reason?: string } }>(
     '/api/permission-decision',
     async (req, reply) => {
       const id = String(req.body?.id || '').trim();
@@ -63,9 +63,10 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       if (!id || (dec !== 'allow' && dec !== 'deny')) {
         return reply.status(400).send({ error: 'id + decision required' });
       }
+      const scope = req.body?.scope === 'session' || req.body?.scope === 'always' ? req.body.scope : 'once';
       const ok = resolvePending(
         id,
-        dec === 'allow' ? { decision: 'allow' } : { decision: 'deny', reason: req.body?.reason },
+        dec === 'allow' ? { decision: 'allow', scope } : { decision: 'deny', reason: req.body?.reason },
       );
       return reply.send({ ok });
     },
@@ -305,7 +306,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
             safeSend({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
           }
           else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-          else if (ev.kind === 'permission_request') safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input });
+          else if (ev.kind === 'permission_request') safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion });
           else if (ev.kind === 'permission_resolved') safeSend({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
           else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
           else if (ev.kind === 'message') safeSend({ type: 'event', event: 'system', subtype: ev.subtype });
