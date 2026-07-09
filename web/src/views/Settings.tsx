@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type ConfigFileMeta } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { getPushState, subscribeToPush, unsubscribeFromPush, type PushState } from '../lib/pwa';
 import {
   SOUND_EVENTS,
   SOUND_PACKS,
@@ -22,12 +23,32 @@ export function Settings() {
     | { id: string | null; draft: ProviderInput; existingConfigured: boolean }
   >(null);
   const [busy, setBusy] = useState(false);
+  const [pushState, setPushState] = useState<PushState>('unsupported');
   const toast = useToast();
   const confirm = useConfirm();
 
   useEffect(() => {
     api.settings().then(setSettings).catch((e) => setError((e as Error).message));
   }, []);
+
+  useEffect(() => {
+    void getPushState().then(setPushState);
+  }, []);
+
+  const togglePush = async (next: boolean) => {
+    setBusy(true);
+    try {
+      const s = next ? await subscribeToPush() : await unsubscribeFromPush();
+      setPushState(s);
+      if (next && s === 'denied') toast('notifications blocked — enable them for this site in your browser');
+      else if (next && s === 'subscribed') toast('push notifications on');
+      else if (!next) toast('push notifications off');
+    } catch (e) {
+      toast(`error: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const activate = async (providerId: string) => {
     if (!settings) return;
@@ -325,6 +346,41 @@ export function Settings() {
             <div className="prov-card-sub">
               After a clean Claude turn, run one extra throwaway model call to suggest next questions. Off by default because it spends tokens.
             </div>
+          </div>
+        </label>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-row-head">
+          <h2 className="sec-title">Notifications</h2>
+        </div>
+        <label className={`prov-card${pushState === 'subscribed' ? ' active' : ''}`}>
+          <input
+            type="checkbox"
+            checked={pushState === 'subscribed'}
+            onChange={(e) => void togglePush(e.target.checked)}
+            disabled={busy || pushState === 'unsupported' || pushState === 'denied'}
+          />
+          <div className="prov-card-body">
+            <div className="prov-card-head">
+              <span className="prov-name">Push notifications</span>
+              <span className={`prov-tag ${pushState === 'subscribed' ? 'ok' : 'bad'}`}>
+                {pushState === 'subscribed' ? 'on' : pushState === 'denied' ? 'blocked' : pushState === 'unsupported' ? 'unavailable' : 'off'}
+              </span>
+            </div>
+            <div className="prov-card-sub">
+              Get a system notification when a session finishes a turn or needs a permission decision — even with the tab closed.
+            </div>
+            {pushState === 'unsupported' && (
+              <div className="prov-card-sub">
+                Unavailable here. Web Push needs a secure (HTTPS) origin; on iOS you must first <strong>Add to Home Screen</strong> and open the installed app.
+              </div>
+            )}
+            {pushState === 'denied' && (
+              <div className="prov-card-sub">
+                Blocked. Re-enable notifications for this site in your browser settings, then reload.
+              </div>
+            )}
           </div>
         </label>
       </div>
