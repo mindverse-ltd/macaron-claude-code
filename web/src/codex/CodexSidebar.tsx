@@ -7,6 +7,7 @@ import {
   focusCanvasSid,
   subscribeCanvas,
 } from '../lib/canvas';
+import { subscribeSystemEvents } from '../lib/systemEvents';
 
 type WsData = CodexWorkspace & { sessions: CodexThread[] };
 
@@ -58,7 +59,15 @@ export function CodexSidebar() {
       })
       .catch(() => setStatus('bad'));
     const t = setInterval(load, 10_000);
-    return () => clearInterval(t);
+    // Refresh immediately when a codex rollout changes on disk (e.g. a
+    // terminal-started `codex` run); interval stays as a fallback.
+    const unsub = subscribeSystemEvents((ev) => {
+      if (ev.engine === 'codex') void load();
+    });
+    return () => {
+      clearInterval(t);
+      unsub();
+    };
   }, [load]);
 
   // Auto-expand the workspace that owns the active thread OR is the current
