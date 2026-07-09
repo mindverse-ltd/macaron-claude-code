@@ -1,0 +1,68 @@
+name: PR conflict autopilot
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect conflicted PRs
+        id: conflicts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          owner="${REPO%/*}"
+          repo="${REPO#*/}"
+          query_pr='query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { number title url isDraft baseRefName headRefName headRefOid mergeable mergeStateStatus } } }'
+          query_open='query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) { pullRequests(first:100, states:OPEN, orderBy:{field:UPDATED_AT, direction:DESC}) { nodes { number title url isDraft baseRefName headRefName headRefOid mergeable mergeStateStatus } } } }'
+
+          fetch_pr() { gh api graphql -f owner="$owner" -f repo="$repo" -F number="$1" -f query="$query_pr"; }
+          fetch_open() { gh api graphql -f owner="$owner" -f repo="$repo" -f query="$query_open"; }
+
+          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+            for attempt in 1 2 3; do
+              payload="$(fetch_pr "$PR_NUMBER")"
+              mergeable="$(jq -r '.data.repository.pullRequest.mergeable // "UNKNOWN"' <<<"$payload")"
+              merge_state="$(jq -r '.data.repository.pullRequest.mergeStateStatus // "UNKNOWN"' <<<"$payload")"
+              [[ "$mergeable" != "UNKNOWN" && "$merge_state" != "UNKNOWN" ]] && break
+              sleep 10
+            done
+            jq '[.data.repository.pullRequest] | map(select(.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY"))' <<<"$payload" > conflicted-prs.json
+          else
+            for attempt in 1 2 3; do
+              payload="$(fetch_open)"
+              unknown_count="$(jq '[.data.repository.pullRequests.nodes[] | select((.mergeable // "UNKNOWN") == "UNKNOWN" or (.mergeStateStatus // "UNKNOWN") == "UNKNOWN")] | length' <<<"$payload")"
+              [[ "$unknown_count" == "0" ]] && break
+              sleep 10
+            done
+            jq '[.data.repository.pullRequests.nodes[] | select(.mergeable == "CONFLICTING" or .mergeStateStatus == "DIRTY")]' <<<"$payload" > conflicted-prs.json
+          fi
+
+          count="$(jq 'length' conflicted-prs.json)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          jq . conflicted-prs.json
+
+      - name: Trigger Multica
+        if: steps.conflicts.outputs.count != '0'
+        env:
+          WEBHOOK_URL: ${{ secrets.MULTICA_PR_CONFLICT_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test -n "$WEBHOOK_URL"
+          jq -n --arg source github_actions --arg event "$EVENT_NAME" --arg repository "$REPO" --slurpfile prs conflicted-prs.json '{source:$source,event:$event,repository:$repository,conflicted_pull_requests:$prs[0]}' > multica-payload.json
+          curl -fsS -X POST "$WEBHOOK_URL" -H 'content-type: application/json' --data-binary @multica-payload.json
