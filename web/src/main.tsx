@@ -35,6 +35,7 @@ import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
+import { ShareView } from './views/ShareView';
 import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
@@ -91,6 +92,9 @@ const router = createHashRouter([
       { path: 'w/:project/s/:sid', element: <Workspace /> },
     ],
   },
+  // Public read-only share viewer — a sibling of <App> so it renders WITHOUT
+  // the sidebar/composer chrome. Reuses the same GenUI boot below.
+  { path: 'share/:token', element: <ShareView /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

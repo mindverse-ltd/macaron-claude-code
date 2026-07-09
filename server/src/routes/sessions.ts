@@ -9,6 +9,7 @@ import {
   writeCompactedSession,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
+import { setLabel, deleteLabel } from '../lib/label-store.js';
 import { liveGet } from '../lib/live-registry.js';
 import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
 import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
@@ -36,11 +37,22 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   app.delete<{ Params: Params }>('/api/sessions/claude/:project/:sid', async ({ params }, reply) => {
     try {
       await deleteSession(params.project, params.sid);
+      await deleteLabel(params.sid);
       return { ok: true };
     } catch (e) {
       return reply.status(404).send({ error: (e as Error).message });
     }
   });
+
+  // Rename: set (or clear, when blank) a human label for this session. The
+  // label lives in a macaron sidecar, not the Claude-owned jsonl.
+  app.patch<{ Params: Params; Body: { name?: string } }>(
+    '/api/sessions/claude/:project/:sid/label',
+    async (req, reply) => {
+      const label = await setLabel(req.params.sid, String(req.body?.name ?? ''));
+      return reply.send({ ok: true, label });
+    },
+  );
 
   // Duplicate: clone the jsonl to a fresh sid so both can be resumed
   // independently. Sidebar's context menu wires to this.
