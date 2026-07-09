@@ -36,6 +36,7 @@ import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
 import { ShareView } from './views/ShareView';
+import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { AuthGate } from './components/AuthGate';
@@ -84,6 +85,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'mcp', element: <Mcp /> },
       { path: 'w/:project', element: <Workspace /> },
       { path: 'w/:project/files', element: <FileExplorer /> },
       { path: 'w/:project/s/:sid', element: <Workspace /> },
