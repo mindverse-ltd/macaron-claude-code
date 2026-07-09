@@ -109,6 +109,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
           capturedSid = ev.sessionId;
           safeSend({ type: 'meta', sessionId: capturedSid });
         } else if (ev.kind === 'delta') safeSend({ type: 'delta', text: ev.text });
+        else if (ev.kind === 'reasoning') safeSend({ type: 'reasoning', text: ev.text });
         else if (ev.kind === 'tool_use') safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
         else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });

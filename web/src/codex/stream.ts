@@ -7,6 +7,7 @@ export type CodexStreamEvent =
   | { type: 'starting'; cwd?: string }
   | { type: 'meta'; sessionId: string; cwd?: string }
   | { type: 'delta'; text: string }
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
@@ -17,6 +18,7 @@ export type CodexStreamEvent =
 export type CodexStreamHandlers = {
   onMeta?: (sessionId: string, cwd?: string) => void;
   onDelta?: (text: string) => void;
+  onReasoning?: (text: string) => void;
   onToolUse?: (ev: Extract<CodexStreamEvent, { type: 'tool_use' }>) => void;
   onToolResult?: (ev: Extract<CodexStreamEvent, { type: 'tool_result' }>) => void;
   onEvent?: (subtype: string) => void;
@@ -55,6 +57,7 @@ async function pump(resp: Response, h: CodexStreamHandlers): Promise<void> {
       switch (p.type) {
         case 'meta': h.onMeta?.(p.sessionId, p.cwd); break;
         case 'delta': h.onDelta?.(p.text); break;
+        case 'reasoning': h.onReasoning?.(p.text); break;
         case 'tool_use': h.onToolUse?.(p); break;
         case 'tool_result': h.onToolResult?.(p); break;
         case 'event': h.onEvent?.(p.subtype); break;

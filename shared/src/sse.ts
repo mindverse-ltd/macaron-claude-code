@@ -8,6 +8,9 @@ export type SessionStreamEvent =
   | { type: 'starting'; cwd: string }
   | { type: 'user-text'; text: string }
   | { type: 'delta'; text: string }
+  // Reasoning/thinking stream, distinct from assistant `delta` so the client
+  // can style/collapse it as its own block rather than inline prose.
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_input_delta'; id: string; name: string; partial_json: string; accumulated: string }
   | { type: 'tool_input_done'; id: string; name: string; final_json: string }
