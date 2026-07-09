@@ -1040,6 +1040,72 @@ textarea:focus, select:focus, input:focus {
   margin-top: 18px;
 }
 
+/* ---------- Config files editor ---------- */
+.cfg-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.cfg-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.cfg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.cfg-tab:hover:not(:disabled) { border-color: var(--text-2); }
+.cfg-tab.active {
+  border-color: var(--accent);
+  background: rgba(238, 92, 42, 0.06);
+  color: var(--text);
+}
+.cfg-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.cfg-tab-new {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.cfg-editor {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  tab-size: 2;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  white-space: pre;
+  overflow: auto;
+}
+.cfg-editor:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.cfg-editor:disabled { opacity: 0.6; }
+.settings-hint.cfg-bad { color: #d4574a; font-family: var(--font-mono); white-space: pre-wrap; }
+.settings-hint.cfg-dirty { color: var(--accent); margin: 0; }
+
 /* ---------- inline images in a message ---------- */
 .ti-image-row {
   display: flex;
