@@ -21,7 +21,12 @@ export function loadRuntimePref(project: string): CodexRuntimeOverride {
 
 export function saveRuntimePref(project: string, pref: CodexRuntimeOverride): void {
   try {
-    localStorage.setItem(storageKey(project), JSON.stringify(pref));
+    // Never persist the danger tier: it applies to the current turn (kept in
+    // the picker's in-memory state), but writing it to localStorage would
+    // silently arm full-access on every later thread in this workspace. Drop
+    // it so a reloaded thread falls back to the global sandbox default.
+    const safe = pref.sandboxMode === 'danger-full-access' ? { ...pref, sandboxMode: undefined } : pref;
+    localStorage.setItem(storageKey(project), JSON.stringify(safe));
   } catch {
     /* quota / private mode — ignore */
   }

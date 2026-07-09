@@ -387,8 +387,8 @@ export function CodexChat(props: CodexChatProps = {}) {
             <div className="cx-home-inner">
               <h1 className="cx-home-title">What can I help with?</h1>
               <p className="cx-home-sub">
-                Codex will run in your working directory with the sandbox / approval mode you
-                configured in Settings.
+                Codex will run in your working directory with the effort / sandbox / approval
+                mode set on the composer below.
               </p>
             </div>
           </div>

@@ -4,7 +4,7 @@
 // sessions don't have to share one setting. Each unset knob inherits the
 // global config on the server. The choice is persisted per workspace.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   codexApi,
   type CodexApprovalPolicy,
@@ -52,7 +52,7 @@ function Chip({ prefix, label, value, options, autoLabel, disabled, onChange }: 
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="cx-provider-chip cx-runtime-chip" title={`${prefix} · ${value || `auto (${autoLabel})`}`}>
+    <div className="cx-provider-chip cx-runtime-chip" title={`${prefix} · ${value || (autoLabel ? `auto (${autoLabel})` : 'auto')}`}>
       <span className="cx-provider-chip-label">{label}</span>
       <select
         className="cx-provider-chip-select"
@@ -75,16 +75,27 @@ export function CodexRuntimePicker({ project, onChange, disabled }: {
 }) {
   const defaults = useDefaults();
   const [ov, setOv] = useState<CodexRuntimeOverride>({});
+  const prevProjectRef = useRef<string | null>(null);
+  const editedRef = useRef(false);
 
   // Load the persisted choice whenever the workspace changes, and surface it
   // to the parent so the very first turn already carries the override.
   useEffect(() => {
+    const prev = prevProjectRef.current;
+    prevProjectRef.current = project;
+    // On the standalone /t/:sid route `project` starts '' and flips to the
+    // real id once codexApi.thread(sid) resolves — re-firing this effect. Skip
+    // that async flip when the user already toggled a chip so we don't stomp
+    // their visible choice (and re-push a stale override to the parent). A
+    // genuine workspace switch (real → real) still reloads that project's pref.
+    if (prev === '' && project !== '' && editedRef.current) return;
     const pref = loadRuntimePref(project);
     setOv(pref);
     onChange(pref);
   }, [project, onChange]);
 
   const patch = (next: CodexRuntimeOverride) => {
+    editedRef.current = true;
     setOv(next);
     saveRuntimePref(project, next);
     onChange(next);

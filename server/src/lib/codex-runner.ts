@@ -152,8 +152,10 @@ function buildOptions(override?: CodexRuntimeOverride): { codex: CodexOptions; t
 
   if (!p) {
     // System pass-through — inherit everything from ~/.codex/config.toml.
-    // The effort override is the exception: system mode has no provider to
-    // read it from, so we thread it through only when the caller set one.
+    // The override fields are the exception: system mode has no provider to
+    // read them from, so we thread them through only when the caller set one
+    // (a bare `override?.x`, no global fallback — an explicit `false` for
+    // webSearchEnabled must be preserved, not collapsed against a default).
     return {
       codex: {
         codexPathOverride: CODEX_BINARY,
@@ -163,6 +165,7 @@ function buildOptions(override?: CodexRuntimeOverride): { codex: CodexOptions; t
         sandboxMode,
         approvalPolicy,
         modelReasoningEffort: override?.reasoningEffort,
+        webSearchEnabled: override?.webSearchEnabled,
         skipGitRepoCheck: true,
       },
     };

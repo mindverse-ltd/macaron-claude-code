@@ -17,19 +17,26 @@ import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
 import { CODEX_SYSTEM_PROVIDER_ID, createCodexProvider, deleteCodexProvider, readPublicCodexSettings, setActiveCodexProvider, updateCodexProvider, updateCodexRuntime, } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+// Known enum unions (must match @openai/codex-sdk's ModelReasoningEffort /
+// SandboxMode / ApprovalMode). A persisted override is client-controlled and
+// survives across turns, so an unknown or empty-string value here would wedge
+// every future turn in the workspace — validate and drop anything off-enum so
+// the field falls back to the global default instead.
+const EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh']);
+const SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+const APPROVALS = new Set(['never', 'on-request', 'on-failure', 'untrusted']);
 // Pull the per-turn runtime override off a request body, keeping only the
-// fields the client actually sent. Mirrors the light typeof checks used by
-// the /config/runtime handler — codex rejects any bad enum value downstream.
+// fields the client actually sent and whose values are valid enum members.
 function pickRuntimeOverride(b) {
     const r = b?.runtime;
     if (!r || typeof r !== 'object')
         return undefined;
     const o = {};
-    if (typeof r.reasoningEffort === 'string')
+    if (typeof r.reasoningEffort === 'string' && EFFORTS.has(r.reasoningEffort))
         o.reasoningEffort = r.reasoningEffort;
-    if (typeof r.sandboxMode === 'string')
+    if (typeof r.sandboxMode === 'string' && SANDBOXES.has(r.sandboxMode))
         o.sandboxMode = r.sandboxMode;
-    if (typeof r.approvalPolicy === 'string')
+    if (typeof r.approvalPolicy === 'string' && APPROVALS.has(r.approvalPolicy))
         o.approvalPolicy = r.approvalPolicy;
     if (typeof r.webSearchEnabled === 'boolean')
         o.webSearchEnabled = r.webSearchEnabled;
