@@ -25,6 +25,12 @@ const THEME = {
   white: '#5D584A', brightWhite: '#3D3929',
 };
 
+// xterm measures text with OffscreenCanvas in modern browsers; canvas font
+// parsing does not resolve CSS custom properties, so keep this as a concrete
+// monospace stack instead of var(--font-mono).
+const TERMINAL_FONT =
+  'ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace';
+
 export function Terminal({ project, sid, focused }: { project: string; sid: string; focused: boolean }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -35,7 +41,7 @@ export function Terminal({ project, sid, focused }: { project: string; sid: stri
     if (!host) return;
 
     const term = new XTerm({
-      fontFamily: 'var(--font-mono), ui-monospace, Menlo, Consolas, monospace',
+      fontFamily: TERMINAL_FONT,
       fontSize: 12.5,
       theme: THEME,
       cursorBlink: true,
