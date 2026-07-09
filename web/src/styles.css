@@ -1793,6 +1793,25 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   flex-direction: column;
 }
+/* PTY terminal tile: the xterm host fills the tile body. Padding gives the
+   shell a little breathing room from the tile border; xterm's own canvas
+   handles scrolling. */
+.term-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  padding: 6px 8px;
+}
+.term-host .xterm,
+.term-host .xterm-viewport {
+  width: 100% !important;
+  height: 100% !important;
+}
+.term-host .xterm-viewport {
+  background: transparent !important;
+}
 /* Session inside a tile should fill the tile, not the whole viewport.
    The chain of `min-width: 0` + `overflow: hidden` prevents children with
    long unbroken content (code blocks, mono text) from stretching the
@@ -1978,6 +1997,26 @@ textarea:focus, select:focus, input:focus {
   background: #a94a42;
   border-color: #a94a42;
 }
+/* "Send now" — interrupt the current turn and send immediately. Sits next to
+   Stop while a turn runs, so it stays visually lighter than the accent Send. */
+.session-input .send-now-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.session-input .send-btn.queue-btn {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+.session-input .send-btn.queue-btn:hover:not(:disabled) {
+  background: var(--border);
+  border-color: var(--text-2);
+  color: var(--text);
+}
 .send-dot {
   width: 8px;
   height: 8px;
@@ -2153,6 +2192,68 @@ textarea:focus, select:focus, input:focus {
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+/* Messages typed while a turn is running, held client-side until it finishes.
+   Mirrors the .img-chips visual language: muted rows above the composer. */
+.pending-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 4px 0;
+}
+.pending-queue-head {
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.pending-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.pending-item-idx {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pending-item-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-item-text:hover { color: var(--accent); }
+.pending-item-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pending-item-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* ---------- GenUI ---------- */
