@@ -1479,13 +1479,13 @@ export function Session(props: SessionProps = {}) {
   // slot, so the widget the user is actually looking at owns the bridge.
   useEffect(() => {
     if (!focused) return;
-    const g = globalThis as unknown as { __macaron_chatBridge?: (p: { text: string; data?: unknown }) => void };
+    const g = globalThis as unknown as { '$macaron/chat'?: (p: { text: string; data?: unknown }) => void };
     const bridge = (p: { text: string; data?: unknown }) => {
       const body = p.data !== undefined ? `${p.text}\n\n\`\`\`json\n${JSON.stringify(p.data, null, 2)}\n\`\`\`` : p.text;
       void send(body);
     };
-    g.__macaron_chatBridge = bridge;
-    return () => { if (g.__macaron_chatBridge === bridge) delete g.__macaron_chatBridge; };
+    g['$macaron/chat'] = bridge;
+    return () => { if (g['$macaron/chat'] === bridge) delete g['$macaron/chat']; };
   }, [focused, send]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
