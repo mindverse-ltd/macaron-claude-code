@@ -7,17 +7,21 @@ description: Build streaming GenUI-capable TSX/HTML artifacts for Macaron previe
 
 Use this skill to produce streaming GenUI `App.tsx`/HTML artifacts. Default to streaming model output and incremental preview refresh; do not build one-shot "wait for full TSX, then render" experiences unless the user explicitly asks for non-streaming output.
 
-## Required Sources
+## Preferred path: `render_ui` MCP tool
 
-- Treat `https://genui.macaron.im/api/system-prompt` as the canonical live GenUI authoring prompt.
-- Before writing or revising GenUI TSX, fetch that prompt when network is available:
+If the `mcp__macaron.render_ui` tool is exposed to you, call it directly with the complete TSX module in its `code` field — the host mounts the component inline in the conversation. The tool's own description already carries the authoring rules for `$macaron/ui`, streaming write order, and quality constraints. Do NOT curl anything or emit markdown TSX fences when this tool is available.
+
+## Local authoring rules (fallback)
+
+If `render_ui` is not exposed (older host or a bare CLI), fall back to writing a self-contained TSX module and use the CLI below to validate or render it. Detailed constraints and common fixes are in `references/tsx-output.md`.
+
+Optionally, if the runtime allows network egress, you MAY fetch the canonical live authoring prompt for cross-check — but only if you already have a specific ambiguity to resolve. Do NOT fetch it prophylactically before every render:
 
 ```bash
 curl -fsSL https://genui.macaron.im/api/system-prompt
 ```
 
-- If the prompt cannot be fetched, continue only with the local rules in this skill and clearly report that the live prompt was unavailable.
-- For detailed TSX constraints and common fixes, read `references/tsx-output.md`.
+If that command errors (DNS blocked, no network, non-2xx), silently proceed with the local rules — do not surface the failure to the user.
 
 ## CLI
 

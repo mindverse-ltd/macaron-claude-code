@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { query, type SDKMessage, type PermissionMode, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { macaronMcpServer } from './macaron-mcp.js';
 import { registerPending } from './permission-registry.js';
+import { computeRuleKeys, isAllowed, rememberSession, rememberProject } from './permission-rules.js';
 import { getYoloMode } from './settings-store.js';
 
 export type AttachedImage = { mimeType: string; dataUrl: string };
@@ -30,8 +31,10 @@ export type RunnerEvent =
   | { kind: 'message'; subtype: string }
   // Fired when the SDK's canUseTool asks whether to run a tool. The client
   // must POST /permission-decision with { id, decision } — canUseTool is
-  // parked on a Promise until that arrives.
-  | { kind: 'permission_request'; id: string; toolName: string; input: unknown }
+  // parked on a Promise until that arrives. `suggestion.label` is what the
+  // "Session/Always" buttons will remember (server-computed so the client
+  // does no command parsing); absent when there's nothing rememberable.
+  | { kind: 'permission_request'; id: string; toolName: string; input: unknown; suggestion?: { label: string } }
   | { kind: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
   | { kind: 'error'; error: string }
   | { kind: 'done'; exitCode: number };
@@ -123,6 +126,10 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
   // can exit cleanly.
   void (async () => {
     let sessionEmitted = false;
+    // Tracks the session this run belongs to so canUseTool can scope
+    // "remember for session" rules. Known upfront when resuming; for a brand
+    // new session it's filled in once the first `session` message arrives.
+    let currentSid = opts.resume ?? '';
     try {
       // YOLO mode (global Settings toggle) forces bypassPermissions for
       // every run, regardless of what the WebUI requested. This is the
@@ -160,14 +167,29 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
           // this callback — every tool auto-approves. That's the intended
           // "yolo" UX.
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+            // Remembered rules: if a prior "Session"/"Always" decision already
+            // covers every part of this call, auto-approve silently — no card,
+            // no round-trip. Empty/unknown key sets never match, so this can
+            // only ever skip a prompt the user already answered.
+            const { keys, label } = computeRuleKeys(toolName, input);
+            if (isAllowed(currentSid, opts.cwd, keys)) {
+              return { behavior: 'allow', updatedInput: input };
+            }
             const id = randomUUID();
             const decision = await new Promise<
-              { decision: 'allow' } | { decision: 'deny'; reason?: string }
+              { decision: 'allow'; scope?: 'once' | 'session' | 'always' } | { decision: 'deny'; reason?: string }
             >((resolve) => {
               registerPending(id, resolve);
-              push({ kind: 'permission_request', id, toolName, input });
+              push({ kind: 'permission_request', id, toolName, input, ...(label ? { suggestion: { label } } : {}) });
             });
             if (decision.decision === 'allow') {
+              if (decision.scope === 'session') rememberSession(currentSid, keys);
+              // A persist failure must not strand the callback: the user already
+              // clicked Allow, so log and proceed rather than leaving the SDK's
+              // pending promise (and their tool call) hung forever.
+              else if (decision.scope === 'always') {
+                try { await rememberProject(opts.cwd, keys); } catch (e) { console.error('[permission-rules] persist failed:', e); }
+              }
               push({ kind: 'permission_resolved', id, decision: 'allow' });
               return { behavior: 'allow', updatedInput: input };
             }
@@ -180,6 +202,7 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
       for await (const m of stream as AsyncIterable<SDKMessage>) {
         if (!sessionEmitted && 'session_id' in m && m.session_id) {
           sessionEmitted = true;
+          currentSid = m.session_id;
           push({ kind: 'session', sessionId: m.session_id });
         }
         if (m.type === 'stream_event') {
@@ -284,5 +307,78 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
     if (r.done) return;
     yield r.value;
   }
+}
+
+// Follow-up question suggestions: a second, throwaway query that resumes the
+// just-finished session so it shares the LLM prefix with the main turn —
+// provider-side prompt caching kicks in, so it's near-free. persistSession:
+// false keeps this off disk (the original transcript is never appended to).
+// The prompt is a no-tools-guard (à la Piebald's summarization guard) fused
+// with promplate's suggest.j2 content shape: user-perspective, 2-5 items,
+// JSON list, same language/tone as the user.
+const FOLLOWUP_PROMPT = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+You already have the full conversation above as context — tool calls will be rejected and waste your only turn.
+
+Your task: envisage 2-5 possible follow-up questions the USER could ask next to continue this conversation productively.
+
+Rules:
+- User's perspective: questions the user would ask the assistant, not the reverse.
+- Each fundamentally different in intent (dive deeper / pivot / verify / request an example / challenge an assumption).
+- 2-8 words each, concise, no duplication, no platitudes like "thanks".
+- Use THE SAME LANGUAGE and tone as the user's most recent message.
+
+Output ONLY a JSON array of strings, nothing else. Example:
+["how does caching work","show a smaller example","what if I skip persistSession"]`;
+
+export type FollowupOptions = {
+  resume: string;
+  cwd: string;
+  model?: string;
+  envOverrides?: Record<string, string> | null;
+};
+
+// Yields raw text deltas of the model's JSON-array reply. The route forwards
+// these as `followup_delta` SSE events; the WebUI accumulates and parses them
+// incrementally with partial-json (Allow.ARR) so chips appear as they stream.
+// Parsing lives client-side — here we only relay text, never interpret it.
+export async function* runFollowup(opts: FollowupOptions): AsyncGenerator<string> {
+  const stream = query({
+    prompt: FOLLOWUP_PROMPT,
+    options: {
+      cwd: opts.cwd,
+      resume: opts.resume,
+      model: opts.model,
+      // Advertise the exact same toolset as runClaude so this request's
+      // tools+system+messages prefix is byte-identical to the main turn's —
+      // that's what makes the provider's prompt cache hit. That takes both
+      // the same mcpServers AND a canUseTool callback: without one the SDK
+      // drops its interactive tools (AskUserQuestion, EnterPlanMode, …) and
+      // injects a "tools no longer available" system block, breaking the
+      // prefix. Ours just denies, so nothing can ever execute; maxTurns: 1
+      // keeps a stray tool_use from spiraling into an agentic loop.
+      mcpServers: { macaron: macaronMcpServer },
+      canUseTool: async () => ({ behavior: 'deny', message: 'text-only query', interrupt: true }),
+      maxTurns: 1,
+      persistSession: false,
+      // Stream content_block_delta text so the route can relay it; without
+      // this the SDK only emits the final `result` and there's nothing to forward.
+      includePartialMessages: true,
+      ...(opts.envOverrides ? { env: opts.envOverrides } : {}),
+    },
+  });
+  let got = false;
+  for await (const m of stream as AsyncIterable<SDKMessage>) {
+    if (m.type === 'stream_event') {
+      const ev = m.event;
+      if (ev.type === 'content_block_delta') {
+        const d = ev.delta as { type?: string; text?: string };
+        if (d?.type === 'text_delta' && d.text) {
+          got = true;
+          yield d.text;
+        }
+      }
+    }
+  }
+  console.log(`[claude-runner] followup  resume=${opts.resume.slice(0, 8)}  text=${got ? 'ok' : 'empty'}`);
 }
 
