@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
@@ -19,6 +20,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerWorktreeRoutes } from './routes/worktrees.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerCommandRoutes } from './routes/commands.js';
 import { registerMcpRoutes } from './routes/mcp.js';
@@ -27,6 +29,7 @@ import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerPushRoutes } from './routes/push.js';
+import { registerUsageRoutes } from './routes/usage.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
@@ -65,11 +68,13 @@ await app.register(async (instance) => {
   await registerSettingsRoutes(instance);
   await registerCommandRoutes(instance);
   await registerPushRoutes(instance);
+  await registerUsageRoutes(instance);
   await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
   await registerSessionRoutes(instance);
+  await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
   await registerShareRoutes(instance);
   await registerTerminalRoutes(instance);
@@ -110,6 +115,7 @@ if (existsSync(WEB_DIST)) {
 
 try {
   await warmSettingsCache();
+  await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmLabelsCache();

@@ -20,7 +20,7 @@ export function Prompts() {
   const toast = useToast();
   const confirm = useConfirm();
 
-  const load = () => api.commands().then((r) => setCommands(r.commands)).catch((e) => setError((e as Error).message));
+  const load = () => api.savedCommands().then((r) => setCommands(r.commands)).catch((e) => setError((e as Error).message));
   useEffect(() => { load(); }, []);
 
   const openCreate = () => setEditing({ isNew: true, draft: { ...BLANK } });

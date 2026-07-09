@@ -115,6 +115,25 @@ export function toggleCanvasSid(project: string, sid: string): void {
   notify(project);
 }
 
+// Plain (non-hook) draft insert for callers outside a Workspace render —
+// e.g. the command palette's "New Session". Mirrors the hook's addDraft:
+// prepend the sentinel + focus it, or just refocus an existing draft.
+export function addDraftSid(project: string): void {
+  const cur = loadCanvas(project);
+  if (cur.tiles.some((t) => t.sid === DRAFT_SID)) {
+    if (cur.focusedSid !== DRAFT_SID) {
+      saveCanvas(project, { ...cur, focusedSid: DRAFT_SID });
+      notify(project);
+    }
+    return;
+  }
+  saveCanvas(project, {
+    tiles: [{ sid: DRAFT_SID, colSpan: DEFAULT_COL_SPAN, rowSpan: DEFAULT_ROW_SPAN }, ...cur.tiles],
+    focusedSid: DRAFT_SID,
+  });
+  notify(project);
+}
+
 export function focusCanvasSid(project: string, sid: string): void {
   const cur = loadCanvas(project);
   if (!cur.tiles.some((t) => t.sid === sid)) return;
