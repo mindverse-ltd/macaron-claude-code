@@ -1771,6 +1771,7 @@ textarea:focus, select:focus, input:focus {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .ti-perm-actions .primary.small,
 .ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
@@ -2303,6 +2304,72 @@ textarea:focus, select:focus, input:focus {
 @keyframes confirm-pop-in {
   from { opacity: 0; transform: scale(0.96) translateY(4px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ---------- shortcuts help (which-key sheet) ---------- */
+.shortcuts-dialog {
+  min-width: 440px;
+  max-width: 560px;
+}
+.shortcuts-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.shortcuts-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.shortcuts-keys {
+  flex: 0 0 128px;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.shortcuts-keys kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.shortcuts-desc {
+  flex: 1;
+  color: var(--text);
+  line-height: 1.5;
+}
+.sb-shortcuts-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.sb-shortcuts-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
 }
 
 /* ---------- scrollbars ---------- */
