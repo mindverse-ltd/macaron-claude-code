@@ -30,7 +30,6 @@ type WorktreeRecord = {
   worktreePath: string;
   branch: string;
   baseBranch: string;
-  baseCommit: string;
   createdAt: number;
   status: 'active' | 'merged' | 'discarded';
 };
@@ -92,7 +91,7 @@ function withRepoLock<T>(repoRoot: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export async function isGitWorkTree(cwd: string): Promise<boolean> {
+async function isGitWorkTree(cwd: string): Promise<boolean> {
   try {
     return (await git(cwd, ['rev-parse', '--is-inside-work-tree'])) === 'true';
   } catch {
@@ -127,7 +126,6 @@ export type PendingWorktree = {
   worktreePath: string;
   branch: string;
   baseBranch: string;
-  baseCommit: string;
 };
 
 // Create the worktree on disk BEFORE the run (cwd must exist to launch the
@@ -143,15 +141,16 @@ export async function createWorktree(baseCwd: string): Promise<PendingWorktree |
     // fast-forward at merge time (`rebase HEAD` no-ops, `branch -f HEAD` is
     // fatal), so refuse up front instead of leaking an unmergeable worktree.
     if (baseBranch === 'HEAD') throw new Error('cannot isolate: base repo is in detached HEAD state (check out a branch first)');
+    // Pin to baseCommit (not HEAD) so a concurrent base-branch move in the tiny
+    // window between rev-parse and add can't retarget us. Local-only: the pin is
+    // only needed at add-time, never read back later, so it isn't persisted.
     const baseCommit = await git(baseCwd, ['rev-parse', 'HEAD']);
     const shortid = randomUUID().slice(0, 8);
     const branch = `macaron/${shortid}`;
     const worktreePath = path.join(WORKTREES_DIR, shortid);
     await fs.mkdir(WORKTREES_DIR, { recursive: true });
-    // Pin to baseCommit (not HEAD) so a concurrent base-branch move in the tiny
-    // window between rev-parse and add can't retarget us.
     await git(repoRoot, ['worktree', 'add', '-b', branch, worktreePath, baseCommit]);
-    return { repoRoot, worktreePath, branch, baseBranch, baseCommit };
+    return { repoRoot, worktreePath, branch, baseBranch };
   });
 }
 
@@ -162,15 +161,23 @@ export async function bindWorktree(sessionId: string, p: PendingWorktree): Promi
   await persist();
 }
 
+// Remove the worktree dir + delete its branch + prune. Shared by the pending
+// cleanup, merge, and discard paths — all three tore down identically. gitSafe
+// so a user-deleted worktree (or a rebased-away branch) doesn't fail the whole
+// teardown.
+async function teardown(r: { repoRoot: string; worktreePath: string; branch: string }): Promise<void> {
+  await withRepoLock(r.repoRoot, async () => {
+    await gitSafe(r.repoRoot, ['worktree', 'remove', r.worktreePath, '--force']);
+    await gitSafe(r.repoRoot, ['branch', '-D', r.branch]);
+    await gitSafe(r.repoRoot, ['worktree', 'prune']);
+  });
+}
+
 // Tear down a worktree that was created up front but never bound to a session
 // (the run failed before the SDK emitted `session`). Without this the branch +
 // dir leak untracked: invisible to listWorktrees, unreclaimable by prune.
 export async function cleanupPendingWorktree(p: PendingWorktree): Promise<void> {
-  await withRepoLock(p.repoRoot, async () => {
-    await gitSafe(p.repoRoot, ['worktree', 'remove', p.worktreePath, '--force']);
-    await gitSafe(p.repoRoot, ['branch', '-D', p.branch]);
-    await gitSafe(p.repoRoot, ['worktree', 'prune']);
-  });
+  await teardown(p);
 }
 
 async function toInfo(r: WorktreeRecord): Promise<WorktreeInfo> {
@@ -245,11 +252,7 @@ export async function discardWorktree(sessionId: string, force = false): Promise
   if (!force && (await exists(r.worktreePath)) && (await isDirty(r.worktreePath))) {
     throw new WorktreeError('worktree has uncommitted changes — pass force to discard anyway', true);
   }
-  await withRepoLock(r.repoRoot, async () => {
-    await gitSafe(r.repoRoot, ['worktree', 'remove', r.worktreePath, '--force']);
-    await gitSafe(r.repoRoot, ['branch', '-D', r.branch]);
-    await gitSafe(r.repoRoot, ['worktree', 'prune']);
-  });
+  await teardown(r);
   r.status = 'discarded';
   await persist();
 }
