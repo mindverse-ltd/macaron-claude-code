@@ -13,21 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # Install with bun, not `npm ci`: npm's optional-deps bug (npm/cli#4828)
-      # pins the committed lockfile to its generating OS, so `npm ci` on Linux
-      # skips the platform-native rollup binary and crashes `vite build`. bun's
-      # lockfile records every platform's optionalDependencies, so CI resolves
-      # the Linux rollup correctly. bun also runs the server bundle below; the
-      # published artifact still runs on plain Node.
+      # Keep bun even though deps install with pnpm: the publish step's `npm pack`
+      # fires the root `prepack`, which runs `bun build` to bundle the server.
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      # `bun run`, not `bunx`: pkg.pr.new warns against dlx-style runners in CI
-      # (they fetch an unpinned build each run). pkg-pr-new is a devDependency, so
-      # this executes the lockfile-pinned binary from node_modules/.bin. publish
-      # runs `npm pack`, which fires the root `prepack` hook (build shared →
-      # bundle server → build web), so the tarball ships prebuilt server/dist +
-      # web/dist and runs without Vite at runtime — no separate build step needed.
-      - run: bun run pkg-pr-new publish
+      - run: pnpm install --frozen-lockfile
+      # `pnpm exec`, not `pnpm dlx`/`bunx`: pkg.pr.new warns against dlx-style
+      # runners in CI (they fetch an unpinned build each run). pkg-pr-new is a
+      # devDependency, so this executes the lockfile-pinned binary from
+      # node_modules/.bin. publish runs `npm pack`, which fires the root `prepack`
+      # hook (build shared → bundle server → build web), so the tarball ships
+      # prebuilt server/dist + web/dist and runs without Vite at runtime — no
+      # separate build step needed. Force long-form URLs because compact URLs
+      # require npm repository metadata; `mcc` is only published through
+      # pkg.pr.new, and --bin shows a CLI command.
+      - run: pnpm exec pkg-pr-new publish --no-compact --bin
