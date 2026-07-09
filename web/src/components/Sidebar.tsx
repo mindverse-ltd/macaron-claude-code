@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, basename, type Workspace, type SessionListItem } from '../lib/api';
 import { useToast } from './Toast';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { RateLimitMeters } from './RateLimitMeters';
 import {
   getCanvasSids,
   toggleCanvasSid,
@@ -403,6 +404,7 @@ export function Sidebar() {
       </Link>
 
       <footer className="sb-footer">
+        <RateLimitMeters />
         <div className={'sb-status sb-status-' + status}>
           {status === 'ok'
             ? `online · ${model}`
