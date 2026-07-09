@@ -21,6 +21,7 @@ import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
@@ -800,6 +801,15 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Set when the current turn hit onError, so the completion effect below can
+  // skip the 'complete' cue — onDone still runs after a stream error, and a
+  // failed turn shouldn't sound like a success.
+  const turnErroredRef = useRef(false);
+  // Set while a user-initiated Stop is in flight. Stop aborts the SDK
+  // stream, which claude-runner's catch surfaces as an onError (it doesn't
+  // filter AbortError) — so without this the deliberate Stop would play the
+  // 'error' cue as if the turn had actually failed.
+  const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -821,6 +831,11 @@ export function Session(props: SessionProps = {}) {
     }
     if (!streamedRef.current) return;
     streamedRef.current = false;
+    // A turn that ended in onError already played the 'error' cue; don't also
+    // play 'complete' (onDone still fires after a stream error).
+    const errored = turnErroredRef.current;
+    turnErroredRef.current = false;
+    if (!errored) playSound('complete');
     notify({
       title: 'Macaron · session ready',
       body: `${sid.slice(0, 8)} finished a turn`,
@@ -1036,6 +1051,11 @@ export function Session(props: SessionProps = {}) {
   // the existing `done` handler.
   const handleStop = useCallback(async () => {
     if (!sid) return;
+    // Mark the abort as user-initiated before requesting it, so the error
+    // that comes back over the SSE is recognised as a Stop, not a failure,
+    // and its cue is suppressed. (turnErroredRef still trips, so the
+    // trailing completion effect stays silent too.)
+    stoppingRef.current = true;
     try {
       await api.stopSession(project, sid);
       toast('Stop requested');
@@ -1322,6 +1342,10 @@ export function Session(props: SessionProps = {}) {
       setLiveUserImages(sentImages);
       setLiveTurn([]);
       setOutputTokens(-1);
+      // Fresh turn: clear the Stop latch so a prior Stop can't suppress
+      // this turn's error cue. (turnErroredRef is cleared by the completion
+      // effect when the previous turn settled.)
+      stoppingRef.current = false;
 
       if (isNew) {
         // First message of a brand-new session. liveStore opens the SSE,
@@ -1423,6 +1447,7 @@ export function Session(props: SessionProps = {}) {
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
             // acted on.
+            playSound('permission');
             notify({
               title: 'Macaron · permission needed',
               body: `${toolName} wants to run` + (
@@ -1476,6 +1501,11 @@ export function Session(props: SessionProps = {}) {
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            turnErroredRef.current = true;
+            // A user Stop surfaces here as an error — suppress the error cue
+            // in that case (turnErroredRef above already keeps the trailing
+            // completion effect silent, so the Stop makes no sound at all).
+            if (!stoppingRef.current) playSound('error');
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               const chunk = `\n[error] ${err}`;
