@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput } from '../lib/api';
+import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type ConfigFileMeta } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import {
@@ -300,6 +300,8 @@ export function Settings() {
         </label>
       </div>
 
+      <ConfigFilesSection />
+
       <SoundSettings />
 
       <div className="settings-section">
@@ -432,6 +434,132 @@ function ProviderForm({
         )}
       </div>
     </>
+  );
+}
+
+// Browser editors for the user-scope Claude Code config files under
+// ~/.claude: settings.json (JSON, validated server-side before write) and
+// CLAUDE.md (free-form memory). Each file loads lazily on first selection;
+// the JSON file is checked client-side for parse errors so Save stays
+// disabled on obviously-broken input, and the server re-validates as the
+// source of truth before any write touches disk.
+function ConfigFilesSection() {
+  const [files, setFiles] = useState<ConfigFileMeta[] | null>(null);
+  const [activeId, setActiveId] = useState<ConfigFileMeta['id'] | null>(null);
+  const [original, setOriginal] = useState('');
+  const [draft, setDraft] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const toast = useToast();
+
+  useEffect(() => {
+    api.configFiles().then((r) => {
+      setFiles(r.files);
+      if (r.files.length > 0) setActiveId(r.files[0]!.id);
+    }).catch((e) => setError((e as Error).message));
+  }, []);
+
+  const active = files?.find((f) => f.id === activeId) || null;
+
+  // (Re)load the selected file's content whenever the active file changes.
+  useEffect(() => {
+    if (!activeId) return;
+    // Guard against a stale response landing after the user switched tabs —
+    // otherwise a slow settings.json load could overwrite the memory draft
+    // (and get saved into the wrong file).
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    api.configFile(activeId).then((f) => {
+      if (cancelled) return;
+      setOriginal(f.content);
+      setDraft(f.content);
+    }).catch((e) => { if (!cancelled) setError((e as Error).message); }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeId]);
+
+  const dirty = draft !== original;
+  // Cheap client-side JSON guard for the Save button; the server owns the
+  // authoritative schema check.
+  const jsonError = active?.format === 'json' && draft.trim()
+    ? (() => { try { JSON.parse(draft); return ''; } catch (e) { return (e as Error).message; } })()
+    : '';
+
+  const save = async () => {
+    if (!activeId) return;
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await api.saveConfigFile(activeId, draft);
+      setOriginal(saved.content);
+      setDraft(saved.content);
+      setFiles((prev) => prev?.map((f) => (f.id === activeId ? { ...f, exists: true } : f)) ?? prev);
+      toast(`saved ${saved.label}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revert = () => { setDraft(original); setError(''); };
+
+  return (
+    <div className="settings-section">
+      <div className="settings-row-head">
+        <h2 className="sec-title">Config files</h2>
+        {active && <span className="cfg-path" title={active.path}>{active.path}</span>}
+      </div>
+      <p className="settings-hint" style={{ margin: '0 0 12px' }}>
+        Edit your user-scope <code>~/.claude</code> files without leaving the browser. JSON is validated before it's written, so a bad edit can't brick your sessions.
+      </p>
+
+      {!files && !error && <p className="muted">Loading…</p>}
+
+      {files && (
+        <>
+          <div className="cfg-tabs">
+            {files.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`cfg-tab${f.id === activeId ? ' active' : ''}`}
+                onClick={() => setActiveId(f.id)}
+                disabled={saving}
+              >
+                {f.label}
+                {!f.exists && <span className="cfg-tab-new">new</span>}
+              </button>
+            ))}
+          </div>
+
+          <textarea
+            className="cfg-editor"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={draft}
+            placeholder={loading ? 'Loading…' : active?.format === 'json' ? '{\n  \n}' : '# Project memory…'}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={loading || saving}
+          />
+
+          {jsonError && <p className="settings-hint cfg-bad">Invalid JSON: {jsonError}</p>}
+          {error && <p className="settings-hint cfg-bad">{error}</p>}
+
+          <div className="settings-actions">
+            <button className="primary" onClick={save} disabled={!dirty || saving || loading || Boolean(jsonError)}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="ghost" onClick={revert} disabled={!dirty || saving || loading}>
+              Revert
+            </button>
+            {dirty && !saving && <span className="settings-hint cfg-dirty">Unsaved changes</span>}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
