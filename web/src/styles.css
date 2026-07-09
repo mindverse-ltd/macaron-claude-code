@@ -2970,3 +2970,66 @@ textarea:focus, select:focus, input:focus {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* ---- File explorer ------------------------------------------------------ */
+.fx { display: flex; flex-direction: column; height: 100vh; min-height: 0; }
+.fx-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.fx-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fx-dirty { color: var(--accent); font-size: 11px; }
+.fx-head-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+.fx-body { display: flex; flex: 1; min-height: 0; }
+.fx-tree {
+  width: 280px;
+  flex-shrink: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 6px 0;
+  background: var(--surface);
+}
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.fx-row:hover { background: var(--surface-2); }
+.fx-row.selected { background: var(--surface-2); color: var(--accent); }
+.fx-caret { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; }
+.fx-icon { flex-shrink: 0; font-size: 12px; }
+.fx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-hint { font-size: 12px; color: var(--muted); padding: 3px 8px; }
+.fx-hint.error { color: var(--accent); }
+.fx-editor { flex: 1; min-width: 0; overflow: hidden; display: flex; }
+.fx-editor > * { flex: 1; min-width: 0; }
+.fx-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 40px;
+  text-align: center;
+}
