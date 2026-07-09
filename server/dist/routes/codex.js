@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs';
 import { deleteCodexSession, listCodexSessions, readCodexSessionMessages, } from '../lib/codex-store.js';
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
+import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
 import { CODEX_SYSTEM_PROVIDER_ID, createCodexProvider, deleteCodexProvider, readPublicCodexSettings, setActiveCodexProvider, updateCodexProvider, updateCodexRuntime, } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
@@ -96,6 +97,11 @@ export async function registerCodexRoutes(app) {
                     safeSend({ type: 'done', exitCode: ev.exitCode });
                     if (capturedSid)
                         endRun(capturedSid);
+                    // Name the thread from its opening exchange once the turn's rollout
+                    // has landed. Fire-and-forget: no-op if already titled, never blocks
+                    // the response, failures swallowed.
+                    if (capturedSid && ev.exitCode === 0)
+                        void maybeGenerateCodexTitle(capturedSid).catch(() => { });
                     if (!clientGone)
                         sseDone(reply);
                 }

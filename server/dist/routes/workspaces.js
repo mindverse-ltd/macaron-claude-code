@@ -4,9 +4,9 @@ import { CLAUDE_PROJECTS } from '../config.js';
 import { decodeClaudeProjectName, groupWorkspaces, listAllSessions, readSessionSummary, } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
-import { runClaude } from '../lib/claude-runner.js';
+import { runClaude, runFollowup } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
-import { getActiveProviderEnv } from '../lib/settings-store.js';
+import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 export async function registerWorkspaceRoutes(app) {
     app.get('/api/workspaces', async () => {
         const sessions = await listAllSessions();
@@ -38,23 +38,32 @@ export async function registerWorkspaceRoutes(app) {
         // The `model` body field is currently ignored — provider is global.
         const { model, env: providerEnv } = getActiveProviderEnv();
         // Derive cwd from any existing session in this project, else decode the
-        // project name (which mirrors claude-cli's encoding).
+        // project name (which mirrors claude-cli's encoding). An explicit cwd
+        // from the request body (directory picker) short-circuits both — it's
+        // the only way to start a session in a directory that has no project
+        // dir yet, since decodeClaudeProjectName is lossy.
         let cwd = decodeClaudeProjectName(project);
-        try {
-            const projDir = path.join(CLAUDE_PROJECTS, project);
-            const files = await fs.readdir(projDir);
-            for (const f of files) {
-                if (!f.endsWith('.jsonl'))
-                    continue;
-                const meta = await readSessionSummary(path.join(projDir, f));
-                if (meta?.cwd) {
-                    cwd = meta.cwd;
-                    break;
+        const explicitCwd = String(req.body?.cwd || '').trim();
+        if (explicitCwd) {
+            cwd = explicitCwd;
+        }
+        else {
+            try {
+                const projDir = path.join(CLAUDE_PROJECTS, project);
+                const files = await fs.readdir(projDir);
+                for (const f of files) {
+                    if (!f.endsWith('.jsonl'))
+                        continue;
+                    const meta = await readSessionSummary(path.join(projDir, f));
+                    if (meta?.cwd) {
+                        cwd = meta.cwd;
+                        break;
+                    }
                 }
             }
-        }
-        catch {
-            /* no sessions yet — fall back to decoded name */
+            catch {
+                /* no sessions yet — fall back to decoded name */
+            }
         }
         try {
             const st = await fs.stat(cwd);
@@ -127,7 +136,7 @@ export async function registerWorkspaceRoutes(app) {
                         livePush(capturedSid, payload);
                 }
                 else if (ev.kind === 'permission_request') {
-                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input };
+                    const payload = { type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion };
                     safeSend(payload);
                     if (capturedSid)
                         livePush(capturedSid, payload);
@@ -159,6 +168,22 @@ export async function registerWorkspaceRoutes(app) {
                     if (capturedSid) {
                         liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
                         endRun(capturedSid);
+                    }
+                    // Same post-turn follow-up as the resume path: stream a throwaway,
+                    // persistSession:false query resuming this fresh session (shared
+                    // prefix → cache hit). Best-effort; never blocks the turn close.
+                    // Gated on exitCode 0 so an abort/error stays identical to before.
+                    if (!clientGone && capturedSid && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+                        try {
+                            for await (const delta of runFollowup({ resume: capturedSid, cwd, model, envOverrides: providerEnv })) {
+                                if (clientGone)
+                                    break;
+                                safeSend({ type: 'followup_delta', text: delta });
+                            }
+                        }
+                        catch {
+                            /* swallow: follow-up is enrichment, never fatal */
+                        }
                     }
                     if (!clientGone)
                         sseDone(reply);

@@ -3,6 +3,15 @@ set -euo pipefail
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Snapshot the caller-provided MACARON_* env BEFORE loading .env so a
+# stale/malformed .env in the plugin cache can't clobber an explicit
+# override from the /macaron command (e.g. `MACARON_ENGINE=claude bash
+# start.sh` — otherwise the .env's ENGINE=codex would win and open the
+# wrong SPA).
+_CALLER_ENGINE="${MACARON_ENGINE-}"
+_CALLER_PORT="${MACARON_PORT-}"
+_CALLER_FOREGROUND="${MACARON_FOREGROUND-}"
+
 # Load local .env if present (never committed — see .env.example for the
 # required MACARON_API_BASE / MACARON_API_KEY variables).
 if [ -f "$DIR/.env" ]; then
@@ -11,6 +20,11 @@ if [ -f "$DIR/.env" ]; then
   . "$DIR/.env"
   set +a
 fi
+
+# Caller-provided values win over .env.
+[ -n "$_CALLER_ENGINE" ] && MACARON_ENGINE="$_CALLER_ENGINE"
+[ -n "$_CALLER_PORT" ] && MACARON_PORT="$_CALLER_PORT"
+[ -n "$_CALLER_FOREGROUND" ] && MACARON_FOREGROUND="$_CALLER_FOREGROUND"
 
 # Port default: Claude engine keeps historical 7878. Codex uses 7979 so
 # both plugins can run at once without collision. Callers can override

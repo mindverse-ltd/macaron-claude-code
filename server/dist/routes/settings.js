@@ -1,4 +1,4 @@
-import { readPublicSettings, addProvider, updateProvider, deleteProvider, setActiveProvider, setYoloMode, } from '../lib/settings-store.js';
+import { readPublicSettings, addProvider, updateProvider, deleteProvider, setActiveProvider, setYoloMode, setFollowupSuggestionsEnabled, } from '../lib/settings-store.js';
 export async function registerSettingsRoutes(app) {
     app.get('/api/settings', async () => await readPublicSettings());
     app.post('/api/settings/providers', async (req, reply) => {
@@ -77,6 +77,18 @@ export async function registerSettingsRoutes(app) {
         }
         try {
             await setYoloMode(req.body.enabled);
+            return await readPublicSettings();
+        }
+        catch (e) {
+            return reply.status(500).send({ error: e.message });
+        }
+    });
+    app.put('/api/settings/followups', async (req, reply) => {
+        if (typeof req.body?.enabled !== 'boolean') {
+            return reply.status(400).send({ error: 'enabled (boolean) required' });
+        }
+        try {
+            await setFollowupSuggestionsEnabled(req.body.enabled);
             return await readPublicSettings();
         }
         catch (e) {
