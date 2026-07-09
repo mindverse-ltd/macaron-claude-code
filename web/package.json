@@ -41,6 +41,8 @@
     "@unocss/preset-wind3": "^66.7.3",
     "@unocss/reset": "^66.7.4",
     "@unocss/runtime": "^66.7.3",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
