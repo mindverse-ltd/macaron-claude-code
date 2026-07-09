@@ -26,6 +26,7 @@ import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerPushRoutes } from './routes/push.js';
+import { registerUsageRoutes } from './routes/usage.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
@@ -63,6 +64,7 @@ await app.register(async (instance) => {
   await registerAuthRoutes(instance, authToken);
   await registerSettingsRoutes(instance);
   await registerPushRoutes(instance);
+  await registerUsageRoutes(instance);
   await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
