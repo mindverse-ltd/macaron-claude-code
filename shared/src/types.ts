@@ -41,7 +41,7 @@ export type Block =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
-  | { kind: 'tool_result'; toolUseId?: string; text: string }
+  | { kind: 'tool_result'; toolUseId?: string; text: string; isError?: boolean }
   // Base64-encoded image attached to a user message. Preserved in jsonl by
   // the CLI; the WebUI renders it inline where it appears in the block order,
   // so pastes/attachments interleaved with text stay in position.
@@ -86,6 +86,19 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// A transcript-search match — one message whose text contains the query.
+// The palette deep-links into the session via project+sessionId, and uses
+// `uuid` to scroll to the exact message when the session view is mounted.
+export type MessageSearchHit = {
+  project: string;
+  sessionId: string;
+  uuid?: string;
+  role: 'user' | 'assistant';
+  snippet: string;
+  preview: string;
+  mtime: number;
+};
+
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
 // to /api/push/subscribe and stored server-side; `notify` is the JSON payload
 // the server ships to the SW's `push` handler (see web/public/sw.js).
@@ -100,6 +113,22 @@ export type PushNotifyPayload = {
   requireInteraction?: boolean;
   // Hash-route the SW opens/focuses on click, e.g. `#/w/:project/s/:sid`.
   url?: string;
+};
+
+// A per-session git worktree: the session's agent runs with cwd pointing at
+// `worktreePath` (a dedicated branch off `baseBranch`), so parallel sessions
+// in one repo never stomp each other's uncommitted changes. `exists` reflects
+// whether the worktree dir is still on disk (users can delete it manually);
+// `dirty` is set from `git status --porcelain` when the tree is present.
+export type WorktreeInfo = {
+  sessionId: string;
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+  baseBranch: string;
+  status: 'active' | 'merged' | 'discarded';
+  exists: boolean;
+  dirty?: boolean;
 };
 
 // Rate-limit / usage state for the active Claude subscription, read from the
@@ -118,6 +147,19 @@ export type UsageResponse = {
   sevenDay: RateLimitWindow | null;
 };
 
+// A slash command surfaced in the composer palette. `name` is the bare
+// command (no leading slash). `builtin` = a CLI command worth listing;
+// `project`/`user` come from `.claude/commands/**/*.md` (cwd / $HOME). A
+// subdirectory becomes `namespace` for display only — it does NOT change the
+// command name the SDK expands.
+export type SlashCommand = {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: 'builtin' | 'project' | 'user';
+  namespace?: string;
+};
+
 // ---- File explorer -------------------------------------------------------
 // A single entry in a directory listing. `path` is relative to the project
 // cwd (root = ''), so the web tree can request children without knowing the
@@ -134,6 +176,7 @@ export type FileListResponse = { root: string; path: string; entries: FileEntry[
 export type FileReadResponse = { path: string; content: string; size: number };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
 export type AuthStatusResponse = { required: boolean };
@@ -167,3 +210,4 @@ export type ConfigFileMeta = {
 export type ConfigFile = ConfigFileMeta & { content: string };
 
 export type ConfigFilesResponse = { files: ConfigFileMeta[] };
+export type CommandsResponse = { commands: SlashCommand[] };

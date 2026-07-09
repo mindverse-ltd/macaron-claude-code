@@ -1,6 +1,11 @@
-/* Macaron WebUI — Claude-inspired paper theme. */
+/* Macaron WebUI — Claude-inspired paper theme.
+   Colors are centralized as CSS variables so the whole UI re-themes from the
+   palette below. index.html sets data-theme before first paint (FOUC-safe);
+   src/lib/theme.ts keeps it in sync at runtime. Add a color to the dark block
+   only when a hardcoded value below reads wrong on the dark surfaces. */
 
-:root {
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
   --bg: #FAF9F5;
   --surface: #FFFFFF;
@@ -30,6 +35,33 @@
     "Times New Roman", serif;
   --font-mono: "Söhne Mono", ui-monospace, SFMono-Regular, "JetBrains Mono",
     Menlo, Consolas, monospace;
+}
+
+/* Dark theme — warm charcoal counterpart to the paper palette. Only the color
+   tokens change; fonts and layout are inherited from :root above. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1F1E1B;
+  --surface: #262521;
+  --surface-2: #2C2B26;
+  --surface-3: #35332C;
+  --code-bg: #2C2B26;
+  --border: #38362F;
+  --border-strong: #48453B;
+
+  --text: #EDEAE0;
+  --text-2: #C9C4B5;
+  --muted: #948E7D;
+  --muted-2: #6E6A5C;
+
+  --accent: #E08159;
+  --accent-hover: #EC8F67;
+  --accent-soft: rgba(224, 129, 89, 0.14);
+  --accent-soft-2: rgba(224, 129, 89, 0.24);
+
+  --good: #7FB279;
+  --warn: #D4A857;
+  --bad: #E0736B;
 }
 
 * { box-sizing: border-box; }
@@ -466,6 +498,7 @@ textarea:focus, select:focus, input:focus {
 }
 .icon-btn:hover { color: var(--text); border-color: var(--text); }
 .icon-btn:active { transform: scale(0.96); }
+.iso-toggle.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .crumb-link {
   color: var(--text-2);
   text-decoration: none;
@@ -726,6 +759,77 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-expand:hover { color: var(--accent); }
 
+/* ---------- activity timeline rail ---------- */
+.ti-timeline {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.ti-timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: left;
+}
+.ti-timeline-head:hover { color: var(--text); }
+.ti-timeline-caret { color: var(--muted); flex-shrink: 0; }
+.ti-timeline-title { font-weight: 600; }
+.ti-timeline-failed { color: var(--bad); }
+.ti-timeline.collapsed { background: var(--surface-2); }
+.ti-timeline-rail {
+  display: flex;
+  gap: 6px;
+  padding: 2px 12px 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.ti-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 220px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.ti-node:hover { border-color: var(--border-strong); color: var(--text); }
+.ti-node.active { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.ti-node-ok { border-left-color: var(--good); }
+.ti-node-error { border-left-color: var(--bad); }
+.ti-node-pending { border-left-color: var(--warn); }
+.ti-node-icon { font-size: 12px; line-height: 1; flex-shrink: 0; }
+.ti-node-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ti-node-dur { color: var(--muted); flex-shrink: 0; }
+
+.ti-tool-dur { color: var(--muted); flex-shrink: 0; margin-left: auto; padding-left: 8px; }
+.ti-dot-error { color: var(--bad); }
+
+/* Brief highlight when a rail node scrolls its target row into view. */
+@keyframes ti-jump-flash {
+  0% { background: var(--accent-soft-2); }
+  100% { background: transparent; }
+}
+.ti-jump-flash { animation: ti-jump-flash 1.1s ease-out; border-radius: 6px; }
+
 /* ---------- inline diff card (Edit / Write / MultiEdit) ---------- */
 .ti-diff {
   margin: 4px 0 8px;
@@ -939,6 +1043,34 @@ textarea:focus, select:focus, input:focus {
   margin-bottom: 10px;
 }
 .settings-row-head h2.sec-title { margin: 0; }
+
+/* Appearance: light/dark/system segmented control */
+.theme-row { display: flex; flex-direction: column; gap: 8px; }
+.theme-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.theme-seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 6px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.theme-seg-btn:hover { color: var(--text); }
+.theme-seg-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 2px var(--accent-soft);
+}
 
 .prov-list {
   display: flex;
@@ -1189,13 +1321,11 @@ textarea:focus, select:focus, input:focus {
   color: rgb(215, 119, 87);
   opacity: 0.95;
 }
-@media (prefers-color-scheme: dark) {
-  .ti-thinking-star,
-  .ti-thinking-verb,
-  .ti-thinking-tail {
-    /* CLI's dark theme uses rgb(255,153,51). */
-    color: rgb(255, 153, 51);
-  }
+:root[data-theme="dark"] .ti-thinking-star,
+:root[data-theme="dark"] .ti-thinking-verb,
+:root[data-theme="dark"] .ti-thinking-tail {
+  /* CLI's dark theme uses rgb(255,153,51). */
+  color: rgb(255, 153, 51);
 }
 
 /* ---------- inline GenUI preview (Macaron render_ui) ---------- */
@@ -1467,6 +1597,13 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   flex-direction: column;
 }
+/* The clip above drives the focus collapse/expand animation, but it also
+   traps the slash palette (which floats above the composer). Only while the
+   palette is present, let the container overflow so the menu is visible; the
+   tile ancestors stay overflow:hidden, so nothing escapes the tile itself. */
+.session-input-inner:has(.slash-palette) {
+  overflow: visible;
+}
 .session-input-area.collapsed {
   grid-template-rows: 0fr;
   opacity: 0;
@@ -1485,6 +1622,7 @@ textarea:focus, select:focus, input:focus {
   border-radius: 14px;
   background: var(--surface);
   transition: border-color 0.15s ease, background 0.15s ease;
+  position: relative;
 }
 .session-input.drag-over {
   border-color: var(--accent);
@@ -1507,6 +1645,68 @@ textarea:focus, select:focus, input:focus {
   gap: 8px;
 }
 .session-input-spacer { flex: 1; }
+
+/* Slash-command palette: floats above the composer, anchored to the input's
+   top edge. Mirrors .ctx-menu's surface/border/shadow so it reads as the same
+   design language. Scrolls when the command list is long. */
+.slash-palette {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 6px 20px rgba(61, 57, 41, 0.12);
+  z-index: 20;
+  animation: ctx-in 0.12s ease-out;
+}
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 7px;
+  text-align: left;
+}
+.slash-item.active { background: var(--surface-2); }
+.slash-name { font-weight: 600; color: var(--accent); white-space: nowrap; }
+.slash-ns {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.slash-hint { font-size: 12px; color: var(--muted-2); font-style: italic; white-space: nowrap; }
+.slash-desc {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.slash-source {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-left: auto;
+}
 
 /* Chip-style picker used for provider & permission-mode selectors on the
    input toolbar. A native <select> sits invisibly on top of the pill so we
@@ -1961,6 +2161,36 @@ textarea:focus, select:focus, input:focus {
 .ti-perm-actions .primary.small,
 .ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
 
+/* ---------- plan-mode approval panel (ExitPlanMode) ---------- */
+.ti-plan {
+  margin: 6px 0;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.ti-plan-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ti-plan-icon { flex-shrink: 0; }
+.ti-plan-title { color: var(--text); font-weight: 600; }
+.ti-plan-sub { color: var(--text-2); font-size: 12.5px; }
+.ti-plan-body {
+  margin: 10px 0;
+  max-height: 340px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.ti-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* ---------- session actions dropdown ---------- */
 .actions-menu-wrap {
   position: relative;
@@ -2363,7 +2593,7 @@ textarea:focus, select:focus, input:focus {
   bottom: 10px; right: 12px;
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: #fff;
+  color: var(--bg);  /* reversed pill: fg tracks page bg; #fff would vanish on dark's near-white --text */
   background: var(--text);
   padding: 4px 11px;
   border-radius: 999px;
@@ -2371,8 +2601,8 @@ textarea:focus, select:focus, input:focus {
   box-shadow: 0 2px 8px rgba(61, 57, 41, 0.2);
   z-index: 5;
 }
-.genui-status.ok  { background: var(--good); }
-.genui-status.err { background: var(--bad); }
+.genui-status.ok  { color: #fff; background: var(--good); }
+.genui-status.err { color: #fff; background: var(--bad); }
 .genui-err {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -3159,6 +3389,111 @@ textarea:focus, select:focus, input:focus {
 .wk-running {
   color: var(--accent);
   font-weight: 500;
+}
+
+/* Command palette (Cmd-K) — overlay convention mirrors .confirm-backdrop,
+   but top-anchored like a spotlight search rather than centered. */
+.cmdk-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 36, 28, 0.32);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: 300;
+  animation: confirm-fade-in 0.12s ease;
+}
+.cmdk-panel {
+  width: min(640px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(61, 57, 41, 0.28);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: confirm-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.3, 1.1);
+}
+.cmdk-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  padding: 16px 18px;
+  font-size: 15px;
+  font-family: var(--font-sans, inherit);
+  color: var(--text);
+  outline: none;
+}
+.cmdk-input::placeholder { color: var(--muted); }
+.cmdk-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 6px;
+}
+.cmdk-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cmdk-group {
+  padding: 8px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cmdk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.cmdk-row.active { background: var(--surface-2); }
+.cmdk-kind {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cmdk-row.active .cmdk-kind { color: var(--accent); }
+.cmdk-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cmdk-title {
+  font-size: 13.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmdk-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmdk-foot {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+}
+.cmdk-foot kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  margin-right: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
 }
 
 /* ---------- responsive / mobile ---------- */

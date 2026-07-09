@@ -115,10 +115,6 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     };
     let capturedSid = sid;
     let agentText = '';
-    // Reasoning and the final reply arrive as the same `delta`; a reasoning
-    // delta is always preceded by a `codex_reasoning` marker. Only the reply
-    // feeds the loop's sentinel test (see codex-loop.ts), so skip reasoning.
-    let reasoningNext = false;
     // Mirror the Claude route: the primary client is written directly, while a
     // parallel copy of every event lands in the live registry so a browser
     // refresh mid-turn can reattach via the snapshot-then-live /live endpoint.
@@ -142,11 +138,12 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
           capturedSid = ev.sessionId;
           ensureLive();
           safeSend({ type: 'meta', cwd: live.cwd, sessionId: capturedSid });
-        } else if (ev.kind === 'delta') { if (!reasoningNext) agentText += ev.text; reasoningNext = false; relay({ type: 'delta', text: ev.text }); }
+        } else if (ev.kind === 'delta') { agentText += ev.text; relay({ type: 'delta', text: ev.text }); }
+        else if (ev.kind === 'reasoning') relay({ type: 'reasoning', text: ev.text });
         else if (ev.kind === 'tool_use') relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
         else if (ev.kind === 'usage') relay({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-        else if (ev.kind === 'message') { if (ev.subtype === 'codex_reasoning') reasoningNext = true; relay({ type: 'event', event: 'system', subtype: ev.subtype }); }
+        else if (ev.kind === 'message') relay({ type: 'event', event: 'system', subtype: ev.subtype });
         else if (ev.kind === 'error') relay({ type: 'error', error: ev.error });
         else if (ev.kind === 'done') {
           safeSend({ type: 'done', exitCode: ev.exitCode });
