@@ -121,3 +121,23 @@ export type AuthStatusResponse = { required: boolean };
 export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };
+
+// Browser-editable Claude Code config files (user scope, under ~/.claude).
+// `settings` is JSON (schema-guarded on write); `memory` is the free-form
+// CLAUDE.md markdown. `format` tells the editor which validation to apply.
+export type ConfigFileId = 'user-settings' | 'user-memory';
+export type ConfigFileFormat = 'json' | 'markdown';
+
+export type ConfigFileMeta = {
+  id: ConfigFileId;
+  label: string;
+  path: string;
+  format: ConfigFileFormat;
+  exists: boolean;
+};
+
+// Full content of one file. `content` is '' when the file doesn't exist yet —
+// saving then creates it.
+export type ConfigFile = ConfigFileMeta & { content: string };
+
+export type ConfigFilesResponse = { files: ConfigFileMeta[] };
