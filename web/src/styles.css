@@ -703,6 +703,79 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-expand:hover { color: var(--accent); }
 
+/* ---------- inline diff card (Edit / Write / MultiEdit) ---------- */
+.ti-diff {
+  margin: 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  font-family: var(--font-mono);
+}
+.ti-diff.err {
+  border-color: rgba(192, 82, 74, 0.55);
+}
+.ti-diff.err .ti-dot {
+  color: var(--bad);
+}
+.ti-diff-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.ti-diff-path {
+  color: var(--text-2);
+  word-break: break-all;
+  min-width: 0;
+  flex: 1;
+}
+.ti-diff-stat { flex-shrink: 0; font-size: 11.5px; }
+.ti-diff-plus { color: var(--good); }
+.ti-diff-minus { color: var(--bad); }
+.ti-diff-body {
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ti-diff-hunk { border-bottom: 1px solid var(--border); }
+.ti-diff-hunk:last-child { border-bottom: 0; }
+.ti-diff-tag {
+  padding: 1px 10px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.ti-diff-row {
+  display: flex;
+  gap: 2px;
+  white-space: pre;
+  padding-right: 10px;
+}
+.ti-diff-del { background: rgba(192, 82, 74, 0.10); }
+.ti-diff-add { background: rgba(90, 139, 90, 0.12); }
+.ti-diff-sign {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+.ti-diff-del .ti-diff-sign { color: var(--bad); }
+.ti-diff-add .ti-diff-sign { color: var(--good); }
+.ti-diff-code {
+  white-space: pre;
+  color: var(--text);
+}
+.ti-diff-result {
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+.ti-diff .ti-expand { padding: 4px 10px; }
+
 /* ---------- todo card ---------- */
 .ti-todo {
   margin: 8px 0;
@@ -774,6 +847,56 @@ textarea:focus, select:focus, input:focus {
   display: inline;
   padding: 0 0 0 4px;
   font-size: 12px;
+}
+
+/* Suggested follow-up question chips, shown under the latest reply. One row
+   only: chips never wrap, overflow scrolls horizontally, and a soft gradient
+   mask fades both edges so a clipped chip trails off instead of hard-cutting.
+   The scroll padding matches the fade width so first/last chips can scroll
+   clear of the fade. */
+.ti-followups {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 6px 14px;
+  /* Reserve the row even while empty so chips fading in never push the thread
+     up — 40px is the height with a chip present (chip box + 6px×2 padding),
+     so the slot is identical whether 0 or N chips are showing. */
+  min-height: 40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+.ti-followups::-webkit-scrollbar { display: none; }
+.ti-followup-chip {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  /* Each chip is a fresh node when its question finishes streaming, so this
+     plays once on mount — new chips fade in one by one, settled ones don't. */
+  animation: chip-in 0.18s ease both;
+}
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ti-followup-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
 
 /* ---------- Settings page ---------- */
@@ -1721,6 +1844,7 @@ textarea:focus, select:focus, input:focus {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .ti-perm-actions .primary.small,
 .ti-perm-actions .ghost.small { padding: 3px 12px; font-size: 12px; }
@@ -2253,6 +2377,72 @@ textarea:focus, select:focus, input:focus {
 @keyframes confirm-pop-in {
   from { opacity: 0; transform: scale(0.96) translateY(4px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ---------- shortcuts help (which-key sheet) ---------- */
+.shortcuts-dialog {
+  min-width: 440px;
+  max-width: 560px;
+}
+.shortcuts-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.shortcuts-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.shortcuts-keys {
+  flex: 0 0 128px;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.shortcuts-keys kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.shortcuts-desc {
+  flex: 1;
+  color: var(--text);
+  line-height: 1.5;
+}
+.sb-shortcuts-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.sb-shortcuts-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
 }
 
 /* ---------- scrollbars ---------- */
@@ -2890,3 +3080,66 @@ textarea:focus, select:focus, input:focus {
 }
 .git-commit textarea { min-height: 46px; font-size: 13px; padding: 8px 10px; }
 .git-commit .primary { align-self: flex-end; }
+
+/* ---- File explorer ------------------------------------------------------ */
+.fx { display: flex; flex-direction: column; height: 100vh; min-height: 0; }
+.fx-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.fx-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fx-dirty { color: var(--accent); font-size: 11px; }
+.fx-head-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+.fx-body { display: flex; flex: 1; min-height: 0; }
+.fx-tree {
+  width: 280px;
+  flex-shrink: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 6px 0;
+  background: var(--surface);
+}
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.fx-row:hover { background: var(--surface-2); }
+.fx-row.selected { background: var(--surface-2); color: var(--accent); }
+.fx-caret { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; }
+.fx-icon { flex-shrink: 0; font-size: 12px; }
+.fx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-hint { font-size: 12px; color: var(--muted); padding: 3px 8px; }
+.fx-hint.error { color: var(--accent); }
+.fx-editor { flex: 1; min-width: 0; overflow: hidden; display: flex; }
+.fx-editor > * { flex: 1; min-width: 0; }
+.fx-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 40px;
+  text-align: center;
+}
