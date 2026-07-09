@@ -19,6 +19,7 @@ import {
 } from '../lib/codex-store.js';
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
+import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
 import {
   CODEX_SYSTEM_PROVIDER_ID,
   createCodexProvider,
@@ -117,6 +118,10 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         else if (ev.kind === 'done') {
           safeSend({ type: 'done', exitCode: ev.exitCode });
           if (capturedSid) endRun(capturedSid);
+          // Name the thread from its opening exchange once the turn's rollout
+          // has landed. Fire-and-forget: no-op if already titled, never blocks
+          // the response, failures swallowed.
+          if (capturedSid && ev.exitCode === 0) void maybeGenerateCodexTitle(capturedSid).catch(() => {});
           if (!clientGone) sseDone(reply);
         }
       }

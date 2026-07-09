@@ -163,7 +163,7 @@ export function CodexSidebar() {
                         title={s.cwd}
                       >
                         <span className="cx-sb-thread-title">
-                          {s.preview || s.sessionId.slice(0, 8)}
+                          {s.title || s.preview || s.sessionId.slice(0, 8)}
                         </span>
                         <button
                           type="button"

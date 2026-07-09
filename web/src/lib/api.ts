@@ -18,9 +18,10 @@ import type {
   HealthResponse,
   CommandsResponse,
 } from '@macaron/shared';
+import { authedFetch } from './auth';
 
 export async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+  const r = await authedFetch(url);
   if (!r.ok) throw new Error(`http ${r.status}`);
   return r.json() as Promise<T>;
 }
@@ -54,7 +55,7 @@ export type ProviderInput = {
 };
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
-  const r = await fetch(url, init);
+  const r = await authedFetch(url, init);
   if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json() as Promise<T>;
 }
@@ -109,7 +110,7 @@ export const api = {
       `/api/sessions/claude/${encodeURIComponent(project)}/commands`,
     ),
   deleteSession: async (project: string, sid: string): Promise<void> => {
-    const r = await fetch(
+    const r = await authedFetch(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,
       { method: 'DELETE' },
     );
@@ -120,11 +121,15 @@ export const api = {
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/duplicate`,
       { method: 'POST' },
     ),
-  permissionDecision: (id: string, decision: 'allow' | 'deny', reason?: string) =>
+  permissionDecision: (
+    id: string,
+    decision: 'allow' | 'deny',
+    opts?: { scope?: 'once' | 'session' | 'always'; reason?: string },
+  ) =>
     req<{ ok: boolean }>('/api/permission-decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, decision, reason }),
+      body: JSON.stringify({ id, decision, scope: opts?.scope, reason: opts?.reason }),
     }),
   stopSession: (project: string, sid: string) =>
     req<{ ok: boolean; running: boolean }>(

@@ -10,9 +10,32 @@ export function basename(p) {
 export function decodeClaudeProjectName(encoded) {
     return encoded.replace(/^-/, '/').replace(/-/g, '/');
 }
+// Resolve a project's real cwd. The encoded project name decodes lossily
+// (claude-cli maps `/` → `-`, so every `-` decodes back to `/` and any path
+// segment containing a hyphen comes out wrong). All sessions in a project dir
+// share one cwd, embedded in each jsonl head — so read any session's head and
+// prefer that, falling back to the (possibly-wrong) decode only when the
+// project has no readable sessions yet.
+export async function resolveProjectCwd(project) {
+    try {
+        const dir = path.join(CLAUDE_PROJECTS, project);
+        for (const f of await fs.readdir(dir)) {
+            if (!f.endsWith('.jsonl'))
+                continue;
+            const head = await readSessionSummary(path.join(dir, f));
+            if (head?.cwd)
+                return head.cwd;
+        }
+    }
+    catch {
+        /* no project dir / no sessions — fall back to decode */
+    }
+    return decodeClaudeProjectName(project);
+}
 // File-keyed mtime cache so we only re-parse jsonl when claude appends to it.
 const summaryCache = new Map();
 const HEAD_BYTES = 96 * 1024;
+const CWD_TAIL_BYTES = 64 * 1024;
 export async function deleteSession(project, sid) {
     const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
     await fs.unlink(filePath);
@@ -207,8 +230,61 @@ export async function readSessionSummary(filePath) {
     catch {
         /* swallow */
     }
+    // cwd sits at the END of each jsonl line (after `message`), so a huge first
+    // paste can push the head's only cwd-bearing line past HEAD_BYTES, truncating
+    // it unparseably. The same cwd repeats on every later line, and trailing lines
+    // are usually small — so when the head read came up empty on a truncated file,
+    // recover cwd (and gitBranch) from a tail read instead.
+    if (summary.truncated && !summary.cwd) {
+        try {
+            const fh = await fs.open(filePath, 'r');
+            try {
+                const len = Math.min(st.size, CWD_TAIL_BYTES);
+                const buf = Buffer.alloc(len);
+                await fh.read(buf, 0, len, st.size - len);
+                const text = buf.toString('utf8');
+                const lines = text.split('\n');
+                // Drop the first slice — it's a partial line cut by the seek offset.
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (!line.trim())
+                        continue;
+                    try {
+                        const o = JSON.parse(line);
+                        if (o.cwd)
+                            summary.cwd = o.cwd;
+                        if (!summary.gitBranch && o.gitBranch)
+                            summary.gitBranch = o.gitBranch;
+                    }
+                    catch {
+                        /* skip malformed line */
+                    }
+                }
+            }
+            finally {
+                await fh.close();
+            }
+        }
+        catch {
+            /* swallow — fall back to decoded project name upstream */
+        }
+    }
     summaryCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, summary });
     return summary;
+}
+// Resolve a session's working directory. The project name IS the cwd (encoded
+// by claude-cli), so it's the safe default — the jsonl's head read is capped at
+// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
+// the decoded name and only override with the embedded cwd when we got one.
+export async function resolveSessionCwd(project, sid) {
+    let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+    try {
+        const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
+        if (head?.cwd)
+            cwd = head.cwd;
+    }
+    catch { /* fall back to decoded project name */ }
+    return cwd;
 }
 export async function listAllSessions() {
     let projects;

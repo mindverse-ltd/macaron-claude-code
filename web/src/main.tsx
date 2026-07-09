@@ -36,8 +36,13 @@ import { Workspace } from './views/Workspace';
 import { Settings } from './views/Settings';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
+import { AuthGate } from './components/AuthGate';
+import { consumeTokenFromUrl } from './lib/auth';
 import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
 import './styles.css';
+
+// Pick up a ?token=... bootstrap from a shared link before anything fetches.
+consumeTokenFromUrl();
 
 // Boot UnoCSS runtime: scans the DOM for utility classes and injects CSS as
 // elements appear. Required because the GenUI preview renders model-generated
@@ -85,11 +90,13 @@ const router = createHashRouter([
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ToastProvider>
-      <ConfirmProvider>
-        <RouterProvider router={router} />
-      </ConfirmProvider>
-    </ToastProvider>
+    <AuthGate>
+      <ToastProvider>
+        <ConfirmProvider>
+          <RouterProvider router={router} />
+        </ConfirmProvider>
+      </ToastProvider>
+    </AuthGate>
   </React.StrictMode>,
 );
 

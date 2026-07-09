@@ -40,7 +40,11 @@ const compilerOptions = {
 // The tool description permits esm.sh/http URL imports for tiny React-free helpers, and the
 // browser fetches them natively — but moduleResolution: Bundler can't resolve URL specifiers.
 // Ambient-declare them as `any` so the check doesn't TS2307 code the browser renders fine.
-const AMBIENT_DECLARATIONS = `declare module "https://*";\ndeclare module "http://*";\n`;
+// $macaron/chat is a runtime shim (.mjs, no .tsx source to map via FACADE_PATHS), so declare
+// its types ambiently — user TSX importing sendUserMessage gets real signature checking
+// instead of a TS2307.
+const AMBIENT_DECLARATIONS = `declare module "https://*";\ndeclare module "http://*";\n` +
+    `declare module "$macaron/chat" {\n  export function sendUserMessage(prompt: string): void;\n}\n`;
 const toDiag = (d) => {
     const message = diagnosticMessage(ts, d);
     if (!d.file || d.start === undefined)
