@@ -35,6 +35,7 @@ import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
+import { ShareView } from './views/ShareView';
 import { Hooks } from './views/Hooks';
 import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
@@ -42,6 +43,7 @@ import { ConfirmProvider } from './components/Confirm';
 import { AuthGate } from './components/AuthGate';
 import { consumeTokenFromUrl } from './lib/auth';
 import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
+import { registerServiceWorker } from './lib/pwa';
 import './styles.css';
 
 // Pick up a ?token=... bootstrap from a shared link before anything fetches.
@@ -92,6 +94,9 @@ const router = createHashRouter([
       { path: 'w/:project/s/:sid', element: <Workspace /> },
     ],
   },
+  // Public read-only share viewer — a sibling of <App> so it renders WITHOUT
+  // the sidebar/composer chrome. Reuses the same GenUI boot below.
+  { path: 'share/:token', element: <ShareView /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -105,6 +110,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </AuthGate>
   </React.StrictMode>,
 );
+
+// Register the push service worker (best-effort; no-ops on insecure origins).
+registerServiceWorker();
 
 // Warm up the GenUI renderer runtime (TSX wasm + compiler) on idle so the
 // first render_ui call doesn't pay the ~400-500ms init cost inside the

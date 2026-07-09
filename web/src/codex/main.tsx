@@ -11,6 +11,7 @@ import { CodexSettings } from './CodexSettings';
 import { CodexWorkspace } from './CodexWorkspace';
 import { AuthGate } from '../components/AuthGate';
 import { consumeTokenFromUrl } from '../lib/auth';
+import { registerServiceWorker } from '../lib/pwa';
 import './styles.css';
 
 // Pick up a ?token=... bootstrap from a shared link before anything fetches.
@@ -37,3 +38,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </AuthGate>
   </React.StrictMode>,
 );
+
+registerServiceWorker();
