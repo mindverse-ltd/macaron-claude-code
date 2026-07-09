@@ -301,6 +301,11 @@ export function Sidebar() {
         <span>Subagents</span>
       </Link>
 
+      <Link className="sb-settings-link" to="/mcp">
+        <span>🧩</span>
+        <span>MCP servers</span>
+      </Link>
+
       <button
         type="button"
         className="sb-settings-link sb-shortcuts-btn"

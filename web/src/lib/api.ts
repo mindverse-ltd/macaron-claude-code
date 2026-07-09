@@ -75,6 +75,26 @@ export type AgentInput = {
   model: string;
   prompt: string;
 };
+export type McpTransport = 'stdio' | 'http' | 'sse';
+export type PublicMcpServer = {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  alwaysLoad?: boolean;
+};
+export type McpServerInput = {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+};
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
   const r = await authedFetch(url, init);
@@ -119,6 +139,23 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
+    }),
+  mcpServers: () => getJSON<{ servers: PublicMcpServer[] }>('/api/mcp/servers'),
+  addMcpServer: (input: McpServerInput) =>
+    req<{ servers: PublicMcpServer[] }>('/api/mcp/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateMcpServer: (name: string, input: McpServerInput) =>
+    req<{ servers: PublicMcpServer[] }>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteMcpServer: (name: string) =>
+    req<{ servers: PublicMcpServer[] }>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }),
   configFiles: () => getJSON<{ files: ConfigFileMeta[] }>('/api/config-files'),
   configFile: (id: ConfigFileId) => getJSON<ConfigFile>(`/api/config-files/${id}`),
