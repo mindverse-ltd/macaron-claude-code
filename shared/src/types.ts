@@ -83,6 +83,21 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// ---- File explorer -------------------------------------------------------
+// A single entry in a directory listing. `path` is relative to the project
+// cwd (root = ''), so the web tree can request children without knowing the
+// absolute path (the server re-resolves + confines it).
+export type FileEntry = {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  size?: number;
+  mtime?: number;
+};
+
+export type FileListResponse = { root: string; path: string; entries: FileEntry[] };
+export type FileReadResponse = { path: string; content: string; size: number };
+
 export type WorkspacesResponse = { workspaces: Workspace[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type HealthResponse = { ok: boolean; model: string };
