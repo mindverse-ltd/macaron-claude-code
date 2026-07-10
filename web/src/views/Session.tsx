@@ -27,7 +27,6 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
-import { ActivityTimeline, toolIcon, toolLabel, type TimelineEntry } from '../components/ActivityTimeline';
 import { useFileMention } from '../components/MentionPopup';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
@@ -1510,66 +1509,6 @@ export function Session(props: SessionProps = {}) {
   // automatically — new content pushes existing content up without us
   // touching scrollTop. The user can freely scroll up to read history.
 
-  // ---- Activity timeline: one rail node per tool call in the session -----
-  // Built from the persisted `items`, so live-turn tools join once the jsonl
-  // reloads. Todo / genui calls are surfaced too (they're tool calls the CLI
-  // renders specially). `id` matches each row's `data-item-id` for click-jump.
-  const timelineEntries = useMemo<TimelineEntry[]>(() => {
-    const out: TimelineEntry[] = [];
-    for (const it of items) {
-      if (it.kind === 'tool') {
-        out.push({
-          id: it.id,
-          icon: toolIcon(it.name),
-          label: toolLabel(it.name),
-          summary: toolHeader(it.name, it.input),
-          durationMs: it.durationMs,
-          status: it.isError ? 'error' : it.result !== undefined ? 'ok' : 'pending',
-        });
-      } else if (it.kind === 'todo') {
-        const done = it.todos.filter((t) => t.status === 'completed').length;
-        out.push({ id: it.id, icon: toolIcon('TodoWrite'), label: 'Todo', summary: `${done}/${it.todos.length} done`, status: 'ok' });
-      } else if (it.kind === 'genui') {
-        out.push({ id: it.id, icon: '🎨', label: 'render_ui', summary: it.prompt, status: it.status === 'error' ? 'error' : it.status === 'ready' ? 'ok' : 'pending' });
-      }
-    }
-    return out;
-  }, [items]);
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
-
-  // Request a jump to a rail node's target row. If the row is older than the
-  // paginated window, widen `shown` first. The scroll runs in the effect below,
-  // once React has committed the wider window — doing it inline (even in a rAF)
-  // races the commit and silently misses rows that aren't mounted yet.
-  const jumpToItem = useCallback(
-    (id: string) => {
-      const idx = items.findIndex((it) => it.id === id);
-      if (idx >= 0) {
-        const fromTail = items.length - idx;
-        if (fromTail > shown) setShown((s) => Math.max(s, fromTail));
-      }
-      setActiveItemId(id);
-      setPendingJumpId(id);
-    },
-    [items, shown],
-  );
-
-  // Resolve a pending jump after the target row is committed. Re-runs when
-  // `shown` widens (which mounts older rows), so jumps into hidden history land
-  // reliably instead of no-oping when the row wasn't mounted in time.
-  useEffect(() => {
-    if (!pendingJumpId) return;
-    const el = threadRef.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(pendingJumpId)}"]`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.remove('ti-jump-flash');
-    // Force reflow so re-adding the class restarts the flash animation.
-    void el.offsetWidth;
-    el.classList.add('ti-jump-flash');
-    setPendingJumpId(null);
-  }, [pendingJumpId, shown]);
-
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
   // Session start time from the earliest message timestamp — mirrors the CLI's
@@ -1949,10 +1888,21 @@ export function Session(props: SessionProps = {}) {
   // looking at owns the bridge.
   useEffect(() => {
     if (!focused) return;
-    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const g = globalThis as unknown as {
+      '$app/chat'?: (prompt: string) => void;
+      sendUserMessage?: (prompt: string) => void;
+    };
     const bridge = (prompt: string) => { void send({ text: prompt }); };
     g['$app/chat'] = bridge;
-    return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
+    // Also expose sendUserMessage as a bare global for widgets that forget
+    // to `import { sendUserMessage } from '$macaron/chat'` — models drop the
+    // import surprisingly often, and the resulting ReferenceError is fatal
+    // to the whole onClick with no path to recover at runtime.
+    g.sendUserMessage = bridge;
+    return () => {
+      if (g['$app/chat'] === bridge) delete g['$app/chat'];
+      if (g.sendUserMessage === bridge) delete g.sendUserMessage;
+    };
   }, [focused, send]);
 
   // ---- Slash palette derivation + keyboard reconciliation ----------------
@@ -2103,8 +2053,6 @@ export function Session(props: SessionProps = {}) {
           </div>
         </div>
       )}
-
-      <ActivityTimeline entries={timelineEntries} activeId={activeItemId} onJump={jumpToItem} />
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
