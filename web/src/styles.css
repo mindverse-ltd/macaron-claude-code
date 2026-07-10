@@ -2911,6 +2911,44 @@ textarea:focus, select:focus, input:focus {
 .danger:hover { background: #b32e25; border-color: #b32e25; }
 .danger:focus-visible { outline: 2px solid #c5392f; outline-offset: 2px; }
 
+/* Create-PR dialog — builds on .confirm-* / .settings-* */
+.pr-dialog { min-width: 440px; max-width: 560px; }
+.pr-branch-line {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pr-branch-line code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.pr-arrow { color: var(--muted); }
+.pr-ahead { color: var(--muted); }
+.pr-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.pr-note-warn { color: #b06a1a; }
+.pr-body { resize: vertical; min-height: 120px; line-height: 1.5; }
+.pr-draft {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 14px 0 18px;
+  cursor: pointer;
+}
+
 @keyframes confirm-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }

@@ -10,6 +10,9 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
   FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
@@ -44,6 +47,9 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
   FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
@@ -328,6 +334,23 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      },
+    ),
+  prContext: (project: string, sid: string) =>
+    // Use `req` (not `getJSON`) so the server's descriptive error body
+    // ("not a git repository", etc.) reaches the toast instead of a bare
+    // `http 400`, matching the createPr path.
+    req<PrContext>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr-context`,
+      { method: 'GET' },
+    ),
+  createPr: (project: string, sid: string, input: CreatePrRequest) =>
+    req<CreatePrResult>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
       },
     ),
   createShare: (project: string, sid: string) =>

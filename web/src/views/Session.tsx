@@ -9,6 +9,7 @@ import {
   downloadTextFile,
   type Message,
   type SessionDetail,
+  type PrContext,
   type SlashCommand,
 } from '../lib/api';
 import { streamSession } from '../lib/sse';
@@ -34,6 +35,7 @@ import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
 import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
+import { CreatePrDialog } from '../components/CreatePrDialog';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
 const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWith('__render_ui');
@@ -779,12 +781,16 @@ export function ItemView({
 function SessionActionsMenu({
   disabled,
   busyCompact,
+  busyPr,
   onCompact,
+  onCreatePr,
   onExport,
 }: {
   disabled: boolean;
   busyCompact: boolean;
+  busyPr: boolean;
   onCompact: () => void;
+  onCreatePr: () => void;
   onExport: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -823,6 +829,22 @@ function SessionActionsMenu({
       </button>
       {open && (
         <div className="actions-menu">
+          <button
+            type="button"
+            className="actions-menu-item"
+            disabled={disabled || busyPr}
+            onClick={() => {
+              setOpen(false);
+              onCreatePr();
+            }}
+          >
+            <span className="actions-menu-body">
+              <span className="actions-menu-label">
+                {busyPr ? 'Opening PR…' : 'Create PR'}
+              </span>
+              <span className="actions-menu-sub">Push branch → open a pull request</span>
+            </span>
+          </button>
           <button
             type="button"
             className="actions-menu-item"
@@ -1146,6 +1168,10 @@ export function Session(props: SessionProps = {}) {
   const [busyCompact, setBusyCompact] = useState(false);
   const [busyRewind, setBusyRewind] = useState(false);
   const [busyFork, setBusyFork] = useState(false);
+  const [busyPr, setBusyPr] = useState(false);
+  // Non-null while the Create-PR dialog is open; holds the git snapshot used
+  // to prefill and gate it.
+  const [prCtx, setPrCtx] = useState<PrContext | null>(null);
   // @-mention file autocomplete over the project tree. Inserts `@relpath`
   // tokens the CLI resolves natively; no server-side prompt rewriting.
   const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef, composingRef });
@@ -1262,6 +1288,58 @@ export function Session(props: SessionProps = {}) {
       setBusyCompact(false);
     }
   }, [busyCompact, confirm, project, sid, toast]);
+
+  // Create PR: fetch the git snapshot for this session's cwd, then open the
+  // dialog prefilled from the first user prompt. Gating (default branch, no
+  // commits ahead, existing PR) is surfaced inside the dialog.
+  const handleOpenPr = useCallback(async () => {
+    if (busyPr) return;
+    setBusyPr(true);
+    try {
+      const ctx = await api.prContext(project, sid);
+      setPrCtx(ctx);
+    } catch (e) {
+      toast(`couldn't read git state: ${(e as Error).message}`);
+    } finally {
+      setBusyPr(false);
+    }
+  }, [busyPr, project, sid, toast]);
+
+  const handleCreatePr = useCallback(
+    async (input: { title: string; body: string; draft: boolean }) => {
+      setBusyPr(true);
+      try {
+        const { url, created } = await api.createPr(project, sid, input);
+        setPrCtx(null);
+        toast(created ? 'Pull request opened' : 'PR already exists — opening it');
+        window.open(url, '_blank', 'noopener');
+      } catch (e) {
+        toast(`create PR failed: ${(e as Error).message}`);
+      } finally {
+        setBusyPr(false);
+      }
+    },
+    [project, sid, toast],
+  );
+
+  // Prefill for the PR dialog, derived from the first real user prompt. Title
+  // = its first line (capped); body = a short recap pointing back at Macaron.
+  const firstPrompt = useMemo(() => {
+    for (const m of data?.messages ?? []) {
+      if (m.role !== 'user') continue;
+      const text = m.blocks.filter((b) => b.kind === 'text').map((b) => (b as { text: string }).text).join('\n').trim();
+      if (text && !isNoisyUserText(text)) return text;
+    }
+    return '';
+  }, [data]);
+  const prTitle = useMemo(() => {
+    const line = (firstPrompt.split('\n')[0] || prCtx?.branch || 'Update').trim();
+    return line.length > 72 ? `${line.slice(0, 69)}…` : line;
+  }, [firstPrompt, prCtx]);
+  const prBody = useMemo(() => {
+    const recap = firstPrompt ? `${firstPrompt}\n\n` : '';
+    return `${recap}---\n_Opened from a Macaron session._`;
+  }, [firstPrompt]);
 
   // Export: serialize the loaded transcript to Markdown and download it —
   // client-side, no server round-trip (we already hold the parsed messages).
@@ -2275,7 +2353,9 @@ export function Session(props: SessionProps = {}) {
           <SessionActionsMenu
             disabled={isNew || sending}
             busyCompact={busyCompact}
+            busyPr={busyPr}
             onCompact={() => void handleCompact()}
+            onCreatePr={() => void handleOpenPr()}
             onExport={handleExport}
           />
           {isNew && (
@@ -2365,6 +2445,16 @@ export function Session(props: SessionProps = {}) {
       />
       </div>
       </div>
+      {prCtx && (
+        <CreatePrDialog
+          ctx={prCtx}
+          initialTitle={prTitle}
+          initialBody={prBody}
+          busy={busyPr}
+          onSubmit={(input) => void handleCreatePr(input)}
+          onCancel={() => setPrCtx(null)}
+        />
+      )}
     </section>
   );
 }

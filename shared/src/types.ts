@@ -126,6 +126,23 @@ export type MessageSearchHit = {
   preview: string;
   mtime: number;
 };
+// Git/PR state for the current session's cwd, used to prefill and gate the
+// "Create PR" action. `ahead` = commits on `branch` not on `defaultBranch`;
+// `null` means the base ref couldn't be resolved (e.g. a single-branch or
+// shallow clone where neither `origin/<default>` nor local `<default>` is
+// present) - distinct from a genuine `0`. `existingPrUrl` is set when a PR
+// already exists for this branch.
+export type PrContext = {
+  branch: string;
+  defaultBranch: string;
+  ahead: number | null;
+  dirty: boolean;
+  hasRemote: boolean;
+  existingPrUrl?: string;
+};
+export type CreatePrRequest = { title: string; body: string; draft: boolean };
+// `created` is false when we short-circuited to an already-open PR.
+export type CreatePrResult = { url: string; created: boolean };
 export type DirEntry = { name: string; path: string };
 export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
