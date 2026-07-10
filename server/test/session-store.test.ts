@@ -13,7 +13,7 @@ process.env.HOME = tmpHome;
 process.env.USERPROFILE = tmpHome;
 
 const { CLAUDE_PROJECTS } = await import('../src/config.js');
-const { readSessionMessages, resolveProjectCwd } = await import('../src/lib/session-store.js');
+const { readSessionMessages, resolveProjectCwd, searchProjectFiles } = await import('../src/lib/session-store.js');
 
 const PROJECT = 'mcc-test';
 const projectDir = path.join(CLAUDE_PROJECTS, PROJECT);
@@ -90,4 +90,27 @@ test('project cwd resolution prefers a live session and otherwise uses the trust
   assert.equal(await resolveProjectCwd(cwdProject, registryCwd), liveCwd);
   await fs.rm(liveCwd, { recursive: true, force: true });
   assert.equal(await resolveProjectCwd(cwdProject, registryCwd), registryCwd);
+});
+
+test('mention search skips a stale session cwd and uses the live project root', async () => {
+  const liveRoot = path.join('/tmp', `mccsearch${process.pid}${Date.now()}`);
+  const searchProject = liveRoot.replace(/[^a-zA-Z0-9]/g, '-');
+  const searchProjectDir = path.join(CLAUDE_PROJECTS, searchProject);
+  const staleCwd = path.join(tmpHome, 'removed-worktree');
+  await fs.mkdir(path.join(liveRoot, 'src'), { recursive: true });
+  await fs.mkdir(searchProjectDir, { recursive: true });
+  await fs.writeFile(path.join(liveRoot, 'src', 'needle.ts'), 'export {};\n', 'utf8');
+  await fs.writeFile(
+    path.join(searchProjectDir, 'stale.jsonl'),
+    `${JSON.stringify({ type: 'user', cwd: staleCwd, message: { role: 'user', content: 'stale' } })}\n`,
+    'utf8',
+  );
+
+  try {
+    const result = await searchProjectFiles(searchProject, 'needle', 50);
+    assert.equal(result.cwd, liveRoot);
+    assert.deepEqual(result.results, ['src/needle.ts']);
+  } finally {
+    await fs.rm(liveRoot, { recursive: true, force: true });
+  }
 });

@@ -391,6 +391,82 @@ body {
   color: var(--cx-text);
 }
 
+/* Markdown mode: assistant messages render via react-markdown, so we
+   restore the block-level styles that white-space: pre-wrap swallowed. */
+.cx-msg-text.md { white-space: normal; }
+.cx-msg-text.md p { margin: 0 0 10px; }
+.cx-msg-text.md p:last-child { margin-bottom: 0; }
+.cx-msg-text.md h1,
+.cx-msg-text.md h2,
+.cx-msg-text.md h3,
+.cx-msg-text.md h4 { margin: 16px 0 8px; font-weight: 600; line-height: 1.35; }
+.cx-msg-text.md h1 { font-size: 20px; }
+.cx-msg-text.md h2 { font-size: 17px; }
+.cx-msg-text.md h3 { font-size: 15px; }
+.cx-msg-text.md h4 { font-size: 14px; }
+.cx-msg-text.md ul,
+.cx-msg-text.md ol { margin: 6px 0 10px; padding-left: 22px; }
+.cx-msg-text.md li { margin: 2px 0; }
+.cx-msg-text.md li > p { margin: 0; }
+.cx-msg-text.md pre {
+  background: var(--cx-code);
+  border: 1px solid var(--cx-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  overflow-x: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.cx-msg-text.md pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.cx-msg-text.md blockquote {
+  margin: 6px 0 10px;
+  padding: 2px 12px;
+  border-left: 3px solid var(--cx-border);
+  color: var(--cx-text-2, var(--cx-text));
+  opacity: 0.85;
+}
+.cx-msg-text.md table {
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+  font-size: 13px;
+}
+.cx-msg-text.md th,
+.cx-msg-text.md td { border: 1px solid var(--cx-border); padding: 4px 10px; }
+.cx-msg-text.md th { background: var(--cx-sidebar); font-weight: 600; text-align: left; }
+.cx-msg-text.md a { color: var(--cx-accent, #C96442); text-decoration: underline; }
+.cx-msg-text.md hr { border: 0; border-top: 1px solid var(--cx-border); margin: 12px 0; }
+
+/* ---------- Thinking spinner (tail of thread while a turn is in flight) --- */
+.cx-thinking {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0 8px 44px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--cx-text-2, var(--cx-text));
+  opacity: 0.85;
+}
+.cx-thinking-star {
+  display: inline-block;
+  width: 1ch;
+  color: var(--cx-accent, #C96442);
+  font-weight: 600;
+}
+.cx-thinking-verb { color: var(--cx-text); font-weight: 500; }
+.cx-thinking-parens,
+.cx-thinking-sep,
+.cx-thinking-meta,
+.cx-thinking-tail { color: var(--cx-text-2, var(--cx-text)); opacity: 0.75; }
+
 /* ---------- Reasoning ---------- */
 
 .cx-reasoning {
