@@ -983,6 +983,10 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Latest user prompt for the in-flight turn. Captured at send() so the
+  // completion notification can display "what was this turn about" instead
+  // of a bare session hash.
+  const lastPromptRef = useRef<string>('');
   // Set when the current turn hit onError, so the completion effect below can
   // skip the 'complete' cue — onDone still runs after a stream error, and a
   // failed turn shouldn't sound like a success.
@@ -1018,9 +1022,14 @@ export function Session(props: SessionProps = {}) {
     const errored = turnErroredRef.current;
     turnErroredRef.current = false;
     if (!errored) playSound('complete');
+    const prompt = lastPromptRef.current.trim();
+    // Truncate to a card-friendly length. Newlines collapse to spaces so a
+    // multi-line prompt still reads as one glance-able summary.
+    const oneline = prompt.replace(/\s+/g, ' ');
+    const preview = oneline.length > 140 ? oneline.slice(0, 140) + '…' : oneline;
     notify({
-      title: 'Macaron · session ready',
-      body: `${sid.slice(0, 8)} finished a turn`,
+      title: preview || 'Macaron · session ready',
+      body: preview ? '✓ turn finished' : `${sid.slice(0, 8)} finished a turn`,
       tag: `macaron-done-${sid}`,
       project,
       sid,
@@ -1570,6 +1579,7 @@ export function Session(props: SessionProps = {}) {
       // Persist to prompt history (manual and queued sends alike).
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
+      lastPromptRef.current = text;
       // Roll the *previous* turn's live buffers into history before we
       // clobber them with this turn's user text — otherwise typing a second
       // message erases the first reply until the next page refresh.
