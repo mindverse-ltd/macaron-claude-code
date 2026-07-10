@@ -10,6 +10,9 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
   FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
@@ -46,6 +49,9 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
   FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
@@ -77,7 +83,14 @@ import { authedFetch } from './auth';
 // the message string.
 export class HttpError extends Error {
   constructor(readonly status: number, body: string) {
-    super(`http ${status}: ${body.slice(0, 200)}`);
+    let message = '';
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === 'string') message = parsed.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    super(message || (body ? `http ${status}: ${body.slice(0, 200)}` : `http ${status}`));
     this.name = 'HttpError';
   }
 }
@@ -260,6 +273,12 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  createProject: (input: { name?: string; gitUrl?: string }) =>
+    req<{ project: string; cwd: string; name: string }>('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   searchMessages: (q: string, limit = 30) =>
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
@@ -340,6 +359,23 @@ export const api = {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+      },
+    ),
+  prContext: (project: string, sid: string) =>
+    // Use `req` (not `getJSON`) so the server's descriptive error body
+    // ("not a git repository", etc.) reaches the toast instead of a bare
+    // `http 400`, matching the createPr path.
+    req<PrContext>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr-context`,
+      { method: 'GET' },
+    ),
+  createPr: (project: string, sid: string, input: CreatePrRequest) =>
+    req<CreatePrResult>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
       },
     ),
   createShare: (project: string, sid: string) =>

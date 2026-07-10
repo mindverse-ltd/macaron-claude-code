@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import {
+  basename,
   groupWorkspaces,
   listAllSessions,
   resolveProjectCwd,
@@ -11,6 +12,7 @@ import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+import { lookupProjectCwd } from '../lib/project-registry.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 import { createWorktree, bindWorktree, cleanupPendingWorktree, type PendingWorktree } from '../lib/worktree-store.js';
 
@@ -51,11 +53,15 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.get<{ Params: Params }>('/api/workspaces/:project', async ({ params }) => {
     const sessions = await listAllSessions();
     const mine = sessions.filter((s) => s.project === params.project);
+    // A just-created project has no sessions yet — fall back to the cwd the
+    // wizard registered so the canvas header shows the real path + name
+    // instead of the lossy-encoded project slug.
+    const freshCwd = (await lookupProjectCwd(params.project)) || '';
     const meta =
       groupWorkspaces(mine)[0] || {
         project: params.project,
-        cwd: '',
-        name: params.project,
+        cwd: freshCwd,
+        name: basename(freshCwd) || params.project,
         sessionCount: 0,
         lastActivity: 0,
         lastSessionId: '',
@@ -93,14 +99,16 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const { model, env: providerEnv } = getActiveProviderEnv();
 
       // The directory picker supplies an explicit cwd for brand-new projects.
-      // Otherwise use the guarded project resolver so an arbitrary route param
-      // can never decode into a filesystem root.
+      // Otherwise prefer a live session, then the trusted New-Project registry;
+      // an arbitrary route param must never decode into a filesystem root.
       const explicitCwd = String(req.body?.cwd || '').trim();
       let cwd: string;
       if (explicitCwd) {
         cwd = explicitCwd;
       } else {
-        const resolvedCwd = await resolveProjectCwd(project);
+        const registeredCwd = await lookupProjectCwd(project);
+        const resolvedCwd =
+          (await resolveProjectCwd(project, registeredCwd)) || registeredCwd;
         if (!resolvedCwd) {
           return reply.status(404).send({ error: 'unknown project' });
         }
