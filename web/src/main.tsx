@@ -51,6 +51,22 @@ import './styles.css';
 // Pick up a ?token=... bootstrap from a shared link before anything fetches.
 consumeTokenFromUrl();
 
+// The server serves the SPA for direct deep links, while createHashRouter reads
+// only the hash. Promote a pathname route before the router initializes so
+// opening /board (or a copied workspace/session URL) lands on that view rather
+// than silently rendering the dashboard.
+if (
+  !window.location.hash &&
+  window.location.pathname !== '/' &&
+  window.location.pathname !== '/index.html'
+) {
+  window.history.replaceState(
+    null,
+    '',
+    `/#${window.location.pathname}${window.location.search}`,
+  );
+}
+
 // Boot UnoCSS runtime: scans the DOM for utility classes and injects CSS as
 // elements appear. Required because the GenUI preview renders model-generated
 // className strings at runtime that don't exist at build time.
