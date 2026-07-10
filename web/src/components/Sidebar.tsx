@@ -328,6 +328,11 @@ export function Sidebar() {
         </div>
       </Link>
 
+      <Link className={'sb-nav-link' + (location.pathname === '/board' ? ' active' : '')} to="/board">
+        <span className="sb-nav-icon">▦</span>
+        <span>Dispatch board</span>
+      </Link>
+
       <div className="sb-label">
         <span>WORKSPACES</span>
         <div className="sb-label-actions">
