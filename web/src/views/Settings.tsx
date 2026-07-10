@@ -355,7 +355,6 @@ export function Settings() {
         </label>
       </div>
 
-      <RemoteAccess />
       <ConfigFilesSection />
       <RemoteAccess />
 
