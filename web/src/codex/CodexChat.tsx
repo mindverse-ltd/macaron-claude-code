@@ -5,6 +5,8 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
@@ -237,7 +239,6 @@ function MessageRow({ it }: { it: Item }) {
   const isUser = it.kind === 'user';
   return (
     <div className={'cx-msg ' + (isUser ? 'user' : 'assistant')}>
-      <div className="cx-msg-avatar">{isUser ? 'You' : 'cx'}</div>
       <div className="cx-msg-body">
         <div className="cx-msg-role">{isUser ? 'You' : 'Codex'}</div>
         {isUser && it.images && it.images.length > 0 && (
@@ -245,8 +246,30 @@ function MessageRow({ it }: { it: Item }) {
             {it.images.map((img) => <img key={img.id} src={img.dataUrl} alt={img.name} />)}
           </div>
         )}
-        <div className="cx-msg-text">{it.text}</div>
+        {/* User text stays as pre-wrap plain text (WYSIWYG for what they typed);
+            assistant text renders as GitHub-flavored Markdown so headings,
+            lists, tables, inline code, and links come through. */}
+        {isUser ? (
+          <div className="cx-msg-text">{it.text}</div>
+        ) : (
+          <div className="cx-msg-text md">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{it.text}</ReactMarkdown>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Codex-side "thinking…" indicator — three black-and-white dots pulsing in
+// sequence. Minimal, quiet, no verb chatter; visible at the tail of the
+// thread while a turn is in flight and no streaming text has landed yet.
+function CxThinkingLine() {
+  return (
+    <div className="cx-thinking" aria-label="Codex is thinking">
+      <span className="cx-dot" />
+      <span className="cx-dot" />
+      <span className="cx-dot" />
     </div>
   );
 }
@@ -385,13 +408,19 @@ export function CodexChat(props: CodexChatProps = {}) {
     try { await codexApi.stopThread(sid); } catch { /* nop */ }
   }, [sid]);
 
-  const submit = useCallback(async () => {
-    const text = pending.trim();
+  const submit = useCallback(async (opts?: { text?: string }) => {
+    // `opts.text` present ⇒ programmatic send (from the $macaron/chat bridge
+    // or auto-continue). We don't consume composer state in that case, so a
+    // user still typing something doesn't get their draft cleared.
+    const programmatic = typeof opts?.text === 'string';
+    const text = (programmatic ? opts!.text! : pending).trim();
     if ((!text && images.length === 0) || sending) return;
-    const sentImages = images;
+    const sentImages = programmatic ? [] : images;
     const wire = sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl }));
-    setPending('');
-    setImages([]);
+    if (!programmatic) {
+      setPending('');
+      setImages([]);
+    }
     streamedRef.current = true;
     setSending(true);
     setError('');
@@ -430,6 +459,26 @@ export function CodexChat(props: CodexChatProps = {}) {
     }
   }, [pending, images, sending, isNew, sid, navigate]);
 
+  // Chat bridge for render_ui widgets. Mirrors Claude side (Session.tsx):
+  // a sandboxed widget imports `sendUserMessage` from '$macaron/chat',
+  // the shim dispatches to globalThis['$app/chat'], and we relay into
+  // submit() as a programmatic user turn. `sendUserMessage` is also bound
+  // on globalThis so widgets that forget the import still work.
+  useEffect(() => {
+    if (!focused) return;
+    const g = globalThis as unknown as {
+      '$app/chat'?: (prompt: string) => void;
+      sendUserMessage?: (prompt: string) => void;
+    };
+    const bridge = (prompt: string) => { void submit({ text: prompt }); };
+    g['$app/chat'] = bridge;
+    g.sendUserMessage = bridge;
+    return () => {
+      if (g['$app/chat'] === bridge) delete g['$app/chat'];
+      if (g.sendUserMessage === bridge) delete g.sendUserMessage;
+    };
+  }, [focused, submit]);
+
   const title = isNew
     ? 'New thread'
     : detail?.cwd?.split('/').filter(Boolean).pop() || 'Thread';
@@ -467,6 +516,16 @@ export function CodexChat(props: CodexChatProps = {}) {
         ) : (
           <div className="cx-thread-body">
             {items.map((it) => <MessageRow key={it.id} it={it} />)}
+            {/* Show the thinking spinner at the tail of the thread while a
+                turn is in flight. Hide it once the last item is a live
+                assistant message that has actually started emitting text —
+                at that point the streaming text itself is the progress
+                signal, so a second one is noise. */}
+            {sending && (() => {
+              const last = items[items.length - 1];
+              const streamingText = last?.kind === 'assistant' && last.text.length > 0;
+              return streamingText ? null : <CxThinkingLine />;
+            })()}
             {error && (
               <div className="cx-tool err">
                 <div className="cx-tool-head">

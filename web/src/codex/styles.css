@@ -329,32 +329,10 @@ body {
 
 .cx-msg {
   display: flex;
-  gap: 14px;
   padding: 16px 0;
   align-items: flex-start;
 }
 .cx-msg + .cx-msg { border-top: 1px solid transparent; }
-.cx-msg-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  margin-top: 2px;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
-.cx-msg.user .cx-msg-avatar {
-  background: var(--cx-hover);
-  color: var(--cx-text);
-}
-.cx-msg.assistant .cx-msg-avatar {
-  background: var(--cx-text);
-  color: #fff;
-}
 .cx-msg-body {
   flex: 1;
   min-width: 0;
@@ -391,10 +369,85 @@ body {
   color: var(--cx-text);
 }
 
+/* Markdown mode: assistant messages render via react-markdown, so we
+   restore the block-level styles that white-space: pre-wrap swallowed. */
+.cx-msg-text.md { white-space: normal; }
+.cx-msg-text.md p { margin: 0 0 10px; }
+.cx-msg-text.md p:last-child { margin-bottom: 0; }
+.cx-msg-text.md h1,
+.cx-msg-text.md h2,
+.cx-msg-text.md h3,
+.cx-msg-text.md h4 { margin: 16px 0 8px; font-weight: 600; line-height: 1.35; }
+.cx-msg-text.md h1 { font-size: 20px; }
+.cx-msg-text.md h2 { font-size: 17px; }
+.cx-msg-text.md h3 { font-size: 15px; }
+.cx-msg-text.md h4 { font-size: 14px; }
+.cx-msg-text.md ul,
+.cx-msg-text.md ol { margin: 6px 0 10px; padding-left: 22px; }
+.cx-msg-text.md li { margin: 2px 0; }
+.cx-msg-text.md li > p { margin: 0; }
+.cx-msg-text.md pre {
+  background: var(--cx-code);
+  border: 1px solid var(--cx-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  overflow-x: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.cx-msg-text.md pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.cx-msg-text.md blockquote {
+  margin: 6px 0 10px;
+  padding: 2px 12px;
+  border-left: 3px solid var(--cx-border);
+  color: var(--cx-text-2, var(--cx-text));
+  opacity: 0.85;
+}
+.cx-msg-text.md table {
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+  font-size: 13px;
+}
+.cx-msg-text.md th,
+.cx-msg-text.md td { border: 1px solid var(--cx-border); padding: 4px 10px; }
+.cx-msg-text.md th { background: var(--cx-sidebar); font-weight: 600; text-align: left; }
+.cx-msg-text.md a { color: var(--cx-accent, #C96442); text-decoration: underline; }
+.cx-msg-text.md hr { border: 0; border-top: 1px solid var(--cx-border); margin: 12px 0; }
+
+/* ---------- Thinking dots (tail of thread while a turn is in flight) --- */
+.cx-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 0 12px;
+}
+.cx-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cx-text);
+  animation: cx-dot-pulse 1.2s ease-in-out infinite;
+}
+.cx-dot:nth-child(1) { animation-delay: 0s; }
+.cx-dot:nth-child(2) { animation-delay: 0.18s; }
+.cx-dot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes cx-dot-pulse {
+  0%, 60%, 100% { background: var(--cx-text); opacity: 0.9; transform: scale(1); }
+  30%           { background: var(--cx-muted-2); opacity: 0.35; transform: scale(0.7); }
+}
+
 /* ---------- Reasoning ---------- */
 
 .cx-reasoning {
-  margin: 6px 0 10px 44px;
+  margin: 6px 0 10px 0;
   padding: 8px 12px;
   background: var(--cx-sidebar);
   border: 1px solid var(--cx-border);
@@ -428,7 +481,7 @@ body {
 /* ---------- GenUI (render_ui) cards ---------- */
 
 .cx-genui {
-  margin: 12px 0 12px 44px;
+  margin: 12px 0 12px 0;
   border: 1px solid var(--cx-border);
   border-radius: var(--cx-radius-lg);
   background: var(--cx-surface);
@@ -509,7 +562,7 @@ body {
 /* ---------- Tool cards ---------- */
 
 .cx-tool {
-  margin: 10px 0 10px 44px;
+  margin: 10px 0 10px 0;
   border: 1px solid var(--cx-border);
   border-radius: var(--cx-radius-lg);
   background: var(--cx-surface);
@@ -1300,12 +1353,11 @@ body {
   padding: 14px 18px 8px;
   gap: 2px;
 }
-.cx-tile-body .cx-msg { padding: 10px 0; gap: 12px; }
+.cx-tile-body .cx-msg { padding: 10px 0; }
 .cx-tile-body .cx-msg-text { font-size: 13.5px; line-height: 1.6; }
-.cx-tile-body .cx-msg-avatar { width: 24px; height: 24px; font-size: 10px; margin-top: 3px; }
 .cx-tile-body .cx-msg-role { font-size: 10.5px; margin-bottom: 3px; }
 .cx-tile-body .cx-reasoning,
-.cx-tile-body .cx-tool { margin-left: 36px; }
+.cx-tile-body .cx-tool { margin-left: 0; }
 .cx-tile-body .cx-tool { border-radius: var(--cx-radius); }
 .cx-tile-body .cx-tool-head { padding: 6px 10px; }
 .cx-tile-body .cx-tool-cmd,

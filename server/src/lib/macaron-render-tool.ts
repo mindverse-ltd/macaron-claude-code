@@ -19,12 +19,18 @@ export type RenderUIResult = {
  * on the trigger heuristic, not on the authoring rules (those live in the
  * tool description and only load when the tool is actually invoked). */
 export const RENDER_UI_INSTRUCTIONS =
-  'Macaron GenUI bridge. When the user asks for or implies a VISUAL / RENDERED artifact ' +
-  '(dashboard, card, form, chart, table, widget, page mockup, "画一个 …", "show me a …", ' +
-  '"生成一个 …", "make a …"), you MUST call `render_ui` with a complete TSX module — ' +
-  'do NOT paste TSX in the message, do NOT write ```tsx / ```jsx fences, do NOT ' +
-  'explain the code beforehand. Call the tool first, then acknowledge in one short sentence. ' +
-  'For pure text answers (explanations, prose, debugging, plain Q&A), skip render_ui and reply normally.';
+  'Macaron GenUI bridge. `render_ui` is your PRIMARY answer format whenever the response ' +
+  'has structure — call it, do not describe it. Structure means any of: (a) explicit visual ' +
+  'ask ("画一个 …", "show me …", "make …", dashboard/card/form/chart/table/widget/page); ' +
+  '(b) the user needs to CHOOSE between 2+ options — render clickable buttons that call ' +
+  'sendUserMessage; (c) COMPARING or SUMMARIZING 2+ items with attributes — render a Card / ' +
+  'Table / StatGrid, not a Markdown table; (d) DATA the user shared (JSON, CSV, list of ' +
+  'records) — visualize it; (e) a FORM / wizard / configurator — render inputs the user ' +
+  'submits back via sendUserMessage; (f) proposing "next steps" the user might act on — ' +
+  'render each as a clickable CTA. NEVER put TSX in ```tsx fences. NEVER explain the code ' +
+  'before calling — call first, then one-sentence ack. DO stay in plain text for: pure prose ' +
+  'explanations, code walkthroughs, debugging traces, single-line Q&A, code you\'re asked ' +
+  'to write to a FILE (that\'s Edit/Write, not render_ui).';
 
 export function handleRenderUI(code: string): RenderUIResult {
   const result = checkGenUI(code);
@@ -41,21 +47,32 @@ export const RENDER_UI_TOOL_DESCRIPTION = `Render an interactive TSX UI inline i
 
 # MUST call render_ui — not describe, not fence — when
 
-The user's message names or implies a rendered artifact:
+**Explicit visual asks** (obvious):
 - dashboard, panel, card, widget, badge, chart, graph, plot, table, timeline, calendar, gallery, grid
 - login / signup / settings / profile / pricing / checkout / onboarding page or form
 - comparison, leaderboard, roadmap, status report, changelog, KPIs, metrics
 - interactive demo, mini editor, playground, animation, toy component
 - "画一个 X", "show me X", "make X", "draw X", "design X", "prototype X", "生成一个 X", "做一个 X"
-- Any request where "seeing it" is the answer
 
-If the user shares data (an array, JSON, CSV, markdown table), visualize it as a UI unless they explicitly asked for prose. Prefer render_ui over ASCII tables or bulleted breakdowns.
+**Structural fit** — call render_ui even when the user did NOT ask visually, if your answer would contain any of:
+- **Choice**: 2+ options the user needs to pick from → render clickable buttons that call \`sendUserMessage\` with the chosen option. (You would otherwise write "Options: 1. A  2. B  3. C, which do you want?" — that's a bad answer; render buttons instead.)
+- **Comparison / summary of records**: 2+ items with attributes ("here are 3 approaches, tradeoffs are…") → render a Table or side-by-side Cards, not a Markdown table.
+- **Structured data the user shared**: array of objects, JSON, CSV, config, records → visualize as a UI, not a bulleted breakdown.
+- **Status / dashboard / snapshot**: build result, PR checks, service health, TODO progress, session state → render Stats/StatGrid/Timeline.
+- **Form / wizard / configurator**: any answer that would say "tell me the following: name, ..., ..." → render Inputs the user submits back via sendUserMessage.
+- **Actionable next steps**: "you could do X, Y, or Z" where each step is something the user might click to trigger → render each as a Button that fires sendUserMessage.
+
+If a Markdown table, numbered list of ≥3 things, or "reply with your choice" would be in your answer — you're describing what render_ui is for. Render it instead.
 
 # MUST NOT
 
 - **NEVER** put TSX inside a markdown code fence in your assistant text.  \`\`\`tsx / \`\`\`jsx code blocks are a failed answer — the user came here for a rendered component, not source to copy-paste.
 - **NEVER** explain the component structure before calling. Call first, ack in one sentence after.
-- **NEVER** call render_ui for pure text explanations, code walkthroughs, prose Q&A, or debugging traces. Those stay in the message.
+- **NEVER** call render_ui for:
+  - Pure prose explanations, code walkthroughs, debugging traces, single-sentence Q&A
+  - Code you are asked to write to a FILE (use Edit/Write, not render_ui)
+  - Simple confirmations ("done", "here's the file path", "the tests pass")
+  - Answers that fit in one line of text
 
 # Imports — exact rules
 
