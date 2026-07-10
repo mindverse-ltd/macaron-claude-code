@@ -806,6 +806,27 @@ body {
 }
 .cx-provider-chip.busy .cx-provider-chip-select { pointer-events: none; }
 
+/* --- Runtime override chips (effort / sandbox / approval / web-search) --- */
+.cx-composer-pickers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.cx-runtime-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cx-runtime-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+  max-width: none;
+}
+.cx-tile-body .cx-runtime-chips { display: none; }
+
 /* ---------- Home ---------- */
 
 .cx-home {

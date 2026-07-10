@@ -22,7 +22,7 @@ import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { getActiveCodexProvider, getCodexConfig } from './codex-config.js';
+import { getActiveCodexProvider, getCodexConfig, type CodexRuntimeOverride } from './codex-config.js';
 import { CODEX_BINARY, MACARON_MCP_CMD, MACARON_MCP_ARGS, type CodexRunOptions } from './codex-runner.js';
 import { registerApprovalHandler, clearApprovalHandler } from './active-approvals.js';
 import type { RunnerEvent } from './claude-runner.js';
@@ -30,9 +30,11 @@ import type { CodexDecision } from '@macaron/shared';
 
 // Flat config map (dotted keys → JSON values) plus the top-level thread knobs.
 // Same values codex-runner feeds the SDK, reshaped for thread/start params.
-function buildAppServerConfig(): { config: Record<string, unknown>; model?: string; sandbox: string; approvalPolicy: string; modelProvider?: string } {
+function buildAppServerConfig(override?: CodexRuntimeOverride): { config: Record<string, unknown>; model?: string; sandbox: string; approvalPolicy: string; modelProvider?: string } {
   const s = getCodexConfig();
   const p = getActiveCodexProvider();
+  const sandbox = override?.sandboxMode ?? s.runtime.sandboxMode;
+  const approvalPolicy = override?.approvalPolicy ?? s.runtime.approvalPolicy;
   const config: Record<string, unknown> = {
     'mcp_servers.macaron.command': MACARON_MCP_CMD,
     'mcp_servers.macaron.args': MACARON_MCP_ARGS,
@@ -40,13 +42,13 @@ function buildAppServerConfig(): { config: Record<string, unknown>; model?: stri
     network_access: 'enabled',
   };
   if (!p) {
-    return { config, sandbox: s.runtime.sandboxMode, approvalPolicy: s.runtime.approvalPolicy };
+    return { config, sandbox, approvalPolicy };
   }
   Object.assign(config, {
     model_provider: p.modelProvider,
     model: p.model,
     review_model: p.model,
-    model_reasoning_effort: p.reasoningEffort,
+    model_reasoning_effort: override?.reasoningEffort ?? p.reasoningEffort,
     model_context_window: p.contextWindow,
     model_auto_compact_token_limit: p.autoCompactTokenLimit,
     disable_response_storage: p.disableResponseStorage,
@@ -55,7 +57,7 @@ function buildAppServerConfig(): { config: Record<string, unknown>; model?: stri
     [`model_providers.${p.modelProvider}.wire_api`]: p.wireApi,
     [`model_providers.${p.modelProvider}.experimental_bearer_token`]: p.apiKey,
   });
-  return { config, model: p.model, modelProvider: p.modelProvider, sandbox: s.runtime.sandboxMode, approvalPolicy: s.runtime.approvalPolicy };
+  return { config, model: p.model, modelProvider: p.modelProvider, sandbox, approvalPolicy };
 }
 
 const IMAGE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
@@ -117,7 +119,7 @@ export function runCodexAppServer(opts: CodexRunOptions): AsyncGenerator<RunnerE
     return new Promise((res) => waiters.push(res));
   };
 
-  const { config, model, sandbox, approvalPolicy, modelProvider } = buildAppServerConfig();
+  const { config, model, sandbox, approvalPolicy, modelProvider } = buildAppServerConfig(opts.runtime);
   const bin = CODEX_BINARY;
 
   void (async () => {

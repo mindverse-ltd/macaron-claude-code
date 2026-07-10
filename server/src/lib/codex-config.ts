@@ -56,6 +56,16 @@ export type CodexRuntimeOptions = {
   approvalPolicy: ApprovalMode;
 };
 
+/** Per-turn override for a single thread — each field falls back to the
+ * global runtime / active-provider default when omitted, so two concurrent
+ * sessions can run at different effort / sandbox without touching Settings. */
+export type CodexRuntimeOverride = {
+  reasoningEffort?: ModelReasoningEffort;
+  sandboxMode?: SandboxMode;
+  approvalPolicy?: ApprovalMode;
+  webSearchEnabled?: boolean;
+};
+
 export type CodexSettings = {
   activeProviderId: string;
   customProviders: CodexCustomProvider[];

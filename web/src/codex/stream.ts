@@ -3,6 +3,7 @@
 
 import { authedFetch } from '../lib/auth';
 import type { CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
+import type { CodexRuntimeOverride } from './api';
 
 export type CodexStreamEvent =
   | { type: 'starting'; cwd?: string }
@@ -38,7 +39,7 @@ export type CodexStreamHandlers = {
   onLiveEnd?: (reason?: string) => void;
 };
 
-type Body = { text: string; cwd?: string; images?: Array<{ mimeType: string; dataUrl: string }> };
+type Body = { text: string; cwd?: string; images?: Array<{ mimeType: string; dataUrl: string }>; runtime?: CodexRuntimeOverride };
 
 async function pump(resp: Response, h: CodexStreamHandlers): Promise<void> {
   if (!resp.ok || !resp.body) {

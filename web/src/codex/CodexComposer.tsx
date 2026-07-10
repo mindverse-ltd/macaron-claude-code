@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CodexProviderPicker } from './CodexProviderPicker';
+import { CodexRuntimePicker } from './CodexRuntimePicker';
+import type { CodexRuntimeOverride } from './api';
 
 export type ComposerImage = { id: string; name: string; mimeType: string; dataUrl: string };
 
@@ -15,6 +17,8 @@ export function CodexComposer({
   disabled,
   running,
   placeholder,
+  project,
+  onRuntime,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -25,6 +29,8 @@ export function CodexComposer({
   disabled?: boolean;
   running?: boolean;
   placeholder?: string;
+  project: string;
+  onRuntime: (ov: CodexRuntimeOverride) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -137,7 +143,10 @@ export function CodexComposer({
         </div>
       </div>
       <div className="cx-composer-foot">
-        <CodexProviderPicker />
+        <div className="cx-composer-pickers">
+          <CodexProviderPicker />
+          <CodexRuntimePicker project={project} onChange={onRuntime} disabled={running} />
+        </div>
         <span className="cx-composer-hint">Enter to send · Shift+Enter for newline</span>
       </div>
     </div>
