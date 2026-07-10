@@ -10,6 +10,7 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
   DirEntry,
@@ -21,6 +22,8 @@ export type {
   RateLimitWindow,
   SearchHit,
   SearchResponse,
+  SkillInfo,
+  SkillDetail,
   Schedule,
   ScheduleInput,
   SessionKind,
@@ -43,6 +46,7 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  FileSearchResponse,
   SavedCommand,
   SavedCommandsResponse,
   DirListing,
@@ -51,6 +55,8 @@ import type {
   WorktreeInfo,
   UsageResponse,
   SearchResponse,
+  SkillInfo,
+  SkillDetail,
   Schedule,
   ScheduleInput,
   SchedulesResponse,
@@ -180,6 +186,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }),
+  skills: () => getJSON<{ skills: SkillInfo[] }>('/api/skills'),
+  skill: (dir: string) => getJSON<SkillDetail>(`/api/skills/${encodeURIComponent(dir)}`),
+  setSkillEnabled: (dir: string, enabled: boolean) =>
+    req<{ skills: SkillInfo[] }>(`/api/skills/${encodeURIComponent(dir)}/enabled`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  createSkill: (input: { name: string; description: string; body?: string }) =>
+    req<{ dir: string; skills: SkillInfo[] }>('/api/skills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   savedCommands: () => getJSON<SavedCommandsResponse>('/api/commands'),
   createCommand: (name: string, input: CommandInput) =>
     req<SavedCommand>('/api/commands', {
@@ -239,6 +259,10 @@ export const api = {
     getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
+  searchFiles: (project: string, q: string, limit = 50) =>
+    getJSON<FileSearchResponse>(
+      `/api/workspaces/${encodeURIComponent(project)}/files?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   session: (project: string, sid: string) =>
     getJSON<SessionDetail>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,

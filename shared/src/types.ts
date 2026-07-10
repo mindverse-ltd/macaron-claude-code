@@ -176,6 +176,25 @@ export type UsageResponse = {
   sevenDay: RateLimitWindow | null;
 };
 
+// A Claude Code skill discovered under ~/.claude/skills/<name>/SKILL.md.
+// `name`/`description` come from the SKILL.md YAML frontmatter; `enabled`
+// reflects the skillOverrides entry in ~/.claude/settings.json (a skill with
+// no override is enabled by default). `source` marks whether the dir is a
+// symlink (managed elsewhere) so the UI can warn before editing/deleting.
+export type SkillInfo = {
+  // Directory name — the identifier used for skillOverrides + the /skill-name command.
+  dir: string;
+  name: string;
+  description: string;
+  allowedTools?: string;
+  enabled: boolean;
+  source: 'dir' | 'symlink';
+};
+
+export type SkillsResponse = { skills: SkillInfo[] };
+// Full SKILL.md body for the detail/editor pane.
+export type SkillDetail = SkillInfo & { body: string; path: string };
+
 // A saved cron/one-time prompt. The scheduler fires it by spawning a fresh
 // session (runClaude/runCodex, no resume) at `nextRunAt`, exactly as the
 // "+ New Session" POST does — just with no client attached.
@@ -269,6 +288,9 @@ export type WorkspacesResponse = { workspaces: Workspace[] };
 export type SavedCommandsResponse = { commands: SavedCommand[] };
 export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
+// Result of the composer's @-mention file search: repo-relative POSIX paths
+// under the workspace cwd, matched by substring on the needle.
+export type FileSearchResponse = { cwd: string; results: string[] };
 export type SchedulesResponse = { schedules: Schedule[] };
 export type HealthResponse = {
   ok: boolean;

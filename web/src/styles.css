@@ -759,76 +759,8 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-expand:hover { color: var(--accent); }
 
-/* ---------- activity timeline rail ---------- */
-.ti-timeline {
-  flex-shrink: 0;
-  margin-bottom: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-  overflow: hidden;
-}
-.ti-timeline-head {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 12px;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-2);
-  text-align: left;
-}
-.ti-timeline-head:hover { color: var(--text); }
-.ti-timeline-caret { color: var(--muted); flex-shrink: 0; }
-.ti-timeline-title { font-weight: 600; }
-.ti-timeline-failed { color: var(--bad); }
-.ti-timeline.collapsed { background: var(--surface-2); }
-.ti-timeline-rail {
-  display: flex;
-  gap: 6px;
-  padding: 2px 12px 10px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-.ti-node {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  max-width: 220px;
-  padding: 3px 9px 3px 7px;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 6px;
-  background: var(--surface);
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-.ti-node:hover { border-color: var(--border-strong); color: var(--text); }
-.ti-node.active { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-.ti-node-ok { border-left-color: var(--good); }
-.ti-node-error { border-left-color: var(--bad); }
-.ti-node-pending { border-left-color: var(--warn); }
-.ti-node-icon { font-size: 12px; line-height: 1; flex-shrink: 0; }
-.ti-node-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.ti-node-dur { color: var(--muted); flex-shrink: 0; }
-
 .ti-tool-dur { color: var(--muted); flex-shrink: 0; margin-left: auto; padding-left: 8px; }
 .ti-dot-error { color: var(--bad); }
-
-/* Brief highlight when a rail node scrolls its target row into view. */
-@keyframes ti-jump-flash {
-  0% { background: var(--accent-soft-2); }
-  100% { background: transparent; }
-}
-.ti-jump-flash { animation: ti-jump-flash 1.1s ease-out; border-radius: 6px; }
 
 /* ---------- inline diff card (Edit / Write / MultiEdit) ---------- */
 .ti-diff {
@@ -1206,6 +1138,101 @@ textarea:focus, select:focus, input:focus {
   align-items: center;
   gap: 12px;
   margin-top: 18px;
+}
+
+/* ---------- Skills page ---------- */
+.skill-card { flex-wrap: wrap; align-items: center; }
+.skill-card.skill-off { opacity: 0.6; }
+.skill-card.skill-off:hover { opacity: 1; }
+.skill-desc {
+  white-space: normal;
+  line-height: 1.45;
+  max-height: 3em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+/* iOS-style toggle. Reuses the paper theme accent for the "on" track. */
+.skill-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0;
+  flex: 0 0 auto;
+  transition: background 0.15s, border-color 0.15s;
+}
+.skill-switch.on { background: var(--accent); border-color: var(--accent); }
+.skill-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.skill-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+.skill-switch.on .skill-switch-knob { transform: translateX(16px); }
+.skill-editor {
+  border: 1px solid var(--accent);
+  background: rgba(238, 92, 42, 0.03);
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+  margin-bottom: 14px;
+}
+.skill-editor .settings-field:first-child { margin-top: 0; }
+.skill-textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.skill-detail {
+  flex-basis: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.skill-meta-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+  align-items: baseline;
+}
+.skill-meta-key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.skill-meta-row code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  word-break: break-all;
+}
+.skill-body {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
 }
 
 /* ---------- Config files editor ---------- */
@@ -1648,6 +1675,45 @@ textarea:focus, select:focus, input:focus {
   color: var(--text);
 }
 .session-input textarea:focus { outline: none; }
+
+/* @-mention file autocomplete. Anchored above the textarea (the composer sits
+   at the bottom of the viewport), so the list opens upward. */
+.mention-anchor { position: relative; }
+.mention-popup {
+  position: fixed;
+  transform: translateY(-100%);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 80;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+.mention-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.mention-item.active { background: var(--accent-soft); }
+.mention-name { font-size: 13px; font-weight: 500; flex: 0 0 auto; }
+.mention-path {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .session-input-tools {
   display: flex;
   align-items: center;
