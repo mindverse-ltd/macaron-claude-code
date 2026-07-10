@@ -34,6 +34,8 @@ export type {
   ScheduleInput,
   SessionKind,
   SlashCommand,
+  AgentFile,
+  SubagentInfo,
   GitStatus,
   GitFileStatus,
   GitBranches,
@@ -71,6 +73,8 @@ import type {
   ScheduleInput,
   SchedulesResponse,
   CommandsResponse,
+  AgentsResponse,
+  SubagentsResponse,
   GitStatus,
   GitBranches,
   ConfigFileId,
@@ -130,6 +134,14 @@ export type ProviderInput = {
   endpoint: string;
   model: string;
   apiKey?: string;
+};
+
+export type AgentInput = {
+  name: string;
+  description: string;
+  tools: string[];
+  model: string;
+  prompt: string;
 };
 
 export type CommandInput = {
@@ -457,6 +469,34 @@ export const api = {
     req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),
   discardWorktree: (sid: string, force = false) =>
     req<{ ok: true }>(`/api/worktrees/${encodeURIComponent(sid)}/discard${force ? '?force=1' : ''}`, { method: 'POST' }),
+
+  // Custom subagents (~/.claude/agents/*.md). Mutations return the full list
+  // so the caller replaces state in one shot, matching the provider CRUD.
+  agents: () => getJSON<AgentsResponse>('/api/agents'),
+  createAgent: (input: AgentInput) =>
+    req<AgentsResponse>('/api/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateAgent: (name: string, patch: Partial<Omit<AgentInput, 'name'>>) =>
+    req<AgentsResponse>(`/api/agents/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteAgent: (name: string) =>
+    req<AgentsResponse>(`/api/agents/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Subagent child sessions spawned from a transcript.
+  subagents: (project: string, sid: string) =>
+    getJSON<SubagentsResponse>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/subagents`,
+    ),
+  subagent: (project: string, sid: string, agentId: string) =>
+    getJSON<SessionDetail>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/subagents/${encodeURIComponent(agentId)}`,
+    ),
   listFiles: (project: string, path = '') =>
     getJSON<FileListResponse>(
       `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,

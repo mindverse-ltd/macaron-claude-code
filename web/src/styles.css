@@ -762,6 +762,25 @@ textarea:focus, select:focus, input:focus {
 .ti-tool-dur { color: var(--muted); flex-shrink: 0; margin-left: auto; padding-left: 8px; }
 .ti-dot-error { color: var(--bad); }
 
+/* ---------- subagent drill-in ---------- */
+.ti-subagent-head {
+  background: none;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.ti-subagent-toggle { color: var(--muted); margin-left: auto; flex-shrink: 0; }
+.ti-subagent-body {
+  margin: 4px 0 4px 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.ti-subagent-note { padding: 4px 0; font-size: 12px; }
+
 /* ---------- inline diff card (Edit / Write / MultiEdit) ---------- */
 .ti-diff {
   margin: 4px 0 8px;
@@ -1112,6 +1131,13 @@ textarea:focus, select:focus, input:focus {
 }
 .settings-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .settings-input:disabled { color: var(--muted); background: var(--surface-2); }
+.agent-prompt {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  resize: vertical;
+  min-height: 160px;
+}
 .settings-input-row {
   display: flex;
   gap: 8px;

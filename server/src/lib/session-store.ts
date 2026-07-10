@@ -9,6 +9,7 @@ import type {
   MessageSearchHit,
   SessionDetail,
   SessionListItem,
+  SubagentInfo,
   UsageSnapshot,
   Workspace,
 } from '@macaron/shared';
@@ -545,13 +546,21 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
 
 const SESSION_TAIL_BYTES = 8 * 1024 * 1024;
 
-export async function readSessionMessages(project: string, sid: string): Promise<SessionDetail> {
-  const base = path.resolve(CLAUDE_PROJECTS);
-  const filePath = path.resolve(base, project, `${sid}.jsonl`);
-  // project/sid reach this sink from a JSON body via the share route, where a
-  // `..` segment passes freely; assert the resolved path stays inside the
-  // projects dir so a traversal can't read an arbitrary *.jsonl off disk.
-  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
+// Read a transcript file (tail-truncated if huge) and parse each jsonl line
+// into the shared Message[] shape. Shared by the parent session reader and the
+// subagent (child-session) reader — both persist the same block structure.
+async function parseTranscriptFile(filePath: string): Promise<{
+  messages: Message[];
+  cwd: string;
+  gitBranch: string;
+  truncated: boolean;
+  totalBytes: number;
+  latestUsage: UsageSnapshot | undefined;
+  msgChars: number;
+  thinkChars: number;
+  toolCallChars: number;
+  toolResultChars: number;
+}> {
   const st = await fs.stat(filePath);
   let raw: string;
   let truncated = false;
@@ -692,6 +701,40 @@ export async function readSessionMessages(project: string, sid: string): Promise
       /* skip malformed */
     }
   }
+  return {
+    messages,
+    cwd,
+    gitBranch,
+    truncated,
+    totalBytes: st.size,
+    latestUsage,
+    msgChars,
+    thinkChars,
+    toolCallChars,
+    toolResultChars,
+  };
+}
+
+export async function readSessionMessages(project: string, sid: string): Promise<SessionDetail> {
+  const base = path.resolve(CLAUDE_PROJECTS);
+  const filePath = path.resolve(base, project, `${sid}.jsonl`);
+  // project/sid reach this sink from a JSON body via the share route, where a
+  // `..` segment passes freely; assert the resolved path stays inside the
+  // projects dir so a traversal can't read an arbitrary *.jsonl off disk.
+  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
+  const {
+    messages,
+    cwd,
+    gitBranch,
+    truncated,
+    totalBytes,
+    latestUsage,
+    msgChars,
+    thinkChars,
+    toolCallChars,
+    toolResultChars,
+  } =
+    await parseTranscriptFile(filePath);
 
   const [claudeMdCount, mcpCount] = await Promise.all([
     countClaudeMd(cwd),
@@ -716,7 +759,7 @@ export async function readSessionMessages(project: string, sid: string): Promise
     gitBranch,
     messages,
     truncated,
-    totalBytes: st.size,
+    totalBytes,
     latestUsage,
     contextBreakdown,
     claudeMdCount,
@@ -829,6 +872,57 @@ export async function searchMessages(query: string, limit = 30): Promise<Message
     }
   }
   return hits;
+}
+
+// Subagent (child session) transcripts live next to the parent as
+// `<sid>/subagents/agent-<agentId>.jsonl`, each with an `agent-*.meta.json`
+// sidecar linking it back to the parent's `Agent` tool_use via `toolUseId`.
+export async function listSubagents(project: string, sid: string): Promise<SubagentInfo[]> {
+  const dir = path.join(CLAUDE_PROJECTS, project, sid, 'subagents');
+  let files;
+  try {
+    files = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: SubagentInfo[] = [];
+  for (const f of files) {
+    if (!f.endsWith('.meta.json')) continue;
+    try {
+      const meta = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')) as Partial<SubagentInfo>;
+      out.push({
+        agentId: f.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
+        agentType: meta.agentType || '',
+        description: meta.description || '',
+        toolUseId: meta.toolUseId || '',
+      });
+    } catch {
+      /* skip malformed sidecar */
+    }
+  }
+  return out;
+}
+
+export async function readSubagentMessages(
+  project: string,
+  sid: string,
+  agentId: string,
+): Promise<SessionDetail> {
+  if (!/^[A-Za-z0-9_-]+$/.test(agentId)) throw new Error('invalid subagent id');
+  const filePath = path.join(CLAUDE_PROJECTS, project, sid, 'subagents', `agent-${agentId}.jsonl`);
+  const { messages, cwd, gitBranch, truncated, totalBytes, latestUsage } =
+    await parseTranscriptFile(filePath);
+  return {
+    kind: 'claude',
+    sessionId: agentId,
+    project,
+    cwd,
+    gitBranch,
+    messages,
+    truncated,
+    totalBytes,
+    latestUsage,
+  };
 }
 
 // Estimate the used-context split from transcript char tallies. `total` is the

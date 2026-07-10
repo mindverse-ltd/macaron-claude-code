@@ -75,6 +75,9 @@ type Item =
   | { id: string; kind: 'assistant'; text: string }
   | { id: string; kind: 'thinking'; text: string }
   | { id: string; kind: 'tool'; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }
+  // A spawned custom subagent (the `Agent` tool). Drills into the child
+  // transcript stored under <sid>/subagents/, linked back by toolUseId.
+  | { id: string; kind: 'subagent'; agentType: string; description: string; toolUseId: string; result?: string }
   | { id: string; kind: 'todo'; todos: TodoEntry[] }
   | { id: string; kind: 'system_event'; eventType: string; text: string }
   | { id: string; kind: 'genui'; toolUseId: string; prompt: string; code?: string; status: 'pending' | 'ready' | 'error'; error?: string }
@@ -189,6 +192,22 @@ export function flatten(messages: Message[]): Item[] {
           };
           out.push(it);
           const pending = { item: it as PairedTool, ts: m.timestamp };
+          pendingTools.set(toolUseId, pending);
+          fallbackTool = pending;
+        } else if (b.name === 'Agent') {
+          // A spawned subagent. Its child transcript lives under
+          // <sid>/subagents/ keyed by the tool_use id — SubagentItem drills in.
+          const input = (b.input || {}) as { subagent_type?: string; description?: string };
+          const toolUseId = (b as unknown as { id?: string }).id || `synthetic-${i}`;
+          const it: Extract<Item, { kind: 'subagent' }> = {
+            id: `sub${i++}`,
+            kind: 'subagent',
+            agentType: String(input.subagent_type || ''),
+            description: String(input.description || ''),
+            toolUseId,
+          };
+          out.push(it);
+          const pending = { item: it as unknown as PairedTool, ts: m.timestamp };
           pendingTools.set(toolUseId, pending);
           fallbackTool = pending;
         } else {
@@ -465,6 +484,71 @@ function AssistantImageItem({ mimeType, data }: { mimeType: string; data: string
   );
 }
 
+// A spawned subagent card. Collapsed it looks like a tool row; expanded it
+// lazy-loads the child transcript (<sid>/subagents/agent-<id>.jsonl) and
+// renders it inline with the same ItemView the parent thread uses.
+function SubagentItem({
+  it,
+  project,
+  sid,
+}: {
+  it: Extract<Item, { kind: 'subagent' }>;
+  project?: string;
+  sid?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [child, setChild] = useState<Item[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const label = it.agentType || 'Agent';
+
+  const toggle = useCallback(async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || child || loading || !project || !sid) return;
+    setLoading(true);
+    setErr('');
+    try {
+      // The parent tool_use id links to exactly one child jsonl via its
+      // meta sidecar; resolve that agentId, then read the child transcript.
+      const { subagents } = await api.subagents(project, sid);
+      const match = subagents.find((s) => s.toolUseId === it.toolUseId);
+      if (!match) throw new Error('child transcript not found');
+      const detail = await api.subagent(project, sid, match.agentId);
+      setChild(flatten(detail.messages));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [open, child, loading, project, sid, it.toolUseId]);
+
+  return (
+    <div className="ti-tool ti-subagent">
+      <button type="button" className="ti-tool-head ti-subagent-head" onClick={toggle}>
+        <span className="ti-dot">🤖</span>
+        <span className="ti-tool-name">{label}</span>
+        {it.description && (
+          <span className="ti-tool-args" title={it.description}>
+            ({it.description})
+          </span>
+        )}
+        <span className="ti-subagent-toggle">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="ti-subagent-body">
+          {loading && <div className="ti-subagent-note muted">Loading transcript…</div>}
+          {err && <div className="ti-subagent-note ti-error">{err}</div>}
+          {child && child.length === 0 && <div className="ti-subagent-note muted">Empty transcript.</div>}
+          {child?.map((c) => (
+            <ItemView key={c.id} it={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PREVIEW_LINES = 2;
 
 function ToolItem({ id, name, input, result, durationMs, isError }: { id?: string; name: string; input: unknown; result?: string; durationMs?: number; isError?: boolean }) {
@@ -720,6 +804,8 @@ export function ItemView({
   onRewind,
   onFork,
   onPermissionDecide,
+  project,
+  sid,
 }: {
   it: Item;
   onRewind?: (uuid: string) => void;
@@ -728,6 +814,8 @@ export function ItemView({
   // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
   // handler serves both. This wider param is assignable to both child onDecide props.
   onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
+  project?: string;
+  sid?: string;
 }) {
   switch (it.kind) {
     case 'user':
@@ -756,6 +844,8 @@ export function ItemView({
         ? <DiffCard name={it.name} diff={diff} result={it.result} isError={it.isError} />
         : <ToolItem id={it.id} name={it.name} input={it.input} result={it.result} durationMs={it.durationMs} isError={it.isError} />;
     }
+    case 'subagent':
+      return <SubagentItem it={it} project={project} sid={sid} />;
     case 'todo':
       return <TodoItem id={it.id} todos={it.todos} />;
     case 'system_event':
@@ -2197,10 +2287,10 @@ export function Session(props: SessionProps = {}) {
           />
         )}
         {[...completedTurns].reverse().map((it) => (
-          <ItemView key={it.id} it={it} />
+          <ItemView key={it.id} it={it} project={project} sid={sid} />
         ))}
         {[...tail].reverse().map((it) => (
-          <ItemView key={it.id} it={it} onRewind={handleRewind} onFork={handleFork} />
+          <ItemView key={it.id} it={it} onRewind={handleRewind} onFork={handleFork} project={project} sid={sid} />
         ))}
         {hidden > 0 && (
           <button className="ghost load-earlier" onClick={() => setShown((s) => s + PAGE_SIZE)}>

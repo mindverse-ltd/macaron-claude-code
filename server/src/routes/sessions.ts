@@ -2,9 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import {
   deleteSession,
   duplicateSession,
+  listSubagents,
   forkSession,
   readSessionMessages,
   resolveProjectCwd,
+  readSubagentMessages,
   resolveSessionCwd,
   rewindSession,
   searchMessages,
@@ -60,6 +62,27 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       // every project-scoped command (see resolveProjectCwd).
       const cwd = await resolveProjectCwd(params.project);
       return { commands: await listSlashCommands(cwd || '') };
+    },
+  );
+
+  // List the subagents (child sessions) spawned from this transcript. Each is
+  // linked to a parent `Agent` tool_use via `toolUseId` so the WebUI can turn
+  // an inline Agent tool card into a drill-in link.
+  app.get<{ Params: Params }>(
+    '/api/sessions/claude/:project/:sid/subagents',
+    async ({ params }) => ({ subagents: await listSubagents(params.project, params.sid) }),
+  );
+
+  // Read one subagent's full transcript, same shape as a normal session.
+  app.get<{ Params: Params & { agentId: string } }>(
+    '/api/sessions/claude/:project/:sid/subagents/:agentId',
+    async ({ params }, reply) => {
+      if (!/^[A-Za-z0-9_-]+$/.test(params.agentId)) return reply.status(400).send({ error: 'invalid subagent id' });
+      try {
+        return await readSubagentMessages(params.project, params.sid, params.agentId);
+      } catch (e) {
+        return reply.status(404).send({ error: (e as Error).message });
+      }
     },
   );
 

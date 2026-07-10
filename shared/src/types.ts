@@ -362,6 +362,35 @@ export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };
 
+// A custom subagent definition (~/.claude/agents/<name>.md). `prompt` is the
+// markdown body after the frontmatter — it becomes the agent's system prompt.
+// `tools` is the frontmatter allowlist; empty = inherit all tools.
+export type AgentFile = {
+  name: string;
+  description: string;
+  tools: string[];
+  model: string;
+  prompt: string;
+  // Frontmatter keys the UI doesn't model (e.g. permissionMode), preserved
+  // verbatim across an edit so a UI save never silently drops them.
+  extra?: Record<string, string>;
+};
+
+export type AgentsResponse = { agents: AgentFile[] };
+
+// One subagent (child session) spawned from a parent transcript. The parent's
+// assistant `tool_use` block whose `name === 'Agent'` carries the same
+// `toolUseId`; the child's own transcript lives in a sibling
+// `<sid>/subagents/agent-<agentId>.jsonl` file.
+export type SubagentInfo = {
+  agentId: string;
+  agentType: string;
+  description: string;
+  toolUseId: string;
+};
+
+export type SubagentsResponse = { subagents: SubagentInfo[] };
+
 // ---- Hooks viewer ------------------------------------------------------
 // Read-only projection of the `hooks` block in a settings.json, flattened
 // from Claude Code's three-level nesting (event → matcher group → handlers)
