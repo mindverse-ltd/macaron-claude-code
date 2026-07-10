@@ -385,13 +385,19 @@ export function CodexChat(props: CodexChatProps = {}) {
     try { await codexApi.stopThread(sid); } catch { /* nop */ }
   }, [sid]);
 
-  const submit = useCallback(async () => {
-    const text = pending.trim();
+  const submit = useCallback(async (opts?: { text?: string }) => {
+    // `opts.text` present ⇒ programmatic send (from the $macaron/chat bridge
+    // or auto-continue). We don't consume composer state in that case, so a
+    // user still typing something doesn't get their draft cleared.
+    const programmatic = typeof opts?.text === 'string';
+    const text = (programmatic ? opts!.text! : pending).trim();
     if ((!text && images.length === 0) || sending) return;
-    const sentImages = images;
+    const sentImages = programmatic ? [] : images;
     const wire = sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl }));
-    setPending('');
-    setImages([]);
+    if (!programmatic) {
+      setPending('');
+      setImages([]);
+    }
     streamedRef.current = true;
     setSending(true);
     setError('');
@@ -429,6 +435,26 @@ export function CodexChat(props: CodexChatProps = {}) {
       setSending(false);
     }
   }, [pending, images, sending, isNew, sid, navigate]);
+
+  // Chat bridge for render_ui widgets. Mirrors Claude side (Session.tsx):
+  // a sandboxed widget imports `sendUserMessage` from '$macaron/chat',
+  // the shim dispatches to globalThis['$app/chat'], and we relay into
+  // submit() as a programmatic user turn. `sendUserMessage` is also bound
+  // on globalThis so widgets that forget the import still work.
+  useEffect(() => {
+    if (!focused) return;
+    const g = globalThis as unknown as {
+      '$app/chat'?: (prompt: string) => void;
+      sendUserMessage?: (prompt: string) => void;
+    };
+    const bridge = (prompt: string) => { void submit({ text: prompt }); };
+    g['$app/chat'] = bridge;
+    g.sendUserMessage = bridge;
+    return () => {
+      if (g['$app/chat'] === bridge) delete g['$app/chat'];
+      if (g.sendUserMessage === bridge) delete g.sendUserMessage;
+    };
+  }, [focused, submit]);
 
   const title = isNew
     ? 'New thread'
