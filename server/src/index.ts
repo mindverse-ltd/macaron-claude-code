@@ -36,6 +36,7 @@ import { registerGitRoutes } from './routes/git.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerPushRoutes } from './routes/push.js';
 import { registerUsageRoutes } from './routes/usage.js';
+import { registerAnalyticsRoutes } from './routes/analytics.js';
 import { registerScheduleRoutes } from './routes/schedules.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
@@ -81,6 +82,7 @@ await app.register(async (instance) => {
   await registerCommandRoutes(instance);
   await registerPushRoutes(instance);
   await registerUsageRoutes(instance);
+  await registerAnalyticsRoutes(instance);
   await registerSkillRoutes(instance);
   await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
