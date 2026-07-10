@@ -3,37 +3,12 @@
 // messages can never be shell-interpreted — no injection surface. All commands
 // run in a workspace cwd resolved from the claude project name.
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { GitFileStatus, GitStatus, GitBranches } from '@macaron/shared';
-import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, readSessionSummary } from './session-store.js';
 
 const pExecFile = promisify(execFile);
-
-// Same cwd derivation the /api/workspaces POST uses: decode the project name
-// (claude-cli encodes the cwd into it), then prefer the real cwd embedded in
-// any session's jsonl head if one exists.
-export async function resolveProjectCwd(project: string): Promise<string> {
-  let cwd = decodeClaudeProjectName(project);
-  try {
-    const projDir = path.join(CLAUDE_PROJECTS, project);
-    const files = await fs.readdir(projDir);
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue;
-      const meta = await readSessionSummary(path.join(projDir, f));
-      if (meta?.cwd) {
-        cwd = meta.cwd;
-        break;
-      }
-    }
-  } catch {
-    /* no sessions yet — fall back to decoded name */
-  }
-  return cwd;
-}
 
 export class GitError extends Error {
   constructor(message: string, readonly code: number | null) {
