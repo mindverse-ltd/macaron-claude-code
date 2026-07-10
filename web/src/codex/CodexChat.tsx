@@ -7,10 +7,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { SessionDetail, Message, Block } from '@macaron/shared';
+import type { SessionDetail, Message, Block, CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 import { codexApi } from './api';
 import type { CodexRuntimeOverride } from './api';
-import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
+import { sendCodexMessage, startCodexThread, subscribeCodexLive, type CodexStreamEvent } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
 
@@ -34,7 +34,13 @@ type Item =
   // tool_use time (arguments are already aggregated by the CLI), so we
   // render immediately — no pending phase in practice. The tool_result
   // (checkGenUI diagnostics) may flip `status` to 'error' with details.
-  | { id: string; kind: 'genui'; toolUseId: string; code: string; status: 'ready' | 'error'; error?: string };
+  | { id: string; kind: 'genui'; toolUseId: string; code: string; status: 'ready' | 'error'; error?: string }
+  // Codex-native plan card (turn/plan/updated). One per thread, replaced in
+  // place as new plan snapshots arrive.
+  | { id: string; kind: 'plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
+  // Codex-native approval request. `decision` set once answered (or 'stale'
+  // when the server cleared it) so the card disables its buttons.
+  | { id: string; kind: 'approval'; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[]; decision?: CodexDecision | 'stale' };
 
 function toolInputToCmd(name: string, input: unknown): string {
   if (name === 'Bash') {
@@ -159,8 +165,25 @@ function withToolResult(cur: Item[], toolUseId: string, text: string, isError: b
   });
 }
 
-function Reasoning({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
+// Plan is a singleton per thread: replace the existing card in place (keeping
+// its position) or append if this is the first snapshot.
+function withPlan(cur: Item[], steps: Array<{ step: string; status: CodexPlanStatus }>, explanation?: string | null): Item[] {
+  const idx = cur.findIndex((it) => it.kind === 'plan');
+  const item: Item = { id: 'plan', kind: 'plan', steps, explanation };
+  if (idx < 0) return [...cur, item];
+  return cur.map((it, i) => (i === idx ? item : it));
+}
+
+function withApproval(cur: Item[], ev: Extract<CodexStreamEvent, { type: 'codex_approval_request' }>): Item[] {
+  if (cur.some((it) => it.kind === 'approval' && it.id === ev.id)) return cur;
+  return [...cur, { id: ev.id, kind: 'approval', approval: ev.kind, command: ev.command, cwd: ev.cwd, reason: ev.reason, grantRoot: ev.grantRoot, network: ev.network, available: ev.available }];
+}
+
+function withApprovalResolved(cur: Item[], id: string, decision?: CodexDecision | 'stale'): Item[] {
+  return cur.map((it) => (it.kind === 'approval' && it.id === id ? { ...it, decision: decision ?? 'stale' } : it));
+}
+
+function Reasoning({ text }: { text: string }) {  const [open, setOpen] = useState(false);
   return (
     <div className="cx-reasoning">
       <div className="cx-reasoning-head" onClick={() => setOpen((v) => !v)}>
@@ -233,10 +256,68 @@ function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   );
 }
 
-function MessageRow({ it }: { it: Item }) {
+function PlanCard({ it }: { it: Extract<Item, { kind: 'plan' }> }) {
+  const glyph = (s: CodexPlanStatus) => (s === 'completed' ? '☑' : s === 'inProgress' ? '◐' : '☐');
+  return (
+    <div className="cx-plan">
+      <div className="cx-plan-head">
+        <span className="cx-plan-glyph">◇</span>
+        <span className="cx-plan-name">Plan</span>
+      </div>
+      {it.explanation && <div className="cx-plan-explanation">{it.explanation}</div>}
+      <div className="cx-plan-steps">
+        {it.steps.map((s, i) => (
+          <div key={i} className={'cx-plan-step ' + s.status}>
+            <span className="cx-plan-step-glyph">{glyph(s.status)}</span>
+            <span className="cx-plan-step-text">{s.step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DECISION_LABEL: Record<CodexDecision, string> = {
+  accept: 'Approve',
+  acceptForSession: 'Approve for session',
+  decline: 'Decline',
+  cancel: 'Cancel',
+};
+
+function ApprovalCard({ it, onDecide }: { it: Extract<Item, { kind: 'approval' }>; onDecide: (id: string, decision: CodexDecision) => void }) {
+  const resolved = it.decision !== undefined;
+  const title = it.approval === 'file' ? 'File change approval' : it.approval === 'network' ? 'Network access approval' : 'Command approval';
+  return (
+    <div className={'cx-approval' + (resolved ? ' resolved' : '')}>
+      <div className="cx-approval-head">
+        <span className="cx-approval-glyph">⚑</span>
+        <span className="cx-approval-name">{title}</span>
+        {resolved && <span className="cx-approval-status">{it.decision === 'stale' ? 'expired' : it.decision}</span>}
+      </div>
+      {it.command && <div className="cx-approval-cmd">{it.command}</div>}
+      {it.network && <div className="cx-approval-net">{it.network.protocol}://{it.network.host}</div>}
+      {it.cwd && <div className="cx-approval-cwd">{it.cwd}</div>}
+      {it.grantRoot && <div className="cx-approval-cwd">grant root: {it.grantRoot}</div>}
+      {it.reason && <div className="cx-approval-reason">{it.reason}</div>}
+      {!resolved && (
+        <div className="cx-approval-actions">
+          {it.available.map((d) => (
+            <button key={d} className={'cx-approval-btn ' + d} onClick={() => onDecide(it.id, d)}>
+              {DECISION_LABEL[d]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessageRow({ it, onDecide }: { it: Item; onDecide?: (id: string, decision: CodexDecision) => void }) {
   if (it.kind === 'reasoning') return <Reasoning text={it.text} />;
   if (it.kind === 'tool') return <ToolCard it={it} />;
   if (it.kind === 'genui') return <GenuiCard it={it} />;
+  if (it.kind === 'plan') return <PlanCard it={it} />;
+  if (it.kind === 'approval') return <ApprovalCard it={it} onDecide={onDecide ?? (() => {})} />;
   const isUser = it.kind === 'user';
   return (
     <div className={'cx-msg ' + (isUser ? 'user' : 'assistant')}>
@@ -368,6 +449,9 @@ export function CodexChat(props: CodexChatProps = {}) {
       onToolResult: (ev) => {
         if (active) setLive((cur) => withToolResult(cur, ev.tool_use_id, ev.text, ev.isError));
       },
+      onCodexPlan: (ev) => { if (active) setLive((cur) => withPlan(cur, ev.steps, ev.explanation)); },
+      onCodexApproval: (ev) => { if (active) setLive((cur) => withApproval(cur, ev)); },
+      onCodexApprovalResolved: (ev) => { if (active) setLive((cur) => withApprovalResolved(cur, ev.id, ev.decision)); },
       onError: (message) => { if (active) setError(message); },
       onDone: () => {
         if (!active) return;
@@ -409,6 +493,20 @@ export function CodexChat(props: CodexChatProps = {}) {
   const applyToolResult = (toolUseId: string, text: string, isError: boolean) => {
     setLive((cur) => withToolResult(cur, toolUseId, text, isError));
   };
+  const applyPlan = (ev: Extract<CodexStreamEvent, { type: 'codex_plan' }>) =>
+    setLive((cur) => withPlan(cur, ev.steps, ev.explanation));
+  const applyApproval = (ev: Extract<CodexStreamEvent, { type: 'codex_approval_request' }>) =>
+    setLive((cur) => withApproval(cur, ev));
+  const applyApprovalResolved = (ev: Extract<CodexStreamEvent, { type: 'codex_approval_resolved' }>) =>
+    setLive((cur) => withApprovalResolved(cur, ev.id, ev.decision));
+
+  // Answer an approval optimistically (disable the card), then POST. On failure
+  // the server already treated it as resolved (stale race), so we keep it off.
+  const decideApproval = useCallback((id: string, decision: CodexDecision) => {
+    if (!sid) return;
+    setLive((cur) => withApprovalResolved(cur, id, decision));
+    void codexApi.approve(sid, id, decision).catch(() => {});
+  }, [sid]);
 
   const stop = useCallback(async () => {
     if (!sid) return;
@@ -441,6 +539,9 @@ export function CodexChat(props: CodexChatProps = {}) {
           onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
+          onCodexPlan: applyPlan,
+          onCodexApproval: applyApproval,
+          onCodexApprovalResolved: applyApprovalResolved,
           onError: (m) => setError(m),
           onDone: () => {
             setSending(false);
@@ -453,6 +554,9 @@ export function CodexChat(props: CodexChatProps = {}) {
           onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),
           onToolResult: (ev) => applyToolResult(ev.tool_use_id, ev.text, ev.isError),
+          onCodexPlan: applyPlan,
+          onCodexApproval: applyApproval,
+          onCodexApprovalResolved: applyApprovalResolved,
           onError: (m) => setError(m),
           onDone: () => {
             setSending(false);
@@ -522,7 +626,7 @@ export function CodexChat(props: CodexChatProps = {}) {
           </div>
         ) : (
           <div className="cx-thread-body">
-            {items.map((it) => <MessageRow key={it.id} it={it} />)}
+            {items.map((it) => <MessageRow key={it.id} it={it} onDecide={decideApproval} />)}
             {/* Show the thinking spinner at the tail of the thread while a
                 turn is in flight. Hide it once the last item is a live
                 assistant message that has actually started emitting text —
