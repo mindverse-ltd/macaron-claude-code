@@ -25,6 +25,7 @@ import { registerFsRoutes } from './routes/fs.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerWorktreeRoutes } from './routes/worktrees.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerSkillRoutes } from './routes/skills.js';
 import { registerCommandRoutes } from './routes/commands.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
@@ -79,6 +80,7 @@ await app.register(async (instance) => {
   await registerCommandRoutes(instance);
   await registerPushRoutes(instance);
   await registerUsageRoutes(instance);
+  await registerSkillRoutes(instance);
   await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);

@@ -456,6 +456,11 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
+      <Link className="sb-settings-link" to="/skills">
+        <span>▤</span>
+        <span>Skills</span>
+      </Link>
+
       <Link className="sb-settings-link" to="/prompts">
         <span>⌘</span>
         <span>Prompts</span>

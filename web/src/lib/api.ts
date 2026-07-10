@@ -20,6 +20,8 @@ export type {
   WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
+  SkillInfo,
+  SkillDetail,
   Schedule,
   ScheduleInput,
   SessionKind,
@@ -50,6 +52,8 @@ import type {
   SharedSessionResponse,
   WorktreeInfo,
   UsageResponse,
+  SkillInfo,
+  SkillDetail,
   Schedule,
   ScheduleInput,
   SchedulesResponse,
@@ -178,6 +182,20 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
+    }),
+  skills: () => getJSON<{ skills: SkillInfo[] }>('/api/skills'),
+  skill: (dir: string) => getJSON<SkillDetail>(`/api/skills/${encodeURIComponent(dir)}`),
+  setSkillEnabled: (dir: string, enabled: boolean) =>
+    req<{ skills: SkillInfo[] }>(`/api/skills/${encodeURIComponent(dir)}/enabled`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  createSkill: (input: { name: string; description: string; body?: string }) =>
+    req<{ dir: string; skills: SkillInfo[] }>('/api/skills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     }),
   savedCommands: () => getJSON<SavedCommandsResponse>('/api/commands'),
   createCommand: (name: string, input: CommandInput) =>
