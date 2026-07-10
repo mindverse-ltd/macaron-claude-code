@@ -17,9 +17,20 @@ import { ProviderPicker } from './ProviderPicker';
 import { api, type PublicSettings } from '../lib/api';
 import { effectiveWindow, formatTokens } from '../lib/modelWindow';
 import type { TodoEntry } from '../views/Session';
-import type { UsageSnapshot } from '@macaron/shared';
+import type { ContextBreakdown, UsageSnapshot } from '@macaron/shared';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+// Ordered largest-context-hog first so the popover reads top-down by impact.
+// Colors echo Anthropic's /context palette (system grey, messages green,
+// tool results blue, tool calls purple, thinking amber).
+const SEGMENTS: Array<{ key: keyof Omit<ContextBreakdown, 'total'>; label: string; color: string }> = [
+  { key: 'system', label: 'System + tools', color: '#8a8880' },
+  { key: 'toolResults', label: 'Tool results', color: '#6d99c8' },
+  { key: 'messages', label: 'Messages', color: '#7fb26b' },
+  { key: 'toolCalls', label: 'Tool calls', color: '#9b7bc4' },
+  { key: 'thinking', label: 'Thinking', color: '#b88a3a' },
+];
 
 const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
   { value: 'default', label: 'Default (ask)' },
@@ -73,6 +84,37 @@ function Bar({ pct, tone = 'context' }: { pct: number; tone?: 'context' | 'usage
   );
 }
 
+// Context bar split by source, with a hover/focus popover legend. Each segment
+// is sized as tokens/window; the remainder reads as free space. The split is
+// an estimate (see ContextBreakdown) — the headline % stays ground-truth.
+function SegmentedContextBar({ breakdown, window }: { breakdown: ContextBreakdown; window: number }) {
+  const rows = SEGMENTS.map((s) => ({ ...s, tokens: breakdown[s.key] })).filter((r) => r.tokens > 0);
+  return (
+    <div className="status-context-seg" tabIndex={0} aria-label="Context composition">
+      <div className="status-bar-track tone-context">
+        {rows.map((r) => (
+          <div
+            key={String(r.key)}
+            className="status-seg-fill"
+            style={{ width: `${window > 0 ? Math.min(100, (r.tokens / window) * 100) : 0}%`, background: r.color }}
+          />
+        ))}
+      </div>
+      <div className="status-seg-pop" role="tooltip">
+        <div className="status-seg-pop-title">Context by source <span>· estimated</span></div>
+        {rows.map((r) => (
+          <div key={String(r.key)} className="status-seg-pop-row">
+            <span className="status-seg-swatch" style={{ background: r.color }} />
+            <span className="status-seg-pop-label">{r.label}</span>
+            <span className="status-seg-pop-tok">{formatTokens(r.tokens)}</span>
+            <span className="status-seg-pop-pct">{window > 0 ? ((r.tokens / window) * 100).toFixed(0) : 0}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function StatusBar({
   projectName,
   permissionMode,
@@ -80,6 +122,7 @@ export function StatusBar({
   sending,
   currentTodo,
   latestUsage,
+  contextBreakdown,
   claudeMdCount,
   mcpCount,
 }: {
@@ -89,6 +132,7 @@ export function StatusBar({
   sending: boolean;
   currentTodo: { text: string; done: number; total: number } | null;
   latestUsage?: UsageSnapshot;
+  contextBreakdown?: ContextBreakdown;
   claudeMdCount?: number;
   mcpCount?: number;
 }) {
@@ -124,7 +168,9 @@ export function StatusBar({
       {usedTokens > 0 && (
         <div className="status-row status-context">
           <span className="status-context-label">Context</span>
-          <Bar pct={contextPct} tone="context" />
+          {contextBreakdown && contextBreakdown.total > 0
+            ? <SegmentedContextBar breakdown={contextBreakdown} window={window} />
+            : <Bar pct={contextPct} tone="context" />}
           <span className="status-context-pct">{contextPct.toFixed(0)}%</span>
           <span className="status-context-tokens">
             ({formatTokens(usedTokens)} / {formatTokens(window)})
