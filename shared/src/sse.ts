@@ -36,7 +36,7 @@ export type SessionStreamEvent =
   // a decision card and POSTs the chosen `decision` back to
   // /api/codex/threads/:sid/approval. `available` lists the decisions codex
   // offered for this specific request. Cleared by codex_approval_resolved.
-  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string; port?: number }; available: CodexDecision[] }
   // The request is no longer actionable (answered, turn ended, or server
   // cleared it via serverRequest/resolved). The client disables the card.
   | { type: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }

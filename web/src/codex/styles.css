@@ -1524,6 +1524,19 @@ body {
 .cx-approval-net { padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; color: var(--cx-text); }
 .cx-approval-cwd { padding: 4px 12px; color: var(--cx-muted); font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
 .cx-approval-reason { padding: 8px 12px; color: var(--cx-muted); }
+.cx-approval-file { padding: 4px 12px; }
+.cx-approval-file-head { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--cx-text); }
+.cx-approval-diff {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--cx-code-strong);
+  color: #e8e8ea;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  border-radius: var(--cx-radius);
+}
 .cx-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--cx-border); }
 .cx-approval-btn {
   padding: 6px 14px;
