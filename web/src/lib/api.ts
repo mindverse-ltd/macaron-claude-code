@@ -79,7 +79,14 @@ import { authedFetch } from './auth';
 // the message string.
 export class HttpError extends Error {
   constructor(readonly status: number, body: string) {
-    super(`http ${status}: ${body.slice(0, 200)}`);
+    let message = '';
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === 'string') message = parsed.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    super(message || (body ? `http ${status}: ${body.slice(0, 200)}` : `http ${status}`));
     this.name = 'HttpError';
   }
 }
@@ -254,6 +261,12 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  createProject: (input: { name?: string; gitUrl?: string }) =>
+    req<{ project: string; cwd: string; name: string }>('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   searchMessages: (q: string, limit = 30) =>
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,

@@ -21,6 +21,7 @@ process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = process.env.CLAUDE_CODE_STREAM_CL
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
+import { registerProjectRoutes } from './routes/projects.js';
 import { registerFsRoutes } from './routes/fs.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerWorktreeRoutes } from './routes/worktrees.js';
@@ -85,6 +86,7 @@ await app.register(async (instance) => {
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
+  await registerProjectRoutes(instance);
   await registerFsRoutes(instance);
   await registerSessionRoutes(instance);
   await registerWorktreeRoutes(instance);

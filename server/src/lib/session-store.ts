@@ -420,9 +420,15 @@ export async function resolveSessionCwd(project: string, sid: string): Promise<s
 // CLAUDE_PROJECTS: that decode (`-` -> `/`) is attacker-controllable, and
 // callers that hand the result to the filesystem as a *root* (routes/files.ts)
 // would otherwise turn the `:project` route param into an arbitrary-root
-// traversal (e.g. `-etc` -> `/etc`). Returns null for an unregistered project;
-// callers must treat null as "unknown project" (404), never as a servable root.
-export async function resolveProjectCwd(project: string): Promise<string | null> {
+// traversal (e.g. `-etc` -> `/etc`). A trusted fallback lets callers preserve
+// an exact cwd from the persisted New-Project registry instead of using the
+// lossy decoded name when the project has no live session. Returns null for an
+// unregistered project; callers must treat null as "unknown project" (404),
+// never as a servable root.
+export async function resolveProjectCwd(
+  project: string,
+  trustedFallback?: string,
+): Promise<string | null> {
   let files: string[];
   const projDir = path.join(CLAUDE_PROJECTS, project);
   try {
@@ -446,7 +452,7 @@ export async function resolveProjectCwd(project: string): Promise<string | null>
   // Registered project whose cwd we couldn't recover from any jsonl: fall back
   // to the decoded name (the original big-paste behavior), now gated on the dir
   // existing above so an unregistered `-etc` can never reach this.
-  return decodeClaudeProjectName(project);
+  return trustedFallback ?? decodeClaudeProjectName(project);
 }
 
 export async function listAllSessions(): Promise<SessionListItem[]> {

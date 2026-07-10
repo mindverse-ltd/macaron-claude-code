@@ -13,7 +13,7 @@ process.env.HOME = tmpHome;
 process.env.USERPROFILE = tmpHome;
 
 const { CLAUDE_PROJECTS } = await import('../src/config.js');
-const { readSessionMessages, searchProjectFiles } = await import('../src/lib/session-store.js');
+const { readSessionMessages, resolveProjectCwd, searchProjectFiles } = await import('../src/lib/session-store.js');
 
 const PROJECT = 'mcc-test';
 const projectDir = path.join(CLAUDE_PROJECTS, PROJECT);
@@ -66,6 +66,30 @@ test('tail-truncated sessions keep the flat context bar instead of estimating a 
   assert.equal(detail.truncated, true);
   assert.ok(detail.latestUsage, 'usage should still drive the flat Context bar');
   assert.equal(detail.contextBreakdown, undefined);
+});
+
+test('project cwd resolution prefers a live session and otherwise uses the trusted registry fallback', async () => {
+  const cwdProject = 'cwd-resolution';
+  const cwdProjectDir = path.join(CLAUDE_PROJECTS, cwdProject);
+  const staleCwd = path.join(tmpHome, 'removed-worktree');
+  const liveCwd = path.join(tmpHome, 'live-worktree');
+  const registryCwd = path.join(tmpHome, 'registered-project');
+  await fs.mkdir(cwdProjectDir, { recursive: true });
+  await fs.mkdir(liveCwd, { recursive: true });
+  await fs.writeFile(
+    path.join(cwdProjectDir, 'stale.jsonl'),
+    `${JSON.stringify({ type: 'user', cwd: staleCwd, message: { role: 'user', content: 'stale' } })}\n`,
+    'utf8',
+  );
+  await fs.writeFile(
+    path.join(cwdProjectDir, 'live.jsonl'),
+    `${JSON.stringify({ type: 'user', cwd: liveCwd, message: { role: 'user', content: 'live' } })}\n`,
+    'utf8',
+  );
+
+  assert.equal(await resolveProjectCwd(cwdProject, registryCwd), liveCwd);
+  await fs.rm(liveCwd, { recursive: true, force: true });
+  assert.equal(await resolveProjectCwd(cwdProject, registryCwd), registryCwd);
 });
 
 test('mention search skips a stale session cwd and uses the live project root', async () => {
