@@ -36,7 +36,9 @@ import { Board } from './views/Board';
 import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
+import { Prompts } from './views/Prompts';
 import { ShareView } from './views/ShareView';
+import { Schedules } from './views/Schedules';
 import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
@@ -87,7 +89,9 @@ const router = createHashRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'board', element: <Board /> },
+      { path: 'prompts', element: <Prompts /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'schedules', element: <Schedules /> },
       { path: 'mcp', element: <Mcp /> },
       { path: 'w/:project', element: <Workspace /> },
       { path: 'w/:project/files', element: <FileExplorer /> },

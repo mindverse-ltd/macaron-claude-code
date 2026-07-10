@@ -14,6 +14,7 @@ import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
+import { createWorktree, bindWorktree, cleanupPendingWorktree, type PendingWorktree } from '../lib/worktree-store.js';
 
 type Params = { project: string };
 type NewSessionBody = {
@@ -21,6 +22,14 @@ type NewSessionBody = {
   model?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   images?: AttachedImage[];
+  // When true, run this session in a dedicated git worktree + branch off the
+  // repo's current HEAD, so it doesn't share the working tree with siblings.
+  // Silently no-ops if the derived cwd isn't a git work tree.
+  isolate?: boolean;
+  // Absolute directory to start the session in. Set by the directory picker
+  // for brand-new workspaces; when present it wins over deriving cwd from the
+  // (lossy) project name, so a session can begin in any folder on disk.
+  cwd?: string;
 };
 
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -60,21 +69,29 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       const { model, env: providerEnv } = getActiveProviderEnv();
 
       // Derive cwd from any existing session in this project, else decode the
-      // project name (which mirrors claude-cli's encoding).
+      // project name (which mirrors claude-cli's encoding). An explicit cwd
+      // from the request body (directory picker) short-circuits both — it's
+      // the only way to start a session in a directory that has no project
+      // dir yet, since decodeClaudeProjectName is lossy.
       let cwd = decodeClaudeProjectName(project);
-      try {
-        const projDir = path.join(CLAUDE_PROJECTS, project);
-        const files = await fs.readdir(projDir);
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const meta = await readSessionSummary(path.join(projDir, f));
-          if (meta?.cwd) {
-            cwd = meta.cwd;
-            break;
+      const explicitCwd = String(req.body?.cwd || '').trim();
+      if (explicitCwd) {
+        cwd = explicitCwd;
+      } else {
+        try {
+          const projDir = path.join(CLAUDE_PROJECTS, project);
+          const files = await fs.readdir(projDir);
+          for (const f of files) {
+            if (!f.endsWith('.jsonl')) continue;
+            const meta = await readSessionSummary(path.join(projDir, f));
+            if (meta?.cwd) {
+              cwd = meta.cwd;
+              break;
+            }
           }
+        } catch {
+          /* no sessions yet — fall back to decoded name */
         }
-      } catch {
-        /* no sessions yet — fall back to decoded name */
       }
 
       try {
@@ -82,6 +99,19 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         if (!st.isDirectory()) throw new Error('cwd not a directory');
       } catch (e) {
         return reply.status(400).send({ error: `cwd unusable: ${cwd} (${(e as Error).message})` });
+      }
+
+      // Optional worktree isolation: create a dedicated branch+worktree off the
+      // repo's HEAD and run the agent there. Created BEFORE the run so cwd
+      // exists; the record is bound to the sessionId once the SDK emits it.
+      let pendingWt: PendingWorktree | null = null;
+      if (req.body?.isolate) {
+        try {
+          pendingWt = await createWorktree(cwd);
+          if (pendingWt) cwd = pendingWt.worktreePath;
+        } catch (e) {
+          return reply.status(400).send({ error: `worktree create failed: ${(e as Error).message}` });
+        }
       }
 
       startSSE(reply);
@@ -115,6 +145,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             capturedSid = ev.sessionId;
             liveStart(capturedSid, { cwd });
             registerRun(capturedSid, abortController);
+            if (pendingWt) bindWorktree(capturedSid, pendingWt).catch(() => {});
             livePush(capturedSid, { type: 'user-text', text });
             safeSend({ type: 'meta', cwd, sessionId: capturedSid });
           } else if (ev.kind === 'delta') {
@@ -181,9 +212,14 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             if (!clientGone) sseDone(reply);
           }
         }
+        // Stream ended without ever emitting a session (startup failure: bad
+        // provider/auth/model). Tear down the pre-created worktree so it doesn't
+        // leak untracked — bindWorktree only runs when capturedSid is set.
+        if (pendingWt && !capturedSid) await cleanupPendingWorktree(pendingWt);
       })().catch((e: unknown) => {
         const msg = (e as Error).message;
         safeSend({ type: 'error', error: msg });
+        if (pendingWt && !capturedSid) cleanupPendingWorktree(pendingWt).catch(() => {});
         if (capturedSid) {
           liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
           endRun(capturedSid);

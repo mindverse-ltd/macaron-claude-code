@@ -18,7 +18,14 @@ async function resolveCwd(project: string): Promise<string> {
     for (const f of await fs.readdir(projDir)) {
       if (!f.endsWith('.jsonl')) continue;
       const meta = await readSessionSummary(path.join(projDir, f));
-      if (meta?.cwd) { cwd = meta.cwd; break; }
+      if (!meta?.cwd) continue;
+      // A worktree session records cwd = <repo>/.claude/worktrees/<name>; once
+      // that worktree is torn down the path is gone and spawning a shell there
+      // 400s. Skip stale cwds and keep scanning for one that still exists.
+      try {
+        const st = await fs.stat(meta.cwd);
+        if (st.isDirectory()) { cwd = meta.cwd; break; }
+      } catch { /* stale — keep scanning */ }
     }
   } catch {
     /* no sessions yet — fall back to decoded name */

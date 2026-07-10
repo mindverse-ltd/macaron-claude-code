@@ -8,7 +8,7 @@
 // Cache is warmed at startup so getActiveProviderEnv() is synchronous —
 // hot-path request handlers can call it without awaiting disk I/O.
 
-import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -288,22 +288,21 @@ let isolatedDirReady = false;
 function ensureIsolatedDir(): string {
   if (!isolatedDirReady) {
     if (!existsSync(ISOLATED_CONFIG_DIR)) mkdirSync(ISOLATED_CONFIG_DIR, { recursive: true });
-    // Symlink projects/ so jsonls land in ~/.claude/projects/ where the
-    // WebUI can read them.
-    const projectsLink = path.join(ISOLATED_CONFIG_DIR, 'projects');
-    const realProjects = path.join(HOME, '.claude', 'projects');
-    if (!existsSync(realProjects)) mkdirSync(realProjects, { recursive: true });
-    try {
-      const st = lstatSync(projectsLink);
-      // Repair if it's not a symlink or points elsewhere.
-      if (!st.isSymbolicLink()) {
-        // A stray dir was created here on an earlier run; replace it.
-        fs.rm(projectsLink, { recursive: true, force: true }).catch(() => {});
-        symlinkSync(realProjects, projectsLink);
+    // Symlink shared user data so custom-provider subprocesses keep auth isolated
+    // without hiding sessions or user-scoped slash commands from the WebUI/CLI.
+    for (const dir of ['projects', 'commands']) {
+      const link = path.join(ISOLATED_CONFIG_DIR, dir);
+      const real = path.join(HOME, '.claude', dir);
+      if (!existsSync(real)) mkdirSync(real, { recursive: true });
+      try {
+        const st = lstatSync(link);
+        if (!st.isSymbolicLink()) {
+          rmSync(link, { recursive: true, force: true });
+          symlinkSync(real, link);
+        }
+      } catch {
+        try { symlinkSync(real, link); } catch { /* already there */ }
       }
-    } catch {
-      // Doesn't exist — create the symlink.
-      try { symlinkSync(realProjects, projectsLink); } catch { /* already there */ }
     }
     isolatedDirReady = true;
   }

@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type {
   Block,
+  ContextBreakdown,
   Message,
+  MessageSearchHit,
   SessionDetail,
   SessionListItem,
   UsageSnapshot,
@@ -434,11 +436,15 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
 }
 
 export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
-  const byCwd = new Map<string, Workspace>();
+  // Group by `project` (the encoded repo root), not cwd: a session running in a
+  // worktree has cwd = <repo>/.claude/worktrees/<name>, but its `project` is the
+  // repo root — grouping by cwd would split one repo into N sidebar entries that
+  // share a project id and collide on React keys.
+  const byProject = new Map<string, Workspace>();
   for (const s of sessions) {
-    const key = s.cwd || s.project;
-    if (!byCwd.has(key)) {
-      byCwd.set(key, {
+    const key = s.project;
+    if (!byProject.has(key)) {
+      byProject.set(key, {
         cwd: s.cwd,
         project: s.project,
         name: basename(s.cwd) || s.project,
@@ -448,7 +454,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
         lastPreview: '',
       });
     }
-    const w = byCwd.get(key)!;
+    const w = byProject.get(key)!;
     w.sessionCount++;
     if (s.mtime > w.lastActivity) {
       w.lastActivity = s.mtime;
@@ -457,7 +463,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
       w.project = s.project;
     }
   }
-  const arr = Array.from(byCwd.values());
+  const arr = Array.from(byProject.values());
   arr.sort((a, b) => b.lastActivity - a.lastActivity);
   return arr;
 }
@@ -496,6 +502,14 @@ export async function readSessionMessages(project: string, sid: string): Promise
   // bar shows this / model window. Cache tokens are counted toward the
   // window fill because they take up real slots.
   let latestUsage: UsageSnapshot | undefined;
+  // Char tallies for the estimated context breakdown. Accumulated here (not
+  // client-side) because tool_result text is truncated to 4000 chars below
+  // before it ships — a big file read would otherwise be misattributed to
+  // system overhead. char/4 ≈ tokens; only the ratios between segments matter.
+  let msgChars = 0;
+  let thinkChars = 0;
+  let toolCallChars = 0;
+  let toolResultChars = 0;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
@@ -547,13 +561,18 @@ export async function readSessionMessages(project: string, sid: string): Promise
         const c = o.message?.content;
         if (typeof c === 'string') {
           blocks.push({ kind: 'text', text: c });
+          msgChars += c.length;
         } else if (Array.isArray(c)) {
           for (const b of c) {
-            if (b.type === 'text' && b.text) blocks.push({ kind: 'text', text: b.text });
-            else if (b.type === 'thinking' && b.thinking)
+            if (b.type === 'text' && b.text) { blocks.push({ kind: 'text', text: b.text }); msgChars += b.text.length; }
+            else if (b.type === 'thinking' && b.thinking) {
               blocks.push({ kind: 'thinking', text: b.thinking });
-            else if (b.type === 'tool_use')
+              thinkChars += b.thinking.length;
+            }
+            else if (b.type === 'tool_use') {
               blocks.push({ kind: 'tool_use', id: b.id, name: b.name, input: b.input });
+              toolCallChars += (b.name?.length || 0) + JSON.stringify(b.input ?? '').length;
+            }
             else if (b.type === 'image' && b.source?.type === 'base64' && b.source?.data) {
               // The CLI persists user-attached images as base64 in the
               // jsonl. Ship them through so the WebUI can render inline
@@ -571,7 +590,8 @@ export async function readSessionMessages(project: string, sid: string): Promise
                   : Array.isArray(b.content)
                     ? b.content.map((x: { text?: string }) => x.text || '').join('\n')
                     : '';
-              blocks.push({ kind: 'tool_result', toolUseId: b.tool_use_id, text: t.slice(0, 4000) });
+              blocks.push({ kind: 'tool_result', toolUseId: b.tool_use_id, text: t.slice(0, 4000), isError: b.is_error === true });
+              toolResultChars += t.length;
             }
           }
         }
@@ -603,6 +623,16 @@ export async function readSessionMessages(project: string, sid: string): Promise
     countMcpServers(),
   ]);
 
+  // Tail reads intentionally drop the oldest bytes, so the measured visible
+  // transcript can no longer explain the aggregate usage. Keep the accurate
+  // flat Context bar instead of showing a misleading all-system residual.
+  const contextBreakdown = truncated ? undefined : buildContextBreakdown(latestUsage, {
+    msgChars,
+    thinkChars,
+    toolCallChars,
+    toolResultChars,
+  });
+
   return {
     kind: 'claude',
     sessionId: sid,
@@ -613,9 +643,146 @@ export async function readSessionMessages(project: string, sid: string): Promise
     truncated,
     totalBytes: st.size,
     latestUsage,
+    contextBreakdown,
     claudeMdCount,
     mcpCount,
   };
+}
+
+// Extract plain text from a jsonl user/assistant line's message content,
+// ignoring tool_use / tool_result / image blocks — noise for a text search.
+function lineText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const b of content as Array<{ type?: string; text?: string }>) {
+    if (b?.type === 'text' && b.text) parts.push(b.text);
+  }
+  return parts.join(' ');
+}
+
+// Synthetic USER lines the session view hides (mirrors isNoisyUserText in
+// web/src/views/Session.tsx): slash-command wrappers (`<command-name>`…),
+// tool acknowledgements, and failure notices. Search must agree with the
+// view on what a message is, or a hit deep-links to a line that is never
+// rendered. Only applied to user lines — the view shows assistant text as-is.
+function isNoisyUserText(t: string): boolean {
+  if (!t) return true;
+  if (t.startsWith('<')) return true;
+  if (/^The file .* (has been (updated|created) successfully|file state is current)/.test(t)) return true;
+  if (/^Tool .* failed/.test(t)) return true;
+  return false;
+}
+
+// Whitespace-collapsed window around the first match so the palette row
+// shows context, not the whole message.
+function snippetAround(text: string, q: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const idx = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return flat.slice(0, 180);
+  const start = Math.max(0, idx - 60);
+  const end = Math.min(flat.length, idx + q.length + 120);
+  return (start > 0 ? '…' : '') + flat.slice(start, end) + (end < flat.length ? '…' : '');
+}
+
+// Grep the claude transcripts for a substring, newest-first, stopping once
+// `limit` hits accumulate. Recency-biased on purpose: a palette wants the
+// last thing you touched, and bounding the scan to ~limit sessions keeps the
+// cost sane over a large ~/.claude/projects tree.
+export async function searchMessages(query: string, limit = 30): Promise<MessageSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const ql = q.toLowerCase();
+  const sessions = await listAllSessions(); // sorted mtime desc
+  const hits: MessageSearchHit[] = [];
+  for (const s of sessions) {
+    if (hits.length >= limit) break;
+    const filePath = path.join(CLAUDE_PROJECTS, s.project, `${s.sessionId}.jsonl`);
+    let raw: string;
+    try {
+      const st = await fs.stat(filePath);
+      if (st.size > SESSION_TAIL_BYTES) {
+        const fh = await fs.open(filePath, 'r');
+        try {
+          const buf = Buffer.alloc(SESSION_TAIL_BYTES);
+          await fh.read(buf, 0, SESSION_TAIL_BYTES, st.size - SESSION_TAIL_BYTES);
+          raw = buf.toString('utf8');
+          const nl = raw.indexOf('\n');
+          if (nl !== -1) raw = raw.slice(nl + 1);
+        } finally {
+          await fh.close();
+        }
+      } else {
+        raw = await fs.readFile(filePath, 'utf8');
+      }
+    } catch {
+      continue;
+    }
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const o = JSON.parse(line);
+        if ((o.type !== 'user' && o.type !== 'assistant') || o.isMeta) continue;
+        const text = lineText(o.message?.content);
+        // Agree with the session view: it hides synthetic user lines
+        // (isNoisyUserText). Without this, queries like `command` return
+        // `<command-name>` hits that deep-link to a line the view never
+        // renders — a dead link.
+        if (o.type === 'user' && isNoisyUserText(text)) continue;
+        // Match the DECODED text, not the escaped JSON bytes. A raw-byte grep
+        // (the old pre-filter) silently dropped real matches: `C:\\Users`
+        // (stored `C:\\\\Users`), any query containing a quote, and phrases
+        // spanning two text blocks (joined by a space only after decode).
+        if (!text || text.toLowerCase().indexOf(ql) < 0) continue;
+        hits.push({
+          project: s.project,
+          sessionId: s.sessionId,
+          uuid: typeof o.uuid === 'string' ? o.uuid : undefined,
+          role: o.type,
+          snippet: snippetAround(text, q),
+          preview: s.preview,
+          mtime: s.mtime,
+        });
+        // One hit per session: scroll-to-message is deferred, so `go()` drops
+        // `uuid` and every hit from this file deep-links to the SAME place.
+        // Extra rows would just crowd out other sessions. Revisit when the
+        // message-level anchor lands and uuid is actually consumed.
+        break;
+      } catch {
+        /* skip malformed */
+      }
+    }
+  }
+  return hits;
+}
+
+// Estimate the used-context split from transcript char tallies. `total` is the
+// exact usage sum the Context bar shows; measured segments (~chars/4) are
+// clamped to fit under it, and whatever's left is the un-itemizable system +
+// tool-def + MCP + CLAUDE.md overhead. Returns undefined without a usage sample.
+function buildContextBreakdown(
+  usage: UsageSnapshot | undefined,
+  chars: { msgChars: number; thinkChars: number; toolCallChars: number; toolResultChars: number },
+): ContextBreakdown | undefined {
+  if (!usage) return undefined;
+  const total = usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens + usage.outputTokens;
+  if (total <= 0) return undefined;
+  const tok = (c: number) => Math.ceil(c / 4);
+  let messages = tok(chars.msgChars);
+  let thinking = tok(chars.thinkChars);
+  let toolCalls = tok(chars.toolCallChars);
+  let toolResults = tok(chars.toolResultChars);
+  const measured = messages + thinking + toolCalls + toolResults;
+  // Overshoot (rare: tail-truncated head, char/4 drift) → scale segments to fit.
+  if (measured > total && measured > 0) {
+    const k = total / measured;
+    messages = Math.floor(messages * k);
+    thinking = Math.floor(thinking * k);
+    toolCalls = Math.floor(toolCalls * k);
+    toolResults = Math.floor(toolResults * k);
+  }
+  const system = Math.max(0, total - (messages + thinking + toolCalls + toolResults));
+  return { system, messages, toolCalls, toolResults, thinking, total };
 }
 
 async function countClaudeMd(cwd: string): Promise<number> {

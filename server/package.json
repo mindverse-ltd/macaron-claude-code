@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "bundle": "bun build src/index.ts --target=node --format=esm --outfile=dist/index.js --packages=external",
     "start": "node dist/index.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
     "@genui/diagnostics": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@2c00556",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "^0.142.5",
+    "croner": "^10.0.1",
     "fastify": "^5.2.0",
     "ignore": "^7.0.5",
     "node-pty": "^1.1.0",

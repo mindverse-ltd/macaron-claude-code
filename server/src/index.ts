@@ -4,10 +4,13 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken } from './lib/auth.js';
 import { warmSettingsCache } from './lib/settings-store.js';
+import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
 import { warmLabelsCache } from './lib/label-store.js';
+import { warmSchedulesCache } from './lib/schedule-store.js';
+import { startScheduler } from './lib/scheduler.js';
 import { warmCodexTitlesCache } from './lib/codex-titles.js';
 import { checkGenUI } from './lib/genui-check.js';
 import { startSessionWatcher } from './lib/session-watcher.js';
@@ -18,8 +21,11 @@ process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = process.env.CLAUDE_CODE_STREAM_CL
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerWorkspaceRoutes } from './routes/workspaces.js';
+import { registerFsRoutes } from './routes/fs.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerWorktreeRoutes } from './routes/worktrees.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerCommandRoutes } from './routes/commands.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
 import { registerRelayRoutes } from './routes/relay.js';
@@ -27,6 +33,8 @@ import { registerCodexRoutes } from './routes/codex.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerPushRoutes } from './routes/push.js';
 import { registerUsageRoutes } from './routes/usage.js';
+import { registerGitRoutes } from './routes/git.js';
+import { registerScheduleRoutes } from './routes/schedules.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerFileRoutes } from './routes/files.js';
 
@@ -51,6 +59,11 @@ const app = Fastify({
   ignoreTrailingSlash: true,
   // Allow large request bodies (genui prompts can grow).
   bodyLimit: 2 * 1024 * 1024,
+  // Worktree cwds can be long (deep repo paths encoded as path params), and
+  // Fastify caps a single param at 100 chars by default — a worktree under
+  // .../macaron-genui-demo/.claude/worktrees/<name> blows past it and 414s every
+  // /api/.../:project route. Raise it well above any plausible cwd.
+  maxParamLength: 4000,
 });
 
 // Gate the API/relay behind a shared token when the server is reachable from
@@ -63,15 +76,20 @@ await app.register(async (instance) => {
   await registerHealthRoutes(instance);
   await registerAuthRoutes(instance, authToken);
   await registerSettingsRoutes(instance);
+  await registerCommandRoutes(instance);
   await registerPushRoutes(instance);
   await registerUsageRoutes(instance);
   await registerMcpRoutes(instance);
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerWorkspaceRoutes(instance);
+  await registerFsRoutes(instance);
   await registerSessionRoutes(instance);
+  await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
   await registerShareRoutes(instance);
+  await registerGitRoutes(instance);
+  await registerScheduleRoutes(instance);
   await registerTerminalRoutes(instance);
   await registerFileRoutes(instance);
 });
@@ -110,9 +128,11 @@ if (existsSync(WEB_DIST)) {
 
 try {
   await warmSettingsCache();
+  await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
   await warmLabelsCache();
+  await warmSchedulesCache();
   await warmCodexTitlesCache();
   await warmShareCache();
   await startSessionWatcher();
@@ -127,6 +147,7 @@ try {
   } else if (authToken) {
     app.log.info('server auth enabled (MACARON_AUTH_TOKEN) — remote requests require the token.');
   }
+  startScheduler();
   // Pre-warm the render_ui TS check: the first diagnose pays full program construction. Do it now,
   // at boot, instead of mid-turn while an SSE stream is live. The `import "$macaron/ui"` is what
   // makes this warm the expensive half — it pulls source.tsx and its whole vendored tree into the
