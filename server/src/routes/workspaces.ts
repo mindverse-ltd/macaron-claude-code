@@ -1,12 +1,10 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { CLAUDE_PROJECTS } from '../config.js';
 import {
   decodeClaudeProjectName,
   groupWorkspaces,
   listAllSessions,
-  readSessionSummary,
+  resolveProjectCwd,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
@@ -73,26 +71,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // from the request body (directory picker) short-circuits both — it's
       // the only way to start a session in a directory that has no project
       // dir yet, since decodeClaudeProjectName is lossy.
-      let cwd = decodeClaudeProjectName(project);
       const explicitCwd = String(req.body?.cwd || '').trim();
-      if (explicitCwd) {
-        cwd = explicitCwd;
-      } else {
-        try {
-          const projDir = path.join(CLAUDE_PROJECTS, project);
-          const files = await fs.readdir(projDir);
-          for (const f of files) {
-            if (!f.endsWith('.jsonl')) continue;
-            const meta = await readSessionSummary(path.join(projDir, f));
-            if (meta?.cwd) {
-              cwd = meta.cwd;
-              break;
-            }
-          }
-        } catch {
-          /* no sessions yet — fall back to decoded name */
-        }
-      }
+      let cwd = explicitCwd || (await resolveProjectCwd(project)) || decodeClaudeProjectName(project);
 
       try {
         const st = await fs.stat(cwd);

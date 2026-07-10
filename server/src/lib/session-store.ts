@@ -372,7 +372,15 @@ export async function resolveProjectCwd(project: string): Promise<string | null>
   for (const f of files) {
     if (!f.endsWith('.jsonl')) continue;
     const meta = await readSessionSummary(path.join(projDir, f));
-    if (meta?.cwd) return meta.cwd;
+    if (!meta?.cwd) continue;
+    // A worktree session records cwd = <repo>/.claude/worktrees/<name>; once
+    // torn down the path is gone and spawning a shell / `git` there fails
+    // (Node misreports a missing cwd as `spawn git ENOENT`). Skip stale cwds
+    // and keep scanning for one that still exists.
+    try {
+      const st = await fs.stat(meta.cwd);
+      if (st.isDirectory()) return meta.cwd;
+    } catch { /* stale — keep scanning */ }
   }
   // Registered project whose cwd we couldn't recover from any jsonl: fall back
   // to the decoded name (the original big-paste behavior), now gated on the dir
