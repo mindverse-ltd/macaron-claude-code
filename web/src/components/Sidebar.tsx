@@ -461,6 +461,11 @@ export function Sidebar() {
         <span>Subagents</span>
       </Link>
 
+      <Link className="sb-settings-link" to="/skills">
+        <span>▤</span>
+        <span>Skills</span>
+      </Link>
+
       <Link className="sb-settings-link" to="/prompts">
         <span>⌘</span>
         <span>Prompts</span>
