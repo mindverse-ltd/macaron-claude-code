@@ -10,6 +10,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  SavedCommand,
+  SavedCommandsResponse,
   DirEntry,
   DirListing,
   CreateShareResponse,
@@ -23,6 +25,9 @@ export type {
   ScheduleInput,
   SessionKind,
   SlashCommand,
+  GitStatus,
+  GitFileStatus,
+  GitBranches,
   ConfigFileId,
   ConfigFileFormat,
   ConfigFileMeta,
@@ -38,6 +43,8 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  SavedCommand,
+  SavedCommandsResponse,
   DirListing,
   CreateShareResponse,
   SharedSessionResponse,
@@ -48,6 +55,8 @@ import type {
   ScheduleInput,
   SchedulesResponse,
   CommandsResponse,
+  GitStatus,
+  GitBranches,
   ConfigFileId,
   ConfigFileMeta,
   ConfigFile,
@@ -100,6 +109,11 @@ export type ProviderInput = {
   apiKey?: string;
 };
 
+export type CommandInput = {
+  description?: string;
+  argumentHint?: string;
+  body: string;
+};
 export type McpTransport = 'stdio' | 'http' | 'sse';
 export type PublicMcpServer = {
   name: string;
@@ -165,6 +179,23 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
+    }),
+  savedCommands: () => getJSON<SavedCommandsResponse>('/api/commands'),
+  createCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ...input }),
+    }),
+  updateCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteCommand: (name: string) =>
+    req<{ ok: true }>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     }),
   mcpServers: () => getJSON<{ servers: PublicMcpServer[] }>('/api/mcp/servers'),
   addMcpServer: (input: McpServerInput) =>
@@ -296,6 +327,40 @@ export const api = {
     getJSON<SearchResponse>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(String(limit))}`,
     ),
+  gitStatus: (project: string) =>
+    getJSON<GitStatus>(`/api/git/${encodeURIComponent(project)}/status`),
+  gitDiff: (project: string, file: string, opts: { staged?: boolean; untracked?: boolean } = {}) => {
+    const q = new URLSearchParams({ file });
+    if (opts.staged) q.set('staged', '1');
+    if (opts.untracked) q.set('untracked', '1');
+    return getJSON<{ diff: string }>(`/api/git/${encodeURIComponent(project)}/diff?${q}`);
+  },
+  gitStage: (project: string, files: string[]) =>
+    req<{ ok: true }>(`/api/git/${encodeURIComponent(project)}/stage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    }),
+  gitUnstage: (project: string, files: string[]) =>
+    req<{ ok: true }>(`/api/git/${encodeURIComponent(project)}/unstage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    }),
+  gitCommit: (project: string, message: string, all: boolean) =>
+    req<{ ok: true; output: string }>(`/api/git/${encodeURIComponent(project)}/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, all }),
+    }),
+  gitBranches: (project: string) =>
+    getJSON<GitBranches>(`/api/git/${encodeURIComponent(project)}/branches`),
+  gitCheckout: (project: string, branch: string, create: boolean) =>
+    req<{ ok: true; output: string }>(`/api/git/${encodeURIComponent(project)}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, create }),
+    }),
   schedules: () => getJSON<SchedulesResponse>('/api/schedules'),
   createSchedule: (input: ScheduleInput) =>
     req<Schedule>('/api/schedules', {
