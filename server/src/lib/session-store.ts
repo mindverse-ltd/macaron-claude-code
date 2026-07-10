@@ -340,25 +340,6 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
   return summary;
 }
 
-// Resolve a claude project-dir name back to its working directory: prefer the
-// cwd embedded in any existing session's jsonl, else decode the encoded name
-// (which mirrors claude-cli's dir encoding). Same logic the new-session route
-// uses to pick a spawn cwd.
-async function cwdFromProjectSessions(project: string, files?: string[]): Promise<string | null> {
-  try {
-    const projDir = path.join(CLAUDE_PROJECTS, project);
-    const names = files ?? await fs.readdir(projDir);
-    for (const f of names) {
-      if (!f.endsWith('.jsonl')) continue;
-      const meta = await readSessionSummary(path.join(projDir, f));
-      if (meta?.cwd) return meta.cwd;
-    }
-  } catch {
-    /* no sessions yet */
-  }
-  return null;
-}
-
 // Directories never worth walking for an @-mention: build output, vendored
 // deps, caches. Mirrors fafawlf/claude-code-web's skip-list. Applied on top
 // of the repo's own `.gitignore` (loaded per root below).
@@ -411,15 +392,8 @@ async function walkFiles(root: string, dir: string, needle: string, out: string[
 // repo's root `.gitignore` excludes; bounded by depth, per-dir entry count, and
 // a hard result cap. Powers the composer's @-mention autocomplete.
 export async function searchProjectFiles(project: string, needle: string, limit: number): Promise<{ cwd: string; results: string[] }> {
-  const projDir = path.join(CLAUDE_PROJECTS, project);
-  let files: string[];
-  try {
-    files = await fs.readdir(projDir);
-  } catch {
-    throw new Error('project not found');
-  }
-  const cwd = await cwdFromProjectSessions(project, files);
-  if (!cwd) throw new Error('project has no sessions');
+  const cwd = await resolveProjectCwd(project);
+  if (!cwd) throw new Error('project not found');
   const results: string[] = [];
   const ig = await loadGitignore(cwd);
   await walkFiles(cwd, cwd, needle.toLowerCase(), results, Math.min(Math.max(limit, 1), 200), 0, ig);
