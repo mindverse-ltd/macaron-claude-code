@@ -5,11 +5,20 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { SessionDetail, Message, Block } from '@macaron/shared';
 import { codexApi } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
+import {
+  THINKING_VERBS,
+  SPINNER_FRAMES,
+  SPINNER_INTERVAL_MS,
+  thinkingTail,
+  formatDuration,
+} from '../lib/thinkingVerbs';
 
 // GenuiPreview + its vendored runtime (~500KB gzip) is behind a lazy
 // import so the default codex bundle stays small. First render_ui in a
@@ -245,8 +254,53 @@ function MessageRow({ it }: { it: Item }) {
             {it.images.map((img) => <img key={img.id} src={img.dataUrl} alt={img.name} />)}
           </div>
         )}
-        <div className="cx-msg-text">{it.text}</div>
+        {/* User text stays as pre-wrap plain text (WYSIWYG for what they typed);
+            assistant text renders as GitHub-flavored Markdown so headings,
+            lists, tables, inline code, and links come through. */}
+        {isUser ? (
+          <div className="cx-msg-text">{it.text}</div>
+        ) : (
+          <div className="cx-msg-text md">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{it.text}</ReactMarkdown>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Codex-side "thinking…" line — shown at the tail of the thread while a turn
+// is in flight and nothing streamable has landed yet (or the last live item
+// is a tool call still executing). Reuses the CLI-cloned spinner + verbs
+// so it matches the Claude thread's rhythm.
+function CxThinkingLine() {
+  const startRef = useRef(Date.now());
+  const verbRef = useRef<string>(THINKING_VERBS[Math.floor(Math.random() * THINKING_VERBS.length)]!);
+  const [now, setNow] = useState(() => Date.now());
+  const [frameIdx, setFrameIdx] = useState(0);
+  useEffect(() => {
+    const clockId = window.setInterval(() => setNow(Date.now()), 500);
+    const frameId = window.setInterval(
+      () => setFrameIdx((i) => (i + 1) % SPINNER_FRAMES.length),
+      SPINNER_INTERVAL_MS,
+    );
+    return () => { window.clearInterval(clockId); window.clearInterval(frameId); };
+  }, []);
+  const elapsedMs = Math.max(0, now - startRef.current);
+  const tail = thinkingTail(elapsedMs);
+  return (
+    <div className="cx-thinking">
+      <span className="cx-thinking-star">{SPINNER_FRAMES[frameIdx]}</span>
+      <span className="cx-thinking-verb">{verbRef.current}…</span>
+      <span className="cx-thinking-parens">(</span>
+      <span className="cx-thinking-meta">{formatDuration(elapsedMs)}</span>
+      {tail && (
+        <>
+          <span className="cx-thinking-sep">·</span>
+          <span className="cx-thinking-tail">{tail}</span>
+        </>
+      )}
+      <span className="cx-thinking-parens">)</span>
     </div>
   );
 }
@@ -493,6 +547,16 @@ export function CodexChat(props: CodexChatProps = {}) {
         ) : (
           <div className="cx-thread-body">
             {items.map((it) => <MessageRow key={it.id} it={it} />)}
+            {/* Show the thinking spinner at the tail of the thread while a
+                turn is in flight. Hide it once the last item is a live
+                assistant message that has actually started emitting text —
+                at that point the streaming text itself is the progress
+                signal, so a second one is noise. */}
+            {sending && (() => {
+              const last = items[items.length - 1];
+              const streamingText = last?.kind === 'assistant' && last.text.length > 0;
+              return streamingText ? null : <CxThinkingLine />;
+            })()}
             {error && (
               <div className="cx-tool err">
                 <div className="cx-tool-head">
