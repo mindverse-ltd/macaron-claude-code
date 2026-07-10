@@ -25,6 +25,9 @@ export const STT_LANGUAGE = process.env.MACARON_STT_LANGUAGE || '';
 
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
+// User-scoped saved prompts / custom slash commands. One `.md` per command,
+// invoked as `/<filename-stem>` in any session.
+export const CLAUDE_COMMANDS = path.join(HOME, '.claude', 'commands');
 export const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
 // Web root (repo's web/ dir). Same hop from compiled location in both dev (tsx src/) and prod (node dist/).

@@ -70,6 +70,20 @@ export type UsageSnapshot = {
   model?: string;
 };
 
+// Estimated split of the used context window by source. macaron only sees
+// the aggregate `usage` number from the jsonl (not Anthropic's SDK-internal
+// per-category counts), so we measure the visible transcript and treat the
+// fixed prompt overhead as the residual: system = total − everything measured.
+// `total` stays the exact usage sum, so only the internal split is an estimate.
+export type ContextBreakdown = {
+  system: number; // system prompt + tool defs + MCP + CLAUDE.md (residual, not itemizable)
+  messages: number; // user + assistant text
+  toolCalls: number; // tool_use inputs
+  toolResults: number; // tool_result content (file reads, command output)
+  thinking: number; // extended-thinking blocks
+  total: number; // matches the Context bar's usage sum
+};
+
 export type SessionDetail = {
   kind: SessionKind;
   sessionId: string;
@@ -80,10 +94,24 @@ export type SessionDetail = {
   truncated?: boolean;
   totalBytes?: number;
   latestUsage?: UsageSnapshot;
+  contextBreakdown?: ContextBreakdown;
   // Environment counters for the status bar. Both are best-effort: MCPs
   // read from ~/.claude/settings.json; CLAUDE.md walks known locations.
   claudeMdCount?: number;
   mcpCount?: number;
+};
+
+// A saved prompt / custom slash command — one `.md` file under
+// ~/.claude/commands/. `name` is the filename stem (invoked as `/name`);
+// `description` and `argumentHint` come from the YAML frontmatter; `body` is
+// the prompt template (may reference $ARGUMENTS / $1 / $2 …). Project-scoped
+// commands (.claude/commands/) are deferred to a follow-up.
+export type SavedCommand = {
+  name: string;
+  description: string;
+  argumentHint: string;
+  body: string;
+  mtime: number;
 };
 
 // A transcript-search match — one message whose text contains the query.
@@ -98,7 +126,6 @@ export type MessageSearchHit = {
   preview: string;
   mtime: number;
 };
-
 export type DirEntry = { name: string; path: string };
 export type DirListing = { path: string; parent: string | null; home: string; entries: DirEntry[] };
 // Web Push. `subscription` is the browser PushSubscription.toJSON() shape sent
@@ -195,6 +222,34 @@ export type SlashCommand = {
   namespace?: string;
 };
 
+// ---- Git panel ------------------------------------------------------------
+// Per-file entry from `git status --porcelain=v1`. `x`/`y` are the raw
+// index/worktree status codes (M, A, D, R, ?, …). A file can be both staged
+// and unstaged at once (edited after `git add`), so the two flags are
+// independent, not mutually exclusive.
+export type GitFileStatus = {
+  path: string;
+  x: string;
+  y: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  renamedFrom?: string;
+};
+
+export type GitStatus = {
+  isRepo: boolean;
+  branch: string;
+  detached: boolean;
+  hasCommits: boolean;
+  ahead: number;
+  behind: number;
+  upstream?: string;
+  files: GitFileStatus[];
+};
+
+export type GitBranches = { current: string; branches: string[] };
+
 // ---- File explorer -------------------------------------------------------
 // A single entry in a directory listing. `path` is relative to the project
 // cwd (root = ''), so the web tree can request children without knowing the
@@ -211,6 +266,7 @@ export type FileListResponse = { root: string; path: string; entries: FileEntry[
 export type FileReadResponse = { path: string; content: string; size: number };
 
 export type WorkspacesResponse = { workspaces: Workspace[] };
+export type SavedCommandsResponse = { commands: SavedCommand[] };
 export type MessageSearchResponse = { hits: MessageSearchHit[] };
 export type WorkspaceDetailResponse = { workspace: Workspace; sessions: SessionListItem[] };
 export type SchedulesResponse = { schedules: Schedule[] };
