@@ -101,6 +101,46 @@ export type SessionDetail = {
   mcpCount?: number;
 };
 
+// Cost & usage analytics. Rolled up from the same `message.usage` fields
+// session-store already reads, priced by the server's model rate table.
+// Token counts are summed across every assistant message in the window;
+// costUsd is the sum of per-message cost (input/output/cache-write/cache-read
+// each at their own rate). `known` on a per-model row is false when the model
+// string didn't match the rate table and a default estimate was used.
+export type UsageTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+  messageCount: number;
+  sessionCount: number;
+};
+export type UsageDaily = { date: string } & Omit<UsageTotals, 'sessionCount'>;
+export type UsageByModel = { model: string; known: boolean } & Omit<UsageTotals, 'sessionCount'>;
+export type UsageBySession = {
+  project: string;
+  sessionId: string;
+  preview: string;
+  model: string;
+  lastActivity: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  messageCount: number;
+};
+export type AnalyticsResponse = {
+  window: string;
+  since: number;
+  until: number;
+  totals: UsageTotals;
+  daily: UsageDaily[];
+  byModel: UsageByModel[];
+  bySession: UsageBySession[];
+};
+
 // A saved prompt / custom slash command — one `.md` file under
 // ~/.claude/commands/. `name` is the filename stem (invoked as `/name`);
 // `description` and `argumentHint` come from the YAML frontmatter; `body` is

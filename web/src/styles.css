@@ -3746,6 +3746,88 @@ textarea:focus, select:focus, input:focus {
   font-weight: 500;
 }
 
+/* ---------- usage / analytics ---------- */
+.usage-pills { display: flex; gap: 6px; margin-bottom: 24px; }
+.usage-pill {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.usage-pill:hover { border-color: var(--accent); color: var(--text); }
+.usage-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.stat-label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.stat-value { font-family: var(--font-serif); font-size: 26px; color: var(--text); margin-top: 6px; line-height: 1.1; }
+.stat-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+.usage-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px 20px;
+  margin-bottom: 20px;
+}
+.usage-panel .sec-title { margin: 0 0 14px; }
+.usage-chart { height: 240px; }
+.usage-note { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
+.usage-est {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--warn);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.usage-table-wrap { overflow-x: auto; }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.usage-table th {
+  text-align: right;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-strong);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.usage-table th:hover { color: var(--text); }
+.usage-table th.ut-left, .usage-table td.ut-left { text-align: left; }
+.usage-table td {
+  text-align: right;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.usage-table tbody tr:hover { background: var(--surface-2); }
+.ut-preview { max-width: 320px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.ut-mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.ut-cost { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 500; }
+.ut-ago { color: var(--muted); }
+
+@media (max-width: 720px) {
+  .usage-tiles { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* Command palette (Cmd-K) — overlay convention mirrors .confirm-backdrop,
    but top-anchored like a spotlight search rather than centered. */
 .cmdk-backdrop {

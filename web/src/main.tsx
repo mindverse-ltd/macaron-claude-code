@@ -35,6 +35,7 @@ import { Dashboard } from './views/Dashboard';
 import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
+import { Analytics } from './views/Analytics';
 import { Prompts } from './views/Prompts';
 import { ShareView } from './views/ShareView';
 import { Hooks } from './views/Hooks';
@@ -89,6 +90,7 @@ const router = createHashRouter([
     element: <App />,
     children: [
       { index: true, element: <Dashboard /> },
+      { path: 'usage', element: <Analytics /> },
       { path: 'prompts', element: <Prompts /> },
       { path: 'settings', element: <Settings /> },
       { path: 'hooks', element: <Hooks /> },

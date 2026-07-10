@@ -10,6 +10,8 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  AnalyticsResponse,
+  UsageBySession,
   PrContext,
   CreatePrRequest,
   CreatePrResult,
@@ -50,6 +52,7 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  AnalyticsResponse,
   PrContext,
   CreatePrRequest,
   CreatePrResult,
@@ -163,6 +166,8 @@ async function req<T>(url: string, init: RequestInit): Promise<T> {
 
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
+  analytics: (window: string) =>
+    getJSON<AnalyticsResponse>(`/api/analytics?window=${encodeURIComponent(window)}`),
   settings: () => getJSON<PublicSettings>('/api/settings'),
   usage: () => getJSON<UsageResponse>('/api/usage'),
 
