@@ -1,18 +1,18 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { CLAUDE_PROJECTS } from '../config.js';
 import {
-  decodeClaudeProjectName,
+  basename,
   groupWorkspaces,
   listAllSessions,
-  readSessionSummary,
+  resolveProjectCwd,
+  searchProjectFiles,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
 import { registerRun, endRun } from '../lib/active-runs.js';
 import { getActiveProviderEnv, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
+import { lookupProjectCwd } from '../lib/project-registry.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 import { createWorktree, bindWorktree, cleanupPendingWorktree, type PendingWorktree } from '../lib/worktree-store.js';
 
@@ -26,7 +26,23 @@ type NewSessionBody = {
   // repo's current HEAD, so it doesn't share the working tree with siblings.
   // Silently no-ops if the derived cwd isn't a git work tree.
   isolate?: boolean;
+  // Absolute directory to start the session in. Set by the directory picker
+  // for brand-new workspaces; when present it wins over deriving cwd from the
+  // (lossy) project name, so a session can begin in any folder on disk.
+  cwd?: string;
 };
+
+function firstQuery(v: unknown): string | undefined {
+  if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
+  return typeof v === 'string' ? v : undefined;
+}
+
+function numberQuery(v: unknown, fallback: number): number {
+  const raw = firstQuery(v);
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/workspaces', async () => {
@@ -37,11 +53,15 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
   app.get<{ Params: Params }>('/api/workspaces/:project', async ({ params }) => {
     const sessions = await listAllSessions();
     const mine = sessions.filter((s) => s.project === params.project);
+    // A just-created project has no sessions yet — fall back to the cwd the
+    // wizard registered so the canvas header shows the real path + name
+    // instead of the lossy-encoded project slug.
+    const freshCwd = (await lookupProjectCwd(params.project)) || '';
     const meta =
       groupWorkspaces(mine)[0] || {
         project: params.project,
-        cwd: '',
-        name: params.project,
+        cwd: freshCwd,
+        name: basename(freshCwd) || params.project,
         sessionCount: 0,
         lastActivity: 0,
         lastSessionId: '',
@@ -49,6 +69,20 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       };
     return { workspace: meta, sessions: mine };
   });
+
+  // Fuzzy-ish file search under the project's cwd for the composer's @-mention
+  // autocomplete. Substring match on repo-relative paths; capped + skip-listed.
+  app.get<{ Params: Params; Querystring: { q?: string; limit?: string } }>(
+    '/api/workspaces/:project/files',
+    async (req, reply) => {
+      try {
+        const limit = numberQuery(req.query?.limit, 50);
+        return await searchProjectFiles(req.params.project, firstQuery(req.query?.q) ?? '', limit);
+      } catch (e) {
+        return reply.status(400).send({ error: (e as Error).message });
+      }
+    },
+  );
 
   app.post<{ Params: Params; Body: NewSessionBody }>(
     '/api/workspaces/:project/sessions',
@@ -64,22 +98,21 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // The `model` body field is currently ignored — provider is global.
       const { model, env: providerEnv } = getActiveProviderEnv();
 
-      // Derive cwd from any existing session in this project, else decode the
-      // project name (which mirrors claude-cli's encoding).
-      let cwd = decodeClaudeProjectName(project);
-      try {
-        const projDir = path.join(CLAUDE_PROJECTS, project);
-        const files = await fs.readdir(projDir);
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const meta = await readSessionSummary(path.join(projDir, f));
-          if (meta?.cwd) {
-            cwd = meta.cwd;
-            break;
-          }
+      // The directory picker supplies an explicit cwd for brand-new projects.
+      // Otherwise prefer a live session, then the trusted New-Project registry;
+      // an arbitrary route param must never decode into a filesystem root.
+      const explicitCwd = String(req.body?.cwd || '').trim();
+      let cwd: string;
+      if (explicitCwd) {
+        cwd = explicitCwd;
+      } else {
+        const registeredCwd = await lookupProjectCwd(project);
+        const resolvedCwd =
+          (await resolveProjectCwd(project, registeredCwd)) || registeredCwd;
+        if (!resolvedCwd) {
+          return reply.status(404).send({ error: 'unknown project' });
         }
-      } catch {
-        /* no sessions yet — fall back to decoded name */
+        cwd = resolvedCwd;
       }
 
       try {

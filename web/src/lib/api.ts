@@ -10,12 +10,35 @@ export type {
   WorkspacesResponse,
   WorkspaceDetailResponse,
   HealthResponse,
+  AnalyticsResponse,
+  UsageBySession,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
+  FileSearchResponse,
+  SavedCommand,
+  SavedCommandsResponse,
+  DirEntry,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
+  HooksResponse,
+  HookHandlerView,
+  HookScope,
+  SkillInfo,
+  SkillDetail,
+  Schedule,
+  ScheduleInput,
+  SessionKind,
   SlashCommand,
+  AgentFile,
+  SubagentInfo,
+  GitStatus,
+  GitFileStatus,
+  GitBranches,
   ConfigFileId,
   ConfigFileFormat,
   ConfigFileMeta,
@@ -31,11 +54,29 @@ import type {
   SessionDetail,
   MessageSearchResponse,
   HealthResponse,
+  AnalyticsResponse,
+  PrContext,
+  CreatePrRequest,
+  CreatePrResult,
+  FileSearchResponse,
+  SavedCommand,
+  SavedCommandsResponse,
+  DirListing,
   CreateShareResponse,
   SharedSessionResponse,
   WorktreeInfo,
   UsageResponse,
+  HooksResponse,
+  SkillInfo,
+  SkillDetail,
+  Schedule,
+  ScheduleInput,
+  SchedulesResponse,
   CommandsResponse,
+  AgentsResponse,
+  SubagentsResponse,
+  GitStatus,
+  GitBranches,
   ConfigFileId,
   ConfigFileMeta,
   ConfigFile,
@@ -44,9 +85,26 @@ import type {
 } from '@macaron/shared';
 import { authedFetch } from './auth';
 
+// Thrown by every non-2xx response. Carries the status so callers can branch on
+// it (e.g. worktree discard's 409 → confirm-dirty prompt) instead of grepping
+// the message string.
+export class HttpError extends Error {
+  constructor(readonly status: number, body: string) {
+    let message = '';
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === 'string') message = parsed.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    super(message || (body ? `http ${status}: ${body.slice(0, 200)}` : `http ${status}`));
+    this.name = 'HttpError';
+  }
+}
+
 export async function getJSON<T>(url: string): Promise<T> {
   const r = await authedFetch(url);
-  if (!r.ok) throw new Error(`http ${r.status}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
@@ -78,6 +136,19 @@ export type ProviderInput = {
   apiKey?: string;
 };
 
+export type AgentInput = {
+  name: string;
+  description: string;
+  tools: string[];
+  model: string;
+  prompt: string;
+};
+
+export type CommandInput = {
+  description?: string;
+  argumentHint?: string;
+  body: string;
+};
 export type McpTransport = 'stdio' | 'http' | 'sse';
 export type PublicMcpServer = {
   name: string;
@@ -101,12 +172,14 @@ export type McpServerInput = {
 
 async function req<T>(url: string, init: RequestInit): Promise<T> {
   const r = await authedFetch(url, init);
-  if (!r.ok) throw new Error(`http ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new HttpError(r.status, await r.text().catch(() => ''));
   return r.json() as Promise<T>;
 }
 
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
+  analytics: (window: string) =>
+    getJSON<AnalyticsResponse>(`/api/analytics?window=${encodeURIComponent(window)}`),
   settings: () => getJSON<PublicSettings>('/api/settings'),
   usage: () => getJSON<UsageResponse>('/api/usage'),
 
@@ -144,6 +217,37 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }),
+  skills: () => getJSON<{ skills: SkillInfo[] }>('/api/skills'),
+  skill: (dir: string) => getJSON<SkillDetail>(`/api/skills/${encodeURIComponent(dir)}`),
+  setSkillEnabled: (dir: string, enabled: boolean) =>
+    req<{ skills: SkillInfo[] }>(`/api/skills/${encodeURIComponent(dir)}/enabled`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  createSkill: (input: { name: string; description: string; body?: string }) =>
+    req<{ dir: string; skills: SkillInfo[] }>('/api/skills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  savedCommands: () => getJSON<SavedCommandsResponse>('/api/commands'),
+  createCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ...input }),
+    }),
+  updateCommand: (name: string, input: CommandInput) =>
+    req<SavedCommand>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  deleteCommand: (name: string) =>
+    req<{ ok: true }>(`/api/commands/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
   mcpServers: () => getJSON<{ servers: PublicMcpServer[] }>('/api/mcp/servers'),
   addMcpServer: (input: McpServerInput) =>
     req<{ servers: PublicMcpServer[] }>('/api/mcp/servers', {
@@ -178,12 +282,30 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
+  createProject: (input: { name?: string; gitUrl?: string }) =>
+    req<{ project: string; cwd: string; name: string }>('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   searchMessages: (q: string, limit = 30) =>
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+  listDirs: (path?: string) =>
+    getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
+  // Read-only hooks view. Pass an encoded project to include that workspace's
+  // project + local settings.json; omit it for user-scope hooks only.
+  hooks: (project?: string) =>
+    getJSON<HooksResponse>(
+      project ? `/api/hooks?project=${encodeURIComponent(project)}` : '/api/hooks',
+    ),
+  searchFiles: (project: string, q: string, limit = 50) =>
+    getJSON<FileSearchResponse>(
+      `/api/workspaces/${encodeURIComponent(project)}/files?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   session: (project: string, sid: string) =>
     getJSON<SessionDetail>(
       `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}`,
@@ -254,6 +376,23 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
       },
     ),
+  prContext: (project: string, sid: string) =>
+    // Use `req` (not `getJSON`) so the server's descriptive error body
+    // ("not a git repository", etc.) reaches the toast instead of a bare
+    // `http 400`, matching the createPr path.
+    req<PrContext>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr-context`,
+      { method: 'GET' },
+    ),
+  createPr: (project: string, sid: string, input: CreatePrRequest) =>
+    req<CreatePrResult>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/pr`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    ),
   createShare: (project: string, sid: string) =>
     req<CreateShareResponse>('/api/share', {
       method: 'POST',
@@ -268,11 +407,96 @@ export const api = {
     }),
   sharedSession: (token: string) =>
     getJSON<SharedSessionResponse>(`/api/public/share/${encodeURIComponent(token)}`),
+  gitStatus: (project: string) =>
+    getJSON<GitStatus>(`/api/git/${encodeURIComponent(project)}/status`),
+  gitDiff: (project: string, file: string, opts: { staged?: boolean; untracked?: boolean } = {}) => {
+    const q = new URLSearchParams({ file });
+    if (opts.staged) q.set('staged', '1');
+    if (opts.untracked) q.set('untracked', '1');
+    return getJSON<{ diff: string }>(`/api/git/${encodeURIComponent(project)}/diff?${q}`);
+  },
+  gitStage: (project: string, files: string[]) =>
+    req<{ ok: true }>(`/api/git/${encodeURIComponent(project)}/stage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    }),
+  gitUnstage: (project: string, files: string[]) =>
+    req<{ ok: true }>(`/api/git/${encodeURIComponent(project)}/unstage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    }),
+  gitCommit: (project: string, message: string, all: boolean) =>
+    req<{ ok: true; output: string }>(`/api/git/${encodeURIComponent(project)}/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, all }),
+    }),
+  gitBranches: (project: string) =>
+    getJSON<GitBranches>(`/api/git/${encodeURIComponent(project)}/branches`),
+  gitCheckout: (project: string, branch: string, create: boolean) =>
+    req<{ ok: true; output: string }>(`/api/git/${encodeURIComponent(project)}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, create }),
+    }),
+  schedules: () => getJSON<SchedulesResponse>('/api/schedules'),
+  createSchedule: (input: ScheduleInput) =>
+    req<Schedule>('/api/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateSchedule: (id: string, patch: Partial<ScheduleInput>) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteSchedule: async (id: string): Promise<void> => {
+    const r = await authedFetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`http ${r.status}`);
+  },
+  pauseSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  resumeSchedule: (id: string) =>
+    req<Schedule>(`/api/schedules/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  runScheduleNow: (id: string) =>
+    req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}/run-now`, { method: 'POST' }),
   worktrees: () => getJSON<{ worktrees: WorktreeInfo[] }>('/api/worktrees'),
   mergeWorktree: (sid: string) =>
     req<{ ok: true; merged: true }>(`/api/worktrees/${encodeURIComponent(sid)}/merge`, { method: 'POST' }),
   discardWorktree: (sid: string, force = false) =>
     req<{ ok: true }>(`/api/worktrees/${encodeURIComponent(sid)}/discard${force ? '?force=1' : ''}`, { method: 'POST' }),
+
+  // Custom subagents (~/.claude/agents/*.md). Mutations return the full list
+  // so the caller replaces state in one shot, matching the provider CRUD.
+  agents: () => getJSON<AgentsResponse>('/api/agents'),
+  createAgent: (input: AgentInput) =>
+    req<AgentsResponse>('/api/agents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  updateAgent: (name: string, patch: Partial<Omit<AgentInput, 'name'>>) =>
+    req<AgentsResponse>(`/api/agents/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  deleteAgent: (name: string) =>
+    req<AgentsResponse>(`/api/agents/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Subagent child sessions spawned from a transcript.
+  subagents: (project: string, sid: string) =>
+    getJSON<SubagentsResponse>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/subagents`,
+    ),
+  subagent: (project: string, sid: string, agentId: string) =>
+    getJSON<SessionDetail>(
+      `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/subagents/${encodeURIComponent(agentId)}`,
+    ),
   listFiles: (project: string, path = '') =>
     getJSON<FileListResponse>(
       `/api/files/${encodeURIComponent(project)}/list?path=${encodeURIComponent(path)}`,

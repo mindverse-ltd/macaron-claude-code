@@ -1,7 +1,23 @@
 import type { FastifyReply } from 'fastify';
 import { spawn, type IPty } from 'node-pty';
+import { existsSync, chmodSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { TerminalStreamEvent } from '@macaron/shared';
 import { sseSend } from './sse.js';
+
+// node-pty 1.1.0 ships its prebuilt `spawn-helper` (the binary it
+// posix_spawnp's to fork a PTY) with mode 0644 in the npm tarball
+// (microsoft/node-pty#850, fixed only in 1.2.0-beta). Without the exec bit
+// every spawn throws `posix_spawnp failed.` and terminals stay blank. pnpm's
+// content-addressable store preserves the broken mode and, by default, skips
+// install scripts — so a postinstall chmod wouldn't run. Self-heal at import
+// time instead: resolve the helper next to the native binding and chmod 0755.
+try {
+  const ptyJs = fileURLToPath(import.meta.resolve('node-pty'));
+  const helper = join(dirname(ptyJs), '..', 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper');
+  if (existsSync(helper)) chmodSync(helper, 0o755);
+} catch { /* non-darwin or layout shifted — node-pty build/ path needs no fix */ }
 
 // Per-terminal registry of real PTYs. Mirrors live-registry.ts: one PTY per
 // `tid`, multiplexed to any number of SSE subscribers, with a capped

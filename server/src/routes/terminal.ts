@@ -1,29 +1,17 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { CLAUDE_PROJECTS } from '../config.js';
-import { decodeClaudeProjectName, readSessionSummary } from '../lib/session-store.js';
+import { decodeClaudeProjectName, resolveProjectCwd } from '../lib/session-store.js';
 import { startSSE } from '../lib/sse.js';
 import { getOrCreatePty, ptySubscribe, ptyInput, ptyResize, killPty } from '../lib/pty-registry.js';
 
 type Params = { project: string; tid: string };
 
-// Resolve a workspace cwd from its encoded project name the same way
-// workspaces.ts does: prefer the cwd embedded in an existing session's jsonl,
-// else the decoded project name (which mirrors claude-cli's encoding).
+// Resolve a workspace cwd from its encoded project name. resolveProjectCwd
+// already scans session jsonls for a live cwd (skipping stale worktree paths)
+// and returns null for an unregistered project — fall back to the decoded name
+// in that case so the stat check below 400s with a useful message instead.
 async function resolveCwd(project: string): Promise<string> {
-  let cwd = decodeClaudeProjectName(project);
-  try {
-    const projDir = path.join(CLAUDE_PROJECTS, project);
-    for (const f of await fs.readdir(projDir)) {
-      if (!f.endsWith('.jsonl')) continue;
-      const meta = await readSessionSummary(path.join(projDir, f));
-      if (meta?.cwd) { cwd = meta.cwd; break; }
-    }
-  } catch {
-    /* no sessions yet — fall back to decoded name */
-  }
-  return cwd;
+  return (await resolveProjectCwd(project)) ?? decodeClaudeProjectName(project);
 }
 
 export async function registerTerminalRoutes(app: FastifyInstance): Promise<void> {
