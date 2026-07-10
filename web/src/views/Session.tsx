@@ -1846,6 +1846,77 @@ export function Session(props: SessionProps = {}) {
     [project, sid, input, sending, load, images, permissionMode, isolate, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
   );
 
+  // Enqueue a message typed while a turn is running. macaron's runner is
+  // single-shot (no stdin into the live turn), so we hold it client-side and
+  // auto-send it once the turn finishes.
+  const enqueue = useCallback((text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    setQueue((q) => [...q, { id: queueId(), text: t }]);
+  }, []);
+
+  // The composer's submit path: while a turn runs, Enter/Send queues the text
+  // instead of being blocked; when idle it sends immediately. Images ride the
+  // immediate path only (first increment), so they stay attached while busy.
+  const submitComposer = useCallback(() => {
+    const text = input.trim();
+    if (!text && images.length === 0) return;
+    if (sending) {
+      if (!text) return; // nothing queueable (images can't be queued yet)
+      enqueue(text);
+      setInput('');
+      setHistoryIdx(null);
+      draftInputRef.current = '';
+      return;
+    }
+    void send();
+  }, [input, images, sending, enqueue, send]);
+
+  // Send now: interrupt the running turn and send this message next. macaron's
+  // only interrupt primitive is /stop (abort the subprocess), so we push the
+  // text to the FRONT of the queue and stop — the idle-edge dequeue effect
+  // below then sends it first. Graceful mid-tool steer would need the SDK's
+  // streaming-input mode, which the single-shot runner doesn't use (follow-up).
+  const handleSendNow = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setQueue((q) => [{ id: queueId('q-now'), text }, ...q]);
+    setInput('');
+    setHistoryIdx(null);
+    draftInputRef.current = '';
+    void handleStop();
+  }, [input, handleStop]);
+
+  const removeQueued = useCallback((id: string) => {
+    setQueue((q) => q.filter((m) => m.id !== id));
+  }, []);
+
+  const moveQueued = useCallback((id: string, dir: -1 | 1) => {
+    setQueue((q) => {
+      const i = q.findIndex((m) => m.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= q.length) return q;
+      const next = [...q];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
+  }, []);
+
+  // Edit a queued message: pull it back into the composer (removing it from
+  // the queue). If the composer already holds a draft, keep that safe by
+  // prepending it back onto the queue front.
+  const editQueued = useCallback((id: string) => {
+    setQueue((q) => {
+      const target = q.find((m) => m.id === id);
+      if (!target) return q;
+      const rest = q.filter((m) => m.id !== id);
+      const draft = input.trim();
+      setInput(target.text);
+      if (draft) return [{ id: queueId('q-draft'), text: draft }, ...rest];
+      return rest;
+    });
+  }, [input]);
+
   // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
   // next queued message. Edge-guarded so exactly one message goes per turn —
   // send() flips `sending` back to true synchronously, re-arming the guard.
@@ -2311,6 +2382,7 @@ export function Session(props: SessionProps = {}) {
         sending={sending}
         currentTodo={currentTodo}
         latestUsage={data?.latestUsage}
+        contextBreakdown={data?.contextBreakdown}
         claudeMdCount={data?.claudeMdCount}
         mcpCount={data?.mcpCount}
       />

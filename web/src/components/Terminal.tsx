@@ -8,22 +8,44 @@ import {
   sendTerminalInput,
   sendTerminalResize,
 } from '../lib/terminal';
+import { useTheme, type ResolvedTheme } from '../lib/theme';
 
-// Light "paper" theme matching the app's CSS variables (see styles.css :root).
-const THEME = {
-  background: '#F5F4ED', // --surface-2
-  foreground: '#3D3929', // --text
-  cursor: '#C96442', // --accent
-  cursorAccent: '#F5F4ED',
-  selectionBackground: 'rgba(201, 100, 66, 0.22)',
-  black: '#3D3929', brightBlack: '#8A8473',
-  red: '#C0524A', brightRed: '#C0524A',
-  green: '#5A8B5A', brightGreen: '#5A8B5A',
-  yellow: '#B88A3A', brightYellow: '#B88A3A',
-  blue: '#4A6FA5', brightBlue: '#4A6FA5',
-  magenta: '#9A5BA5', brightMagenta: '#9A5BA5',
-  cyan: '#3F8A8A', brightCyan: '#3F8A8A',
-  white: '#5D584A', brightWhite: '#3D3929',
+// Terminal palette per resolved theme. xterm's `theme` is a plain JS object
+// (not a CSS custom property), so it can't follow [data-theme] automatically —
+// pick from these concrete values keyed on `resolved`. Colors mirror the
+// light/dark tokens in styles.css (surface-2 / text / accent / good / warn /
+// bad) so the terminal blends with the surrounding UI in both modes.
+const THEMES: Record<ResolvedTheme, Record<string, string>> = {
+  light: {
+    background: '#F5F4ED',
+    foreground: '#3D3929',
+    cursor: '#C96442',
+    cursorAccent: '#F5F4ED',
+    selectionBackground: 'rgba(201, 100, 66, 0.22)',
+    black: '#3D3929', brightBlack: '#8A8473',
+    red: '#C0524A', brightRed: '#C0524A',
+    green: '#5A8B5A', brightGreen: '#5A8B5A',
+    yellow: '#B88A3A', brightYellow: '#B88A3A',
+    blue: '#4A6FA5', brightBlue: '#4A6FA5',
+    magenta: '#9A5BA5', brightMagenta: '#9A5BA5',
+    cyan: '#3F8A8A', brightCyan: '#3F8A8A',
+    white: '#5D584A', brightWhite: '#3D3929',
+  },
+  dark: {
+    background: '#2C2B26',
+    foreground: '#EDEAE0',
+    cursor: '#E08159',
+    cursorAccent: '#2C2B26',
+    selectionBackground: 'rgba(224, 129, 89, 0.24)',
+    black: '#1F1E1B', brightBlack: '#6E6A5C',
+    red: '#E0736B', brightRed: '#E0736B',
+    green: '#7FB279', brightGreen: '#7FB279',
+    yellow: '#D4A857', brightYellow: '#D4A857',
+    blue: '#6A93C4', brightBlue: '#6A93C4',
+    magenta: '#B47BB4', brightMagenta: '#B47BB4',
+    cyan: '#5AA4A4', brightCyan: '#5AA4A4',
+    white: '#C9C4B5', brightWhite: '#EDEAE0',
+  },
 };
 
 // xterm measures text with OffscreenCanvas in modern browsers; canvas font
@@ -46,6 +68,19 @@ export function Terminal({ project, sid, focused }: { project: string; sid: stri
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const { resolved } = useTheme();
+  // Mirror `resolved` into a ref so the mount effect (which only depends on
+  // project/sid — rebuilding the term on every theme flip would drop the
+  // scrollback + reconnect the PTY) reads the latest theme at create time.
+  const resolvedRef = useRef(resolved);
+  resolvedRef.current = resolved;
+
+  // Hot-swap the palette on a live term without remounting. The term is created
+  // async (after the font loads), so guard — a flip during that window is
+  // already baked into the create-time theme via resolvedRef.
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = THEMES[resolved];
+  }, [resolved]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -64,7 +99,7 @@ export function Terminal({ project, sid, focused }: { project: string; sid: stri
       term = new XTerm({
         fontFamily: TERMINAL_FONT,
         fontSize: TERMINAL_FONT_SIZE,
-        theme: THEME,
+        theme: THEMES[resolvedRef.current],
         cursorBlink: true,
         scrollback: 5000,
         convertEol: false,
