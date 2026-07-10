@@ -5,17 +5,19 @@
 // hardcoded and forced — one prompt, no off switch. This is the *configurable*
 // version: opt-in per session, editable prompt, and real stop conditions.
 //
-// It lives entirely server-side and drives the same `runCodex` generator a user
-// turn uses — no app-server, no steer method. After any turn completes and the
-// session is idle (active-runs has no controller for the sid), a timer fires the
-// next iteration with the persisted loop prompt. Because it's detached from the
-// POST request that started it, the loop keeps going after the browser closes;
-// an open thread view re-attaches via `subscribeLoop` to watch it live.
+// It lives entirely server-side and drives the same configured transport a user
+// turn uses. After any turn completes and the session is idle (active-runs has
+// no controller for the sid), a timer fires the next iteration with the
+// persisted loop prompt. Because it's detached from the POST request that
+// started it, the loop keeps going after the browser closes; an open thread view
+// re-attaches via `subscribeLoop` to watch it live.
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 import { HOME } from '../config.js';
-import { runCodex } from './codex-runner.js';
+import type { RunnerEvent } from './claude-runner.js';
+import { runCodexTurn } from './codex-transport.js';
 import { registerRun, endRun, abortRun, isRunActive } from './active-runs.js';
 
 export type CodexLoopConfig = {
@@ -47,12 +49,34 @@ export type CodexLoopStreamEvent =
   | { type: 'loop_status'; snapshot: CodexLoopSnapshot }
   | { type: 'meta'; sessionId: string; cwd?: string }
   | { type: 'delta'; text: string }
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; subtype: string }
+  | { type: 'codex_plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
+  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { type: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number };
+
+export function mapLoopRunnerEvent(ev: RunnerEvent): CodexLoopStreamEvent | null {
+  switch (ev.kind) {
+    case 'session': return { type: 'meta', sessionId: ev.sessionId };
+    case 'delta': return { type: 'delta', text: ev.text };
+    case 'reasoning': return { type: 'reasoning', text: ev.text };
+    case 'tool_use': return { type: 'tool_use', id: ev.id, name: ev.name, input: ev.input };
+    case 'tool_result': return { type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError };
+    case 'usage': return { type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens };
+    case 'message': return { type: 'event', subtype: ev.subtype };
+    case 'codex_plan': return { type: 'codex_plan', steps: ev.steps, explanation: ev.explanation };
+    case 'codex_approval_request': return { type: 'codex_approval_request', id: ev.id, kind: ev.approval, command: ev.command, cwd: ev.cwd, reason: ev.reason, fileChanges: ev.fileChanges, grantRoot: ev.grantRoot, network: ev.network, available: ev.available };
+    case 'codex_approval_resolved': return { type: 'codex_approval_resolved', id: ev.id, decision: ev.decision };
+    case 'error': return { type: 'error', error: ev.error };
+    case 'done': return { type: 'done', exitCode: ev.exitCode };
+    default: return null;
+  }
+}
 
 // Delay between a turn completing and the next iteration firing. Small, but
 // enough to let active-runs clear and give the user a window to interject.
@@ -222,24 +246,13 @@ async function driveIteration(sid: string): Promise<void> {
   const ac = new AbortController();
   registerRun(sid, ac); // counts as busy + lets the /stop route abort the loop
   let agentText = '';
-  // The runner emits reasoning and the final reply as the same {kind:'delta'};
-  // a reasoning delta is always immediately preceded by a `codex_reasoning`
-  // marker. Only the reply feeds sentinel matching, else the model's own
-  // "reply with COMPLETE" reasoning would stop the loop on iteration 1.
-  let reasoningNext = false;
   let failed = false;
   try {
-    for await (const ev of runCodex({ prompt: rt.config.prompt, cwd: rt.cwd, resume: sid, abortController: ac })) {
-      switch (ev.kind) {
-        case 'session': emit(rt, { type: 'meta', sessionId: ev.sessionId }); break;
-        case 'delta': if (!reasoningNext) agentText += ev.text; reasoningNext = false; emit(rt, { type: 'delta', text: ev.text }); break;
-        case 'tool_use': emit(rt, { type: 'tool_use', id: ev.id, name: ev.name, input: ev.input }); break;
-        case 'tool_result': emit(rt, { type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError }); break;
-        case 'usage': emit(rt, { type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens }); break;
-        case 'message': if (ev.subtype === 'codex_reasoning') reasoningNext = true; emit(rt, { type: 'event', subtype: ev.subtype }); break;
-        case 'error': failed = true; emit(rt, { type: 'error', error: ev.error }); break;
-        case 'done': emit(rt, { type: 'done', exitCode: ev.exitCode }); break;
-      }
+    for await (const ev of runCodexTurn({ prompt: rt.config.prompt, cwd: rt.cwd, resume: sid, abortController: ac })) {
+      if (ev.kind === 'delta') agentText += ev.text;
+      if (ev.kind === 'error') failed = true;
+      const streamed = mapLoopRunnerEvent(ev);
+      if (streamed) emit(rt, streamed);
     }
   } catch (e) {
     failed = true;

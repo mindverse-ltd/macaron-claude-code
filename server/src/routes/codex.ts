@@ -19,7 +19,7 @@ import {
 } from '../lib/codex-store.js';
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
-import { runCodexAppServer } from '../lib/codex-app-server.js';
+import { runCodexTurn } from '../lib/codex-transport.js';
 import { respondCodexApproval } from '../lib/active-approvals.js';
 import type { CodexDecision } from '@macaron/shared';
 import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
@@ -75,13 +75,6 @@ function pickRuntimeOverride(b: { runtime?: CodexRuntimeOverride } | undefined):
 }
 
 export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
-  // Transport selector. The app-server JSON-RPC bridge (MAC-8129) is the
-  // default — it's the only one that can stream native plan updates and pause
-  // for interactive approvals. Set MACARON_CODEX_TRANSPORT=sdk to fall back to
-  // the one-shot `codex exec` SDK path (no plan/approval surface).
-  const useAppServer = process.env.MACARON_CODEX_TRANSPORT !== 'sdk';
-  const runCodexTurn: typeof runCodex = (opts) => (useAppServer ? runCodexAppServer(opts) : runCodex(opts));
-
   // --- Threads -----------------------------------------------------------
 
   app.get('/api/codex/threads', async () => {

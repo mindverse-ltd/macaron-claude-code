@@ -591,8 +591,12 @@ export function CodexChat(props: CodexChatProps = {}) {
         if (snap.status === 'running' && !sendingRef.current) loopStreaming = true;
       },
       onDelta: (t) => { if (!sendingRef.current) appendAssistantDelta(t); },
+      onReasoning: (t) => { if (!sendingRef.current) appendReasoning(t); },
       onToolUse: (ev) => { if (!sendingRef.current) appendTool(ev.id, ev.name, ev.input); },
       onToolResult: (ev) => { if (!sendingRef.current) applyToolResult(ev.tool_use_id, ev.text, ev.isError); },
+      onCodexPlan: (ev) => { if (!sendingRef.current) applyPlan(ev); },
+      onCodexApproval: (ev) => { if (!sendingRef.current) applyApproval(ev); },
+      onCodexApprovalResolved: (ev) => { if (!sendingRef.current) applyApprovalResolved(ev); },
       onError: (m) => { if (!sendingRef.current) setError(m); },
       onDone: () => {
         if (loopStreaming) {
