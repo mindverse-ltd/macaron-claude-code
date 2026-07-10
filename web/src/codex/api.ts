@@ -4,6 +4,7 @@ import type {
   SessionListItem,
   SessionDetail,
   Workspace,
+  CodexDecision,
 } from '@macaron/shared';
 import { authedFetch } from '../lib/auth';
 
@@ -78,6 +79,12 @@ export const codexApi = {
       `/api/codex/threads/${encodeURIComponent(sid)}/stop`,
       { method: 'POST' },
     ),
+  approve: (sid: string, id: string, decision: CodexDecision) =>
+    reqJSON<{ ok: boolean }>(`/api/codex/threads/${encodeURIComponent(sid)}/approval`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, decision }),
+    }),
   config: () => getJSON<PublicCodexSettings>('/api/codex/config'),
   setActive: (providerId: string) =>
     reqJSON<PublicCodexSettings>('/api/codex/config/active', {

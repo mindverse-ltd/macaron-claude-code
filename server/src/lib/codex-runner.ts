@@ -73,6 +73,10 @@ const { command: MACARON_MCP_CMD, args: MACARON_MCP_ARGS } = (() => {
   return { command: 'tsx', args: [tsPath] };
 })();
 
+// Re-exported for the app-server runner (codex-app-server.ts), which injects
+// the same Macaron stdio MCP into its thread/start config.
+export { MACARON_MCP_CMD, MACARON_MCP_ARGS };
+
 // @openai/codex-sdk ships the `codex` binary via optional deps; if it's not
 // present the SDK throws at construction time. Fall back to the user's
 // system `codex` (installed via Homebrew or a global npm install) so the

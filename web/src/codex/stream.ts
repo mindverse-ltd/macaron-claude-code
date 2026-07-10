@@ -2,6 +2,7 @@
 // into typed events the chat view can consume with simple callbacks.
 
 import { authedFetch } from '../lib/auth';
+import type { CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 
 export type CodexStreamEvent =
   | { type: 'starting'; cwd?: string }
@@ -13,6 +14,9 @@ export type CodexStreamEvent =
   | { type: 'tool_result'; tool_use_id: string; text: string; isError: boolean }
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; subtype: string }
+  | { type: 'codex_plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
+  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { type: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number }
   | { type: 'live-end'; reason?: string };
@@ -26,6 +30,9 @@ export type CodexStreamHandlers = {
   onToolResult?: (ev: Extract<CodexStreamEvent, { type: 'tool_result' }>) => void;
   onEvent?: (subtype: string) => void;
   onUsage?: (out: number, thinking?: number) => void;
+  onCodexPlan?: (ev: Extract<CodexStreamEvent, { type: 'codex_plan' }>) => void;
+  onCodexApproval?: (ev: Extract<CodexStreamEvent, { type: 'codex_approval_request' }>) => void;
+  onCodexApprovalResolved?: (ev: Extract<CodexStreamEvent, { type: 'codex_approval_resolved' }>) => void;
   onError?: (msg: string) => void;
   onDone?: (exitCode: number) => void;
   onLiveEnd?: (reason?: string) => void;
@@ -67,6 +74,9 @@ async function pump(resp: Response, h: CodexStreamHandlers): Promise<void> {
         case 'tool_result': h.onToolResult?.(p); break;
         case 'event': h.onEvent?.(p.subtype); break;
         case 'usage': h.onUsage?.(p.outputTokens, p.thinkingTokens); break;
+        case 'codex_plan': h.onCodexPlan?.(p); break;
+        case 'codex_approval_request': h.onCodexApproval?.(p); break;
+        case 'codex_approval_resolved': h.onCodexApprovalResolved?.(p); break;
         case 'error': h.onError?.(p.error); break;
         case 'done': h.onDone?.(p.exitCode); break;
         case 'live-end': h.onLiveEnd?.(p.reason); break;
