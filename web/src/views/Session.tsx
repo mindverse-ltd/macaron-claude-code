@@ -1914,6 +1914,7 @@ export function Session(props: SessionProps = {}) {
   // the queue). If the composer already holds a draft, keep that safe by
   // prepending it back onto the queue front.
   const editQueued = useCallback((id: string) => {
+    mention.close();
     setQueue((q) => {
       const target = q.find((m) => m.id === id);
       if (!target) return q;
@@ -1923,7 +1924,7 @@ export function Session(props: SessionProps = {}) {
       if (draft) return [{ id: queueId('q-draft'), text: draft }, ...rest];
       return rest;
     });
-  }, [input]);
+  }, [input, mention.close]);
 
   // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
   // next queued message. Edge-guarded so exactly one message goes per turn —
