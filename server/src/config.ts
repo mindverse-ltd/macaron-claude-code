@@ -22,6 +22,10 @@ export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
 export const CLAUDE_COMMANDS = path.join(HOME, '.claude', 'commands');
 export const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
 
+// Root for the "New Project" wizard — freshly created dirs and `git clone`
+// targets land here. Overridable so ops can point it at a mounted volume.
+export const PROJECTS_ROOT = process.env.MACARON_PROJECTS_ROOT || path.join(HOME, 'macaron-projects');
+
 // Web root (repo's web/ dir). Same hop from compiled location in both dev (tsx src/) and prod (node dist/).
 // src/config.ts → ../../web  (and after build: dist/config.js → ../../web)
 export const WEB_ROOT = path.resolve(import.meta.dirname, '..', '..', 'web');

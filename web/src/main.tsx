@@ -38,6 +38,7 @@ import { Settings } from './views/Settings';
 import { Prompts } from './views/Prompts';
 import { ShareView } from './views/ShareView';
 import { Hooks } from './views/Hooks';
+import { Skills } from './views/Skills';
 import { Schedules } from './views/Schedules';
 import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
@@ -91,6 +92,7 @@ const router = createHashRouter([
       { path: 'prompts', element: <Prompts /> },
       { path: 'settings', element: <Settings /> },
       { path: 'hooks', element: <Hooks /> },
+      { path: 'skills', element: <Skills /> },
       { path: 'schedules', element: <Schedules /> },
       { path: 'mcp', element: <Mcp /> },
       { path: 'w/:project', element: <Workspace /> },

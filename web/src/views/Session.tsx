@@ -9,6 +9,7 @@ import {
   downloadTextFile,
   type Message,
   type SessionDetail,
+  type PrContext,
   type SlashCommand,
 } from '../lib/api';
 import { streamSession } from '../lib/sse';
@@ -27,13 +28,14 @@ import {
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
-import { ActivityTimeline, toolIcon, toolLabel, type TimelineEntry } from '../components/ActivityTimeline';
+import { useFileMention } from '../components/MentionPopup';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
 import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
+import { CreatePrDialog } from '../components/CreatePrDialog';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
 const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWith('__render_ui');
@@ -779,12 +781,16 @@ export function ItemView({
 function SessionActionsMenu({
   disabled,
   busyCompact,
+  busyPr,
   onCompact,
+  onCreatePr,
   onExport,
 }: {
   disabled: boolean;
   busyCompact: boolean;
+  busyPr: boolean;
   onCompact: () => void;
+  onCreatePr: () => void;
   onExport: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -823,6 +829,22 @@ function SessionActionsMenu({
       </button>
       {open && (
         <div className="actions-menu">
+          <button
+            type="button"
+            className="actions-menu-item"
+            disabled={disabled || busyPr}
+            onClick={() => {
+              setOpen(false);
+              onCreatePr();
+            }}
+          >
+            <span className="actions-menu-body">
+              <span className="actions-menu-label">
+                {busyPr ? 'Opening PR…' : 'Create PR'}
+              </span>
+              <span className="actions-menu-sub">Push branch → open a pull request</span>
+            </span>
+          </button>
           <button
             type="button"
             className="actions-menu-item"
@@ -984,6 +1006,10 @@ export function Session(props: SessionProps = {}) {
   // Marked true once a stream has started so the done-notification only
   // fires for turns the user actually initiated (not initial jsonl load).
   const streamedRef = useRef(false);
+  // Latest user prompt for the in-flight turn. Captured at send() so the
+  // completion notification can display "what was this turn about" instead
+  // of a bare session hash.
+  const lastPromptRef = useRef<string>('');
   // Set when the current turn hit onError, so the completion effect below can
   // skip the 'complete' cue — onDone still runs after a stream error, and a
   // failed turn shouldn't sound like a success.
@@ -1019,9 +1045,14 @@ export function Session(props: SessionProps = {}) {
     const errored = turnErroredRef.current;
     turnErroredRef.current = false;
     if (!errored) playSound('complete');
+    const prompt = lastPromptRef.current.trim();
+    // Truncate to a card-friendly length. Newlines collapse to spaces so a
+    // multi-line prompt still reads as one glance-able summary.
+    const oneline = prompt.replace(/\s+/g, ' ');
+    const preview = oneline.length > 140 ? oneline.slice(0, 140) + '…' : oneline;
     notify({
-      title: 'Macaron · session ready',
-      body: `${sid.slice(0, 8)} finished a turn`,
+      title: preview || 'Macaron · session ready',
+      body: preview ? '✓ turn finished' : `${sid.slice(0, 8)} finished a turn`,
       tag: `macaron-done-${sid}`,
       project,
       sid,
@@ -1129,6 +1160,7 @@ export function Session(props: SessionProps = {}) {
   const [dragOver, setDragOver] = useState(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
   const toast = useToast();
@@ -1136,6 +1168,13 @@ export function Session(props: SessionProps = {}) {
   const [busyCompact, setBusyCompact] = useState(false);
   const [busyRewind, setBusyRewind] = useState(false);
   const [busyFork, setBusyFork] = useState(false);
+  const [busyPr, setBusyPr] = useState(false);
+  // Non-null while the Create-PR dialog is open; holds the git snapshot used
+  // to prefill and gate it.
+  const [prCtx, setPrCtx] = useState<PrContext | null>(null);
+  // @-mention file autocomplete over the project tree. Inserts `@relpath`
+  // tokens the CLI resolves natively; no server-side prompt rewriting.
+  const mention = useFileMention({ project, value: input, setValue: setInput, textareaRef, composingRef });
   // Messages the user lined up while the current turn was still streaming.
   // Auto-sent one at a time as each turn completes (see the dequeue effect).
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -1249,6 +1288,58 @@ export function Session(props: SessionProps = {}) {
       setBusyCompact(false);
     }
   }, [busyCompact, confirm, project, sid, toast]);
+
+  // Create PR: fetch the git snapshot for this session's cwd, then open the
+  // dialog prefilled from the first user prompt. Gating (default branch, no
+  // commits ahead, existing PR) is surfaced inside the dialog.
+  const handleOpenPr = useCallback(async () => {
+    if (busyPr) return;
+    setBusyPr(true);
+    try {
+      const ctx = await api.prContext(project, sid);
+      setPrCtx(ctx);
+    } catch (e) {
+      toast(`couldn't read git state: ${(e as Error).message}`);
+    } finally {
+      setBusyPr(false);
+    }
+  }, [busyPr, project, sid, toast]);
+
+  const handleCreatePr = useCallback(
+    async (input: { title: string; body: string; draft: boolean }) => {
+      setBusyPr(true);
+      try {
+        const { url, created } = await api.createPr(project, sid, input);
+        setPrCtx(null);
+        toast(created ? 'Pull request opened' : 'PR already exists — opening it');
+        window.open(url, '_blank', 'noopener');
+      } catch (e) {
+        toast(`create PR failed: ${(e as Error).message}`);
+      } finally {
+        setBusyPr(false);
+      }
+    },
+    [project, sid, toast],
+  );
+
+  // Prefill for the PR dialog, derived from the first real user prompt. Title
+  // = its first line (capped); body = a short recap pointing back at Macaron.
+  const firstPrompt = useMemo(() => {
+    for (const m of data?.messages ?? []) {
+      if (m.role !== 'user') continue;
+      const text = m.blocks.filter((b) => b.kind === 'text').map((b) => (b as { text: string }).text).join('\n').trim();
+      if (text && !isNoisyUserText(text)) return text;
+    }
+    return '';
+  }, [data]);
+  const prTitle = useMemo(() => {
+    const line = (firstPrompt.split('\n')[0] || prCtx?.branch || 'Update').trim();
+    return line.length > 72 ? `${line.slice(0, 69)}…` : line;
+  }, [firstPrompt, prCtx]);
+  const prBody = useMemo(() => {
+    const recap = firstPrompt ? `${firstPrompt}\n\n` : '';
+    return `${recap}---\n_Opened from a Macaron session._`;
+  }, [firstPrompt]);
 
   // Export: serialize the loaded transcript to Markdown and download it —
   // client-side, no server round-trip (we already hold the parsed messages).
@@ -1505,66 +1596,6 @@ export function Session(props: SessionProps = {}) {
   // automatically — new content pushes existing content up without us
   // touching scrollTop. The user can freely scroll up to read history.
 
-  // ---- Activity timeline: one rail node per tool call in the session -----
-  // Built from the persisted `items`, so live-turn tools join once the jsonl
-  // reloads. Todo / genui calls are surfaced too (they're tool calls the CLI
-  // renders specially). `id` matches each row's `data-item-id` for click-jump.
-  const timelineEntries = useMemo<TimelineEntry[]>(() => {
-    const out: TimelineEntry[] = [];
-    for (const it of items) {
-      if (it.kind === 'tool') {
-        out.push({
-          id: it.id,
-          icon: toolIcon(it.name),
-          label: toolLabel(it.name),
-          summary: toolHeader(it.name, it.input),
-          durationMs: it.durationMs,
-          status: it.isError ? 'error' : it.result !== undefined ? 'ok' : 'pending',
-        });
-      } else if (it.kind === 'todo') {
-        const done = it.todos.filter((t) => t.status === 'completed').length;
-        out.push({ id: it.id, icon: toolIcon('TodoWrite'), label: 'Todo', summary: `${done}/${it.todos.length} done`, status: 'ok' });
-      } else if (it.kind === 'genui') {
-        out.push({ id: it.id, icon: '🎨', label: 'render_ui', summary: it.prompt, status: it.status === 'error' ? 'error' : it.status === 'ready' ? 'ok' : 'pending' });
-      }
-    }
-    return out;
-  }, [items]);
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
-
-  // Request a jump to a rail node's target row. If the row is older than the
-  // paginated window, widen `shown` first. The scroll runs in the effect below,
-  // once React has committed the wider window — doing it inline (even in a rAF)
-  // races the commit and silently misses rows that aren't mounted yet.
-  const jumpToItem = useCallback(
-    (id: string) => {
-      const idx = items.findIndex((it) => it.id === id);
-      if (idx >= 0) {
-        const fromTail = items.length - idx;
-        if (fromTail > shown) setShown((s) => Math.max(s, fromTail));
-      }
-      setActiveItemId(id);
-      setPendingJumpId(id);
-    },
-    [items, shown],
-  );
-
-  // Resolve a pending jump after the target row is committed. Re-runs when
-  // `shown` widens (which mounts older rows), so jumps into hidden history land
-  // reliably instead of no-oping when the row wasn't mounted in time.
-  useEffect(() => {
-    if (!pendingJumpId) return;
-    const el = threadRef.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(pendingJumpId)}"]`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.remove('ti-jump-flash');
-    // Force reflow so re-adding the class restarts the flash animation.
-    void el.offsetWidth;
-    el.classList.add('ti-jump-flash');
-    setPendingJumpId(null);
-  }, [pendingJumpId, shown]);
-
   const cwd = data?.cwd || '';
   const name = cwd ? basename(cwd) : 'Session';
   // Session start time from the earliest message timestamp — mirrors the CLI's
@@ -1620,6 +1651,7 @@ export function Session(props: SessionProps = {}) {
       const sentImages = opts ? (opts.images ?? []) : images;
       if ((!text && sentImages.length === 0) || sending) return;
       if (!opts) {
+        mention.close();
         setInput('');
         setImages([]);
         setHistoryIdx(null);
@@ -1631,6 +1663,7 @@ export function Session(props: SessionProps = {}) {
       // Persist to prompt history (manual and queued sends alike).
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
+      lastPromptRef.current = text;
       // Roll the *previous* turn's live buffers into history before we
       // clobber them with this turn's user text — otherwise typing a second
       // message erases the first reply until the next page refresh.
@@ -1843,7 +1876,7 @@ export function Session(props: SessionProps = {}) {
         },
       );
     },
-    [project, sid, input, sending, load, images, permissionMode, isolate, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history],
+    [project, sid, input, sending, load, images, permissionMode, isolate, isNew, navigate, toast, onCreated, rollLiveIntoHistory, history, mention.close],
   );
 
   // Enqueue a message typed while a turn is running. macaron's runner is
@@ -1864,13 +1897,14 @@ export function Session(props: SessionProps = {}) {
     if (sending) {
       if (!text) return; // nothing queueable (images can't be queued yet)
       enqueue(text);
+      mention.close();
       setInput('');
       setHistoryIdx(null);
       draftInputRef.current = '';
       return;
     }
     void send();
-  }, [input, images, sending, enqueue, send]);
+  }, [input, images, sending, enqueue, send, mention.close]);
 
   // Send now: interrupt the running turn and send this message next. macaron's
   // only interrupt primitive is /stop (abort the subprocess), so we push the
@@ -1881,11 +1915,12 @@ export function Session(props: SessionProps = {}) {
     const text = input.trim();
     if (!text) return;
     setQueue((q) => [{ id: queueId('q-now'), text }, ...q]);
+    mention.close();
     setInput('');
     setHistoryIdx(null);
     draftInputRef.current = '';
     void handleStop();
-  }, [input, handleStop]);
+  }, [input, handleStop, mention.close]);
 
   const removeQueued = useCallback((id: string) => {
     setQueue((q) => q.filter((m) => m.id !== id));
@@ -1906,6 +1941,7 @@ export function Session(props: SessionProps = {}) {
   // the queue). If the composer already holds a draft, keep that safe by
   // prepending it back onto the queue front.
   const editQueued = useCallback((id: string) => {
+    mention.close();
     setQueue((q) => {
       const target = q.find((m) => m.id === id);
       if (!target) return q;
@@ -1915,7 +1951,7 @@ export function Session(props: SessionProps = {}) {
       if (draft) return [{ id: queueId('q-draft'), text: draft }, ...rest];
       return rest;
     });
-  }, [input]);
+  }, [input, mention.close]);
 
   // Idle-edge dequeue: when a turn finishes (running true→false), auto-send the
   // next queued message. Edge-guarded so exactly one message goes per turn —
@@ -1940,10 +1976,21 @@ export function Session(props: SessionProps = {}) {
   // looking at owns the bridge.
   useEffect(() => {
     if (!focused) return;
-    const g = globalThis as unknown as { '$app/chat'?: (prompt: string) => void };
+    const g = globalThis as unknown as {
+      '$app/chat'?: (prompt: string) => void;
+      sendUserMessage?: (prompt: string) => void;
+    };
     const bridge = (prompt: string) => { void send({ text: prompt }); };
     g['$app/chat'] = bridge;
-    return () => { if (g['$app/chat'] === bridge) delete g['$app/chat']; };
+    // Also expose sendUserMessage as a bare global for widgets that forget
+    // to `import { sendUserMessage } from '$macaron/chat'` — models drop the
+    // import surprisingly often, and the resulting ReferenceError is fatal
+    // to the whole onClick with no path to recover at runtime.
+    g.sendUserMessage = bridge;
+    return () => {
+      if (g['$app/chat'] === bridge) delete g['$app/chat'];
+      if (g.sendUserMessage === bridge) delete g.sendUserMessage;
+    };
   }, [focused, send]);
 
   // ---- Slash palette derivation + keyboard reconciliation ----------------
@@ -2012,6 +2059,10 @@ export function Session(props: SessionProps = {}) {
         e.preventDefault();
         return;
       }
+    }
+    // Mention popup handles ↑/↓/Enter/Tab/Esc after the IME Enter guard above.
+    if (mention.onKeyDown(e)) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submitComposer();
       return;
@@ -2090,8 +2141,6 @@ export function Session(props: SessionProps = {}) {
           </div>
         </div>
       )}
-
-      <ActivityTimeline entries={timelineEntries} activeId={activeItemId} onJump={jumpToItem} />
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
@@ -2238,7 +2287,10 @@ export function Session(props: SessionProps = {}) {
             onHover={setSlashIdx}
           />
         )}
+        <div className="mention-anchor">
+        {mention.popup}
         <textarea
+          ref={textareaRef}
           rows={2}
           placeholder={sending ? 'Queue a message…' : 'Reply to Claude…'}
           value={input}
@@ -2248,7 +2300,9 @@ export function Session(props: SessionProps = {}) {
             // Any manual edit exits history-navigation mode — pressing
             // Send now sends the (possibly edited) text as a fresh entry.
             if (historyIdx !== null) setHistoryIdx(null);
+            mention.refresh();
           }}
+          onSelect={() => mention.refresh()}
           onCompositionStart={() => { composingRef.current = true; }}
           onCompositionEnd={() => {
             composingRef.current = false;
@@ -2266,6 +2320,7 @@ export function Session(props: SessionProps = {}) {
           }}
           onKeyDown={onKey}
         />
+        </div>
         {/*
           Claude-web-style toolbar. Attach on the far left. Model (provider)
           and permission chips grouped on the right next to Send. Each chip
@@ -2298,7 +2353,9 @@ export function Session(props: SessionProps = {}) {
           <SessionActionsMenu
             disabled={isNew || sending}
             busyCompact={busyCompact}
+            busyPr={busyPr}
             onCompact={() => void handleCompact()}
+            onCreatePr={() => void handleOpenPr()}
             onExport={handleExport}
           />
           {isNew && (
@@ -2388,6 +2445,16 @@ export function Session(props: SessionProps = {}) {
       />
       </div>
       </div>
+      {prCtx && (
+        <CreatePrDialog
+          ctx={prCtx}
+          initialTitle={prTitle}
+          initialBody={prBody}
+          busy={busyPr}
+          onSubmit={(input) => void handleCreatePr(input)}
+          onCancel={() => setPrCtx(null)}
+        />
+      )}
     </section>
   );
 }
