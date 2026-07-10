@@ -397,6 +397,23 @@ export type ConfigResponse = {
   macaron: { base: string; model: string; configured: boolean };
 };
 
+// Zero-config remote access. The server can start one tunnel at a time via an
+// installed CLI (`cloudflared` or `ngrok`) that exposes the local port on a
+// public URL, which the Settings page surfaces as a link + QR code.
+export type TunnelProvider = 'cloudflared' | 'ngrok';
+export type TunnelStatus = 'stopped' | 'starting' | 'running' | 'error';
+export type TunnelState = {
+  status: TunnelStatus;
+  provider: TunnelProvider | null;
+  url: string | null;
+  startedAt: number | null;
+  error: string | null;
+  // The access token the tunnel armed, so the UI can build a ?token= share link
+  // that unlocks on first load. null when auth was already configured out-of-band
+  // (env token) — the operator shares that secret themselves.
+  token: string | null;
+};
+
 // A custom subagent definition (~/.claude/agents/<name>.md). `prompt` is the
 // markdown body after the frontmatter — it becomes the agent's system prompt.
 // `tools` is the frontmatter allowlist; empty = inherit all tools.

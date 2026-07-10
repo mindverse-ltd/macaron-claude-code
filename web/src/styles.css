@@ -1150,6 +1150,7 @@ textarea:focus, select:focus, input:focus {
 .mcp-kv-chip { margin-right: 5px; }
 .settings-hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 .settings-hint.ok { color: #4a8; }
+.settings-hint.bad { color: #c65; }
 /* Prompt-body textarea in the Prompts library editor. Monospace so $ARGUMENTS
    and template markers read as code. */
 .settings-input.prompt-body {
@@ -1164,6 +1165,45 @@ textarea:focus, select:focus, input:focus {
   align-items: center;
   gap: 12px;
   margin-top: 18px;
+}
+
+/* ---------- remote-access tunnel card ---------- */
+.tunnel-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.tunnel-provider-pick { display: flex; gap: 8px; }
+.tunnel-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tunnel-radio.active { border-color: var(--accent); }
+.tunnel-live {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+.tunnel-url-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tunnel-url {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  word-break: break-all;
+}
+.tunnel-qr {
+  width: fit-content;
+  padding: 10px;
+  background: #fff;
+  border-radius: 10px;
 }
 
 /* ---------- hooks viewer ---------- */

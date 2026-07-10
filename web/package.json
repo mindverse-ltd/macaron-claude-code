@@ -53,6 +53,7 @@
     "partial-json": "^0.1.7",
     "partial-react": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-react@2c00556",
     "partial-tsx": "https://pkg.pr.new/MindLab-Research/macaron-genui-demo/partial-tsx@2c00556",
+    "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.1.0",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type ConfigFileMeta } from '../lib/api';
+import { QRCodeSVG } from 'qrcode.react';
+import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type TunnelProvider, type TunnelState, type ConfigFileMeta } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { useTheme, setTheme, type Theme } from '../lib/theme';
@@ -354,7 +355,9 @@ export function Settings() {
         </label>
       </div>
 
+      <RemoteAccess />
       <ConfigFilesSection />
+      <RemoteAccess />
 
       <SoundSettings />
 
@@ -442,6 +445,133 @@ export function Settings() {
         </div>
       )}
     </section>
+  );
+}
+
+const PROVIDER_LABELS: Record<TunnelProvider, string> = {
+  cloudflared: 'Cloudflare',
+  ngrok: 'ngrok',
+};
+
+// Zero-config remote access: pick a tunnel CLI, start it, and share the public
+// URL (with a QR code) so a phone or second machine can reach this session.
+function RemoteAccess() {
+  const [state, setState] = useState<TunnelState | null>(null);
+  const [provider, setProvider] = useState<TunnelProvider>('cloudflared');
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    let alive = true;
+    const tick = () => api.tunnelStatus().then((s) => { if (alive) setState(s); }).catch(() => {});
+    tick();
+    // Poll while a tunnel is coming up or live so a URL / crash surfaces on its own.
+    const t = setInterval(() => {
+      if (state?.status === 'starting' || state?.status === 'running') tick();
+    }, 2000);
+    return () => { alive = false; clearInterval(t); };
+  }, [state?.status]);
+
+  const start = async () => {
+    setBusy(true);
+    try {
+      setState(await api.startTunnel(provider));
+    } catch (e) {
+      toast(`error: ${(e as Error).message}`);
+      api.tunnelStatus().then(setState).catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    setBusy(true);
+    try {
+      setState(await api.stopTunnel());
+    } catch (e) {
+      toast(`error: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const status = state?.status ?? 'stopped';
+  const live = status === 'running' && state?.url;
+  const starting = status === 'starting';
+  // The tunnel arms an access token; fold it into the shared URL as ?token= so
+  // the first load unlocks itself (consumeTokenFromUrl strips it after storing).
+  const shareUrl = live && state?.url
+    ? (state.token ? `${state.url}/?token=${encodeURIComponent(state.token)}` : state.url)
+    : '';
+
+  return (
+    <div className="settings-section">
+      <div className="settings-row-head">
+        <h2 className="sec-title">Remote access</h2>
+      </div>
+      <div className="prov-card tunnel-card">
+        <div className="prov-card-body">
+          <div className="prov-card-head">
+            <span className="prov-name">Public tunnel</span>
+            <span className={`prov-tag ${live ? 'ok' : status === 'error' ? 'bad' : ''}`}>
+              {live ? `live · ${state?.provider === 'ngrok' ? 'ngrok' : 'Cloudflare'}` : starting ? 'starting…' : status === 'error' ? 'error' : 'off'}
+            </span>
+          </div>
+          <div className="prov-card-sub">
+            Expose this local server on a public URL via an installed CLI, so you can drive sessions from your phone or another machine. Cloudflare needs no account; ngrok uses your <code>ngrok</code> authtoken.
+          </div>
+
+          {!live && !starting && (
+            <div className="tunnel-controls">
+              <div className="tunnel-provider-pick">
+                {(Object.keys(PROVIDER_LABELS) as TunnelProvider[]).map((p) => (
+                  <label key={p} className={`tunnel-radio${provider === p ? ' active' : ''}`}>
+                    <input type="radio" name="tunnel-provider" checked={provider === p} onChange={() => setProvider(p)} disabled={busy} />
+                    {PROVIDER_LABELS[p]}
+                  </label>
+                ))}
+              </div>
+              <button className="primary small" onClick={start} disabled={busy}>
+                {busy ? 'Starting…' : 'Start tunnel'}
+              </button>
+            </div>
+          )}
+
+          {(live || starting) && (
+            <div className="tunnel-controls">
+              <button className="ghost small" onClick={stop} disabled={busy}>Stop tunnel</button>
+            </div>
+          )}
+
+          {status === 'error' && state?.error && (
+            <div className="settings-hint bad">{state.error}</div>
+          )}
+
+          {live && state?.url && (
+            <div className="tunnel-live">
+              <div className="tunnel-url-row">
+                <a className="tunnel-url" href={shareUrl} target="_blank" rel="noreferrer">{state.url}</a>
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => { navigator.clipboard.writeText(shareUrl); toast('URL copied'); }}
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="tunnel-qr">
+                <QRCodeSVG value={shareUrl} size={148} marginSize={2} />
+              </div>
+              <div className="settings-hint">
+                {state.token
+                  ? <><strong>This link embeds an access token</strong> — anyone you share it with can drive your Claude Code sessions. Share it only with people you trust, and stop the tunnel when you're done.</>
+                  : <><strong>This server already requires its access token.</strong> Share the URL together with that token, and stop the tunnel when you're done.</>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

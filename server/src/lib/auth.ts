@@ -15,6 +15,38 @@ export function isLoopbackHost(host: string): boolean {
   return host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
 }
 
+// A tunnel CLI (cloudflared/ngrok) runs ON this box and forwards public traffic
+// to http://localhost:PORT, so its requests hit the server from 127.0.0.1 and
+// req.ip alone can't tell a real local peer from a visitor relayed in. Both CLIs
+// unconditionally stamp a forwarding header on every proxied request, so the
+// presence of one means "came in through a tunnel" — i.e. NOT actually local.
+const FORWARD_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'cf-connecting-ip'];
+export function isForwarded(req: FastifyRequest): boolean {
+  return FORWARD_HEADERS.some((h) => req.headers[h] !== undefined);
+}
+
+// The auth-exemption test: a loopback socket that wasn't relayed in through a
+// tunnel. Using this instead of isLoopback alone is what stops a tunnel from
+// inheriting the frictionless-localhost bypass. On ambiguity it fails safe
+// (challenge for the token), never open.
+export function isLocalRequest(req: FastifyRequest): boolean {
+  return isLoopback(req.ip) && !isForwarded(req);
+}
+
+// The armed shared secret ('' = auth off). Held in a module slot rather than
+// just the hook/route closures because a tunnel started AFTER boot must be able
+// to arm a token that the already-registered hook and auth routes see live.
+let armedToken = '';
+export function getArmedToken(): string { return armedToken; }
+export function setArmedToken(token: string): void { armedToken = token; }
+// Arm a token if none is set yet, returning the live one. Called when the server
+// is about to be exposed (tunnel start) so an auth-off server is never put on the
+// public internet with nothing to check requests against.
+export function ensureArmedToken(): string {
+  if (!armedToken) armedToken = randomBytes(24).toString('base64url');
+  return armedToken;
+}
+
 // Constant-time string compare that also resists length leaks.
 export function tokensMatch(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -71,11 +103,14 @@ export function redactTokenInUrl(url: string): string {
 }
 
 // Fastify onRequest hook. No-op when auth is off; otherwise 401s any protected
-// request that isn't from loopback and doesn't carry a valid token.
-export function makeAuthHook(token: string) {
+// request that isn't a genuine local peer and doesn't carry a valid token. Reads
+// the armed token live (not a boot-time snapshot) so a tunnel that arms one after
+// startup is enforced immediately.
+export function makeAuthHook() {
   return function authHook(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
+    const token = getArmedToken();
     const path = routePath(req);
-    if (!token || isLoopback(req.ip) || !isProtectedPath(path) || isExemptPath(path)) return done();
+    if (!token || isLocalRequest(req) || !isProtectedPath(path) || isExemptPath(path)) return done();
     if (tokensMatch(extractToken(req), token)) return done();
     reply.code(401).send({ error: 'authentication required', authRequired: true });
   };
