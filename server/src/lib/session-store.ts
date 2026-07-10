@@ -19,6 +19,65 @@ export function decodeClaudeProjectName(encoded: string): string {
   return encoded.replace(/^-/, '/').replace(/-/g, '/');
 }
 
+const resolvedProjectCwdCache = new Map<string, string>();
+
+async function statDirectory(p: string): Promise<boolean> {
+  try {
+    const st = await fs.stat(p);
+    return st.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function resolveExistingEncodedPath(encoded: string): Promise<string> {
+  if (!encoded.startsWith('-')) return '';
+  const rest = encoded.slice(1);
+  if (!rest) return '/';
+
+  async function walk(dir: string, offset: number): Promise<string | null> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    const matches = entries
+      .filter((e) => e.isDirectory() && rest.startsWith(e.name, offset))
+      .filter((e) => {
+        const next = offset + e.name.length;
+        return next === rest.length || rest[next] === '-';
+      })
+      .sort((a, b) => b.name.length - a.name.length);
+
+    for (const entry of matches) {
+      const nextOffset = offset + entry.name.length;
+      const nextPath = path.join(dir, entry.name);
+      if (nextOffset === rest.length) return nextPath;
+      const resolved = await walk(nextPath, nextOffset + 1);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+
+  return (await walk('/', 0)) || '';
+}
+
+export async function resolveClaudeProjectCwd(encoded: string): Promise<string> {
+  const cached = resolvedProjectCwdCache.get(encoded);
+  if (cached !== undefined) return cached;
+
+  const decoded = decodeClaudeProjectName(encoded);
+  const resolved =
+    decoded && (await statDirectory(decoded))
+      ? decoded
+      : (await resolveExistingEncodedPath(encoded)) || decoded;
+
+  resolvedProjectCwdCache.set(encoded, resolved);
+  return resolved;
+}
+
 type SessionSummary = {
   firstUserText: string;
   cwd: string;
@@ -239,13 +298,30 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
     },
   );
 
-  const summaries = await mapPool(targets, 32, async (t): Promise<SessionListItem | null> => {
-    const meta = await readSessionSummary(t.file);
+  const summarized = await mapPool(targets, 32, async (t) => ({
+    target: t,
+    meta: await readSessionSummary(t.file),
+  }));
+
+  const cwdByProject = new Map<string, string>();
+  for (const { target, meta } of summarized) {
+    if (meta?.cwd && !cwdByProject.has(target.project)) {
+      cwdByProject.set(target.project, meta.cwd);
+    }
+  }
+  await Promise.all(
+    Array.from(new Set(targets.map((t) => t.project))).map(async (project) => {
+      if (cwdByProject.has(project)) return;
+      cwdByProject.set(project, await resolveClaudeProjectCwd(project));
+    }),
+  );
+
+  const summaries = summarized.map(({ target: t, meta }): SessionListItem | null => {
     if (!meta) return null;
     const item: SessionListItem = {
       kind: 'claude',
       project: t.project,
-      cwd: meta.cwd || decodeClaudeProjectName(t.project),
+      cwd: meta.cwd || cwdByProject.get(t.project) || decodeClaudeProjectName(t.project),
       gitBranch: meta.gitBranch || undefined,
       sessionId: t.sid,
       preview: (meta.firstUserText || '').slice(0, 220),
@@ -264,11 +340,11 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
 }
 
 export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
-  const byCwd = new Map<string, Workspace>();
+  const byProject = new Map<string, Workspace>();
   for (const s of sessions) {
-    const key = s.cwd || s.project;
-    if (!byCwd.has(key)) {
-      byCwd.set(key, {
+    const key = s.project;
+    if (!byProject.has(key)) {
+      byProject.set(key, {
         cwd: s.cwd,
         project: s.project,
         name: basename(s.cwd) || s.project,
@@ -278,7 +354,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
         lastPreview: '',
       });
     }
-    const w = byCwd.get(key)!;
+    const w = byProject.get(key)!;
     w.sessionCount++;
     if (s.mtime > w.lastActivity) {
       w.lastActivity = s.mtime;
@@ -287,7 +363,7 @@ export function groupWorkspaces(sessions: SessionListItem[]): Workspace[] {
       w.project = s.project;
     }
   }
-  const arr = Array.from(byCwd.values());
+  const arr = Array.from(byProject.values());
   arr.sort((a, b) => b.lastActivity - a.lastActivity);
   return arr;
 }
@@ -422,6 +498,8 @@ export async function readSessionMessages(project: string, sid: string): Promise
       /* skip malformed */
     }
   }
+
+  if (!cwd) cwd = await resolveClaudeProjectCwd(project);
 
   const [claudeMdCount, mcpCount] = await Promise.all([
     countClaudeMd(cwd),

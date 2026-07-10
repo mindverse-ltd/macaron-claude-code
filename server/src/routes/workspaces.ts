@@ -4,10 +4,10 @@ import type { FastifyInstance } from 'fastify';
 import type { SessionStreamEvent } from '@macaron/shared';
 import { CLAUDE_PROJECTS } from '../config.js';
 import {
-  decodeClaudeProjectName,
   groupWorkspaces,
   listAllSessions,
   readSessionSummary,
+  resolveClaudeProjectCwd,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd } from '../lib/live-registry.js';
@@ -61,7 +61,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
 
       // Derive cwd from any existing session in this project, else decode the
       // project name (which mirrors claude-cli's encoding).
-      let cwd = decodeClaudeProjectName(project);
+      let cwd = await resolveClaudeProjectCwd(project);
       try {
         const projDir = path.join(CLAUDE_PROJECTS, project);
         const files = await fs.readdir(projDir);

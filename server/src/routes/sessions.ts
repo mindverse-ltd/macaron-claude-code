@@ -2,10 +2,10 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { CLAUDE_PROJECTS } from '../config.js';
 import {
-  decodeClaudeProjectName,
   deleteSession,
   readSessionMessages,
   readSessionSummary,
+  resolveClaudeProjectCwd,
   rewindSession,
   writeCompactedSession,
 } from '../lib/session-store.js';
@@ -236,7 +236,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       // makes the SDK look under the wrong project dir and error with "No
       // conversation found". The project name IS the cwd (encoded by
       // claude-cli), so use it as the safe default.
-      let cwd = decodeClaudeProjectName(project) || process.env.HOME || '/tmp';
+      let cwd = (await resolveClaudeProjectCwd(project)) || process.env.HOME || '/tmp';
       try {
         const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
         if (head?.cwd) cwd = head.cwd;
