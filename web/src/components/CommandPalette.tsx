@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { SEARCH_HL_CLOSE, SEARCH_HL_OPEN } from '@macaron/shared';
 import { api, basename, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
 import { addDraftSid } from '../lib/canvas';
 
@@ -31,6 +32,10 @@ type Item =
   | { kind: 'message'; project: string; sid: string; uuid?: string; title: string; snippet: string; mtime: number };
 
 type WsWithSessions = Workspace & { sessions: SessionListItem[] };
+
+function stripSearchHighlights(text: string): string {
+  return text.split(SEARCH_HL_OPEN).join('').split(SEARCH_HL_CLOSE).join('');
+}
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -74,6 +79,12 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener('macaron:open-search', onOpen);
+    return () => window.removeEventListener('macaron:open-search', onOpen);
+  }, []);
+
   // On open: reset, focus the input, and load the session/workspace list from
   // the same endpoints the sidebar already polls (server mtime-cache keeps it
   // cheap). Also snapshot current YOLO state for the toggle command's label.
@@ -112,8 +123,8 @@ export function CommandPalette() {
     };
   }, [open]);
 
-  // Debounced server-side message search (min 2 chars). Recency-biased grep
-  // over the jsonl transcripts — see server searchMessages.
+  // Debounced server-side message search (min 2 chars). Prefer the SQLite FTS
+  // index and fall back to the runtime-safe transcript search when unavailable.
   useEffect(() => {
     if (!open) return;
     const q = query.trim();
@@ -123,10 +134,33 @@ export function CommandPalette() {
     }
     let stale = false;
     const t = setTimeout(() => {
+      const fallback = () =>
+        api
+          .searchMessages(q, 20)
+          .then((r) => { if (!stale) setMsgHits(r.hits); })
+          .catch(() => { if (!stale) setMsgHits([]); });
+
       api
-        .searchMessages(q, 20)
-        .then((r) => { if (!stale) setMsgHits(r.hits); })
-        .catch(() => { if (!stale) setMsgHits([]); });
+        .search(q, 20)
+        .then((r) => {
+          if (stale) return;
+          if (!r.enabled) {
+            void fallback();
+            return;
+          }
+          setMsgHits(
+            r.hits.map((hit) => ({
+              project: hit.project,
+              sessionId: hit.sessionId,
+              uuid: hit.uuid,
+              role: hit.role === 'user' ? 'user' : 'assistant',
+              snippet: stripSearchHighlights(hit.snippet),
+              preview: `${basename(hit.cwd) || hit.sessionId.slice(0, 8)} · ${hit.role}`,
+              mtime: Date.parse(hit.ts) || 0,
+            })),
+          );
+        })
+        .catch(() => { void fallback(); });
     }, 250);
     // Guard against out-of-order resolves: without this, typing `de` then
     // `deploy` can let the slower `de` request resolve last and overwrite the
