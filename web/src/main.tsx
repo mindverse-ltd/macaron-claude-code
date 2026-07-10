@@ -38,6 +38,7 @@ import { Settings } from './views/Settings';
 import { Analytics } from './views/Analytics';
 import { Prompts } from './views/Prompts';
 import { ShareView } from './views/ShareView';
+import { Hooks } from './views/Hooks';
 import { Skills } from './views/Skills';
 import { Schedules } from './views/Schedules';
 import { Mcp } from './views/Mcp';
@@ -92,6 +93,7 @@ const router = createHashRouter([
       { path: 'usage', element: <Analytics /> },
       { path: 'prompts', element: <Prompts /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'hooks', element: <Hooks /> },
       { path: 'skills', element: <Skills /> },
       { path: 'schedules', element: <Schedules /> },
       { path: 'mcp', element: <Mcp /> },
