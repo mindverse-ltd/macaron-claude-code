@@ -19,6 +19,9 @@ import {
 } from '../lib/codex-store.js';
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
+import { runCodexAppServer } from '../lib/codex-app-server.js';
+import { respondCodexApproval } from '../lib/active-approvals.js';
+import type { CodexDecision } from '@macaron/shared';
 import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
 import {
   CODEX_SYSTEM_PROVIDER_ID,
@@ -72,6 +75,13 @@ function pickRuntimeOverride(b: { runtime?: CodexRuntimeOverride } | undefined):
 }
 
 export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
+  // Transport selector. The app-server JSON-RPC bridge (MAC-8129) is the
+  // default — it's the only one that can stream native plan updates and pause
+  // for interactive approvals. Set MACARON_CODEX_TRANSPORT=sdk to fall back to
+  // the one-shot `codex exec` SDK path (no plan/approval surface).
+  const useAppServer = process.env.MACARON_CODEX_TRANSPORT !== 'sdk';
+  const runCodexTurn: typeof runCodex = (opts) => (useAppServer ? runCodexAppServer(opts) : runCodex(opts));
+
   // --- Threads -----------------------------------------------------------
 
   app.get('/api/codex/threads', async () => {
@@ -167,6 +177,9 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         else if (ev.kind === 'tool_use') relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
         else if (ev.kind === 'usage') relay({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
+        else if (ev.kind === 'codex_plan') relay({ type: 'codex_plan', steps: ev.steps, explanation: ev.explanation });
+        else if (ev.kind === 'codex_approval_request') relay({ type: 'codex_approval_request', id: ev.id, kind: ev.approval, command: ev.command, cwd: ev.cwd, reason: ev.reason, fileChanges: ev.fileChanges, grantRoot: ev.grantRoot, network: ev.network, available: ev.available });
+        else if (ev.kind === 'codex_approval_resolved') relay({ type: 'codex_approval_resolved', id: ev.id, decision: ev.decision });
         else if (ev.kind === 'message') relay({ type: 'event', event: 'system', subtype: ev.subtype });
         else if (ev.kind === 'error') relay({ type: 'error', error: ev.error });
         else if (ev.kind === 'done') {
@@ -210,7 +223,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     startSSE(reply);
     sseSend(reply, { type: 'starting', cwd });
     const abortController = new AbortController();
-    const stream = runCodex({ prompt: text, cwd, images, abortController, runtime: pickRuntimeOverride(req.body) });
+    const stream = runCodexTurn({ prompt: text, cwd, images, abortController, runtime: pickRuntimeOverride(req.body) });
     // pipeCodexToSSE owns the iteration, so wrap the runner to install the abort
     // under the sid once the first `session` event reveals it.
     const wrapped = (async function* () {
@@ -252,7 +265,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
       pipeCodexToSSE(
         reply,
-        runCodex({
+        runCodexTurn({
           prompt: text,
           cwd,
           resume: sid,
@@ -305,6 +318,25 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     });
     reply.raw.on('close', () => { clientGone = true; unsub(); });
   });
+
+  // Answer a native app-server approval request (command / file / network).
+  // The runner parked the JSON-RPC server request; respondCodexApproval routes
+  // the decision back over its stdio pipe. Returns ok:false if the request was
+  // already resolved (turn ended, or the server cleared it) so the client can
+  // disable a stale card.
+  const DECISIONS: CodexDecision[] = ['accept', 'acceptForSession', 'decline', 'cancel'];
+  app.post<{ Params: SidParams; Body: { id?: string; decision?: string } }>(
+    '/api/codex/threads/:sid/approval',
+    async ({ params, body }, reply) => {
+      const id = String(body?.id || '').trim();
+      const decision = String(body?.decision || '') as CodexDecision;
+      if (!id || !DECISIONS.includes(decision)) {
+        return reply.status(400).send({ error: 'id and a valid decision are required' });
+      }
+      const ok = respondCodexApproval(params.sid, id, decision);
+      return reply.send({ ok });
+    },
+  );
 
   // SSE: reattach to a Codex turn. Replays the current snapshot (liveGet), then
   // forwards live events until the turn ends — so a browser refresh mid-turn

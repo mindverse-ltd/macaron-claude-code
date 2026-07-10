@@ -8,6 +8,7 @@ import { macaronMcpServer } from './macaron-mcp.js';
 import { registerPending } from './permission-registry.js';
 import { computeRuleKeys, isAllowed, rememberSession, rememberProject } from './permission-rules.js';
 import { getYoloMode } from './settings-store.js';
+import type { CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 
 export type AttachedImage = { mimeType: string; dataUrl: string };
 
@@ -39,6 +40,12 @@ export type RunnerEvent =
   // does no command parsing); absent when there's nothing rememberable.
   | { kind: 'permission_request'; id: string; toolName: string; input: unknown; suggestion?: { label: string } }
   | { kind: 'permission_resolved'; id: string; decision: 'allow' | 'deny' }
+  // Codex-native plan + approval events. Only the codex app-server runner emits
+  // these; they carry the shared SSE payload verbatim so the route can relay
+  // them without re-shaping. See shared/src/sse.ts for field semantics.
+  | { kind: 'codex_plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
+  | { kind: 'codex_approval_request'; id: string; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { kind: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }
   | { kind: 'error'; error: string }
   | { kind: 'done'; exitCode: number };
 

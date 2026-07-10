@@ -22,6 +22,7 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -73,13 +74,54 @@ const { command: MACARON_MCP_CMD, args: MACARON_MCP_ARGS } = (() => {
   return { command: 'tsx', args: [tsPath] };
 })();
 
-// @openai/codex-sdk ships the `codex` binary via optional deps; if it's not
-// present the SDK throws at construction time. Fall back to the user's
-// system `codex` (installed via Homebrew or a global npm install) so the
-// runner works with the CLI they already use in the terminal.
+// Re-exported for the app-server runner (codex-app-server.ts), which injects
+// the same Macaron stdio MCP into its thread/start config.
+export { MACARON_MCP_CMD, MACARON_MCP_ARGS };
+
+// @openai/codex-sdk ships the `codex` binary via platform-specific optional
+// deps. The SDK resolves it from `@openai/codex`'s vendor/ dir; we mirror that
+// lookup so the app-server transport (which spawns the binary directly, not via
+// the SDK) gets the same bundled fallback the SDK path enjoys.
+const PLATFORM_PACKAGE_BY_TARGET: Record<string, string> = {
+  'x86_64-unknown-linux-musl': '@openai/codex-linux-x64',
+  'aarch64-unknown-linux-musl': '@openai/codex-linux-arm64',
+  'x86_64-apple-darwin': '@openai/codex-darwin-x64',
+  'aarch64-apple-darwin': '@openai/codex-darwin-arm64',
+  'x86_64-pc-windows-msvc': '@openai/codex-win32-x64',
+  'aarch64-pc-windows-msvc': '@openai/codex-win32-arm64',
+};
+function targetTriple(): string | null {
+  const { platform, arch } = process;
+  if ((platform === 'linux' || platform === 'android') && arch === 'x64') return 'x86_64-unknown-linux-musl';
+  if ((platform === 'linux' || platform === 'android') && arch === 'arm64') return 'aarch64-unknown-linux-musl';
+  if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin';
+  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
+  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
+  if (platform === 'win32' && arch === 'arm64') return 'aarch64-pc-windows-msvc';
+  return null;
+}
+function resolveBundledCodex(): string | undefined {
+  const triple = targetTriple();
+  const pkg = triple ? PLATFORM_PACKAGE_BY_TARGET[triple] : undefined;
+  if (!triple || !pkg) return undefined;
+  try {
+    const req = createRequire(import.meta.url);
+    const codexReq = createRequire(req.resolve('@openai/codex/package.json'));
+    const vendorRoot = path.join(path.dirname(codexReq.resolve(`${pkg}/package.json`)), 'vendor');
+    const bin = process.platform === 'win32' ? 'codex.exe' : 'codex';
+    const root = path.join(vendorRoot, triple);
+    for (const cand of [path.join(root, 'bin', bin), path.join(root, 'codex', bin)]) {
+      if (existsSync(cand)) return cand;
+    }
+  } catch { /* SDK / platform pkg not installed */ }
+  return undefined;
+}
+
+// Resolution order: explicit env override, common global install paths,
+// `which codex`, then the SDK's bundled platform binary. The bundled fallback
+// is last so a user's own codex (matching their terminal CLI) still wins, but a
+// plain package install with no global codex no longer regresses to "not found".
 function detectCodexBinary(): string | undefined {
-  // Prefer explicit env override, then a couple of common install paths,
-  // then `which codex`.
   if (process.env.MACARON_CODEX_PATH && existsSync(process.env.MACARON_CODEX_PATH)) {
     return process.env.MACARON_CODEX_PATH;
   }
@@ -87,12 +129,10 @@ function detectCodexBinary(): string | undefined {
     if (existsSync(p)) return p;
   }
   try {
-    return execSync('which codex', { stdio: ['ignore', 'pipe', 'ignore'] })
-      .toString()
-      .trim() || undefined;
-  } catch {
-    return undefined;
-  }
+    const which = execSync('which codex', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    if (which) return which;
+  } catch { /* not on PATH */ }
+  return resolveBundledCodex();
 }
 export const CODEX_BINARY = detectCodexBinary();
 
