@@ -12,13 +12,6 @@ import { codexApi } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLive } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
-import {
-  THINKING_VERBS,
-  SPINNER_FRAMES,
-  SPINNER_INTERVAL_MS,
-  thinkingTail,
-  formatDuration,
-} from '../lib/thinkingVerbs';
 
 // GenuiPreview + its vendored runtime (~500KB gzip) is behind a lazy
 // import so the default codex bundle stays small. First render_ui in a
@@ -246,7 +239,6 @@ function MessageRow({ it }: { it: Item }) {
   const isUser = it.kind === 'user';
   return (
     <div className={'cx-msg ' + (isUser ? 'user' : 'assistant')}>
-      <div className="cx-msg-avatar">{isUser ? 'You' : 'cx'}</div>
       <div className="cx-msg-body">
         <div className="cx-msg-role">{isUser ? 'You' : 'Codex'}</div>
         {isUser && it.images && it.images.length > 0 && (
@@ -269,38 +261,15 @@ function MessageRow({ it }: { it: Item }) {
   );
 }
 
-// Codex-side "thinking…" line — shown at the tail of the thread while a turn
-// is in flight and nothing streamable has landed yet (or the last live item
-// is a tool call still executing). Reuses the CLI-cloned spinner + verbs
-// so it matches the Claude thread's rhythm.
+// Codex-side "thinking…" indicator — three black-and-white dots pulsing in
+// sequence. Minimal, quiet, no verb chatter; visible at the tail of the
+// thread while a turn is in flight and no streaming text has landed yet.
 function CxThinkingLine() {
-  const startRef = useRef(Date.now());
-  const verbRef = useRef<string>(THINKING_VERBS[Math.floor(Math.random() * THINKING_VERBS.length)]!);
-  const [now, setNow] = useState(() => Date.now());
-  const [frameIdx, setFrameIdx] = useState(0);
-  useEffect(() => {
-    const clockId = window.setInterval(() => setNow(Date.now()), 500);
-    const frameId = window.setInterval(
-      () => setFrameIdx((i) => (i + 1) % SPINNER_FRAMES.length),
-      SPINNER_INTERVAL_MS,
-    );
-    return () => { window.clearInterval(clockId); window.clearInterval(frameId); };
-  }, []);
-  const elapsedMs = Math.max(0, now - startRef.current);
-  const tail = thinkingTail(elapsedMs);
   return (
-    <div className="cx-thinking">
-      <span className="cx-thinking-star">{SPINNER_FRAMES[frameIdx]}</span>
-      <span className="cx-thinking-verb">{verbRef.current}…</span>
-      <span className="cx-thinking-parens">(</span>
-      <span className="cx-thinking-meta">{formatDuration(elapsedMs)}</span>
-      {tail && (
-        <>
-          <span className="cx-thinking-sep">·</span>
-          <span className="cx-thinking-tail">{tail}</span>
-        </>
-      )}
-      <span className="cx-thinking-parens">)</span>
+    <div className="cx-thinking" aria-label="Codex is thinking">
+      <span className="cx-dot" />
+      <span className="cx-dot" />
+      <span className="cx-dot" />
     </div>
   );
 }

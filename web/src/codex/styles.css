@@ -329,32 +329,10 @@ body {
 
 .cx-msg {
   display: flex;
-  gap: 14px;
   padding: 16px 0;
   align-items: flex-start;
 }
 .cx-msg + .cx-msg { border-top: 1px solid transparent; }
-.cx-msg-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  margin-top: 2px;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
-.cx-msg.user .cx-msg-avatar {
-  background: var(--cx-hover);
-  color: var(--cx-text);
-}
-.cx-msg.assistant .cx-msg-avatar {
-  background: var(--cx-text);
-  color: #fff;
-}
 .cx-msg-body {
   flex: 1;
   min-width: 0;
@@ -444,33 +422,32 @@ body {
 .cx-msg-text.md a { color: var(--cx-accent, #C96442); text-decoration: underline; }
 .cx-msg-text.md hr { border: 0; border-top: 1px solid var(--cx-border); margin: 12px 0; }
 
-/* ---------- Thinking spinner (tail of thread while a turn is in flight) --- */
+/* ---------- Thinking dots (tail of thread while a turn is in flight) --- */
 .cx-thinking {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 0 8px 44px;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  color: var(--cx-text-2, var(--cx-text));
-  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 0 12px;
 }
-.cx-thinking-star {
-  display: inline-block;
-  width: 1ch;
-  color: var(--cx-accent, #C96442);
-  font-weight: 600;
+.cx-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cx-text);
+  animation: cx-dot-pulse 1.2s ease-in-out infinite;
 }
-.cx-thinking-verb { color: var(--cx-text); font-weight: 500; }
-.cx-thinking-parens,
-.cx-thinking-sep,
-.cx-thinking-meta,
-.cx-thinking-tail { color: var(--cx-text-2, var(--cx-text)); opacity: 0.75; }
+.cx-dot:nth-child(1) { animation-delay: 0s; }
+.cx-dot:nth-child(2) { animation-delay: 0.18s; }
+.cx-dot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes cx-dot-pulse {
+  0%, 60%, 100% { background: var(--cx-text); opacity: 0.9; transform: scale(1); }
+  30%           { background: var(--cx-muted-2); opacity: 0.35; transform: scale(0.7); }
+}
 
 /* ---------- Reasoning ---------- */
 
 .cx-reasoning {
-  margin: 6px 0 10px 44px;
+  margin: 6px 0 10px 0;
   padding: 8px 12px;
   background: var(--cx-sidebar);
   border: 1px solid var(--cx-border);
@@ -504,7 +481,7 @@ body {
 /* ---------- GenUI (render_ui) cards ---------- */
 
 .cx-genui {
-  margin: 12px 0 12px 44px;
+  margin: 12px 0 12px 0;
   border: 1px solid var(--cx-border);
   border-radius: var(--cx-radius-lg);
   background: var(--cx-surface);
@@ -585,7 +562,7 @@ body {
 /* ---------- Tool cards ---------- */
 
 .cx-tool {
-  margin: 10px 0 10px 44px;
+  margin: 10px 0 10px 0;
   border: 1px solid var(--cx-border);
   border-radius: var(--cx-radius-lg);
   background: var(--cx-surface);
@@ -1376,12 +1353,11 @@ body {
   padding: 14px 18px 8px;
   gap: 2px;
 }
-.cx-tile-body .cx-msg { padding: 10px 0; gap: 12px; }
+.cx-tile-body .cx-msg { padding: 10px 0; }
 .cx-tile-body .cx-msg-text { font-size: 13.5px; line-height: 1.6; }
-.cx-tile-body .cx-msg-avatar { width: 24px; height: 24px; font-size: 10px; margin-top: 3px; }
 .cx-tile-body .cx-msg-role { font-size: 10.5px; margin-bottom: 3px; }
 .cx-tile-body .cx-reasoning,
-.cx-tile-body .cx-tool { margin-left: 36px; }
+.cx-tile-body .cx-tool { margin-left: 0; }
 .cx-tile-body .cx-tool { border-radius: var(--cx-radius); }
 .cx-tile-body .cx-tool-head { padding: 6px 10px; }
 .cx-tile-body .cx-tool-cmd,
