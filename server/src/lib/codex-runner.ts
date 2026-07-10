@@ -34,7 +34,7 @@ import type {
   ThreadOptions,
   UserInput,
 } from '@openai/codex-sdk';
-import { getActiveCodexProvider, getCodexConfig } from './codex-config.js';
+import { getActiveCodexProvider, getCodexConfig, type CodexRuntimeOverride } from './codex-config.js';
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
 
 // Absolute path + command for the standalone stdio MCP server that exposes
@@ -103,11 +103,16 @@ export type CodexRunOptions = {
   resume?: string;
   abortController?: AbortController;
   images?: AttachedImage[];
+  /** Per-turn runtime knobs; each field falls back to the global default. */
+  runtime?: CodexRuntimeOverride;
 };
 
-// Build the CodexOptions + ThreadOptions from our persisted settings. Kept
-// here (not exported) so the runner is the single caller — settings changes
-// take effect on the next `runCodex()` without hot-reload plumbing.
+// Build the CodexOptions + ThreadOptions from our persisted settings plus an
+// optional per-turn override. Kept here (not exported) so the runner is the
+// single caller — settings changes take effect on the next `runCodex()`
+// without hot-reload plumbing. Override fields (effort / sandbox / approval /
+// web-search) win over the global defaults when present; omitted fields fall
+// back to the global runtime and active provider.
 //
 // When the active selection is the built-in `system` provider we return the
 // minimum surface possible: no baseUrl / apiKey override, no
@@ -115,9 +120,11 @@ export type CodexRunOptions = {
 // ~/.codex/config.toml as-is. Sandbox / approval come from runtime knobs
 // (independent of provider choice) and skipGitRepoCheck stays on so the
 // server can spawn threads from arbitrary cwds.
-function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
+function buildOptions(override?: CodexRuntimeOverride): { codex: CodexOptions; thread: ThreadOptions } {
   const s = getCodexConfig();
   const p = getActiveCodexProvider();
+  const sandboxMode = override?.sandboxMode ?? s.runtime.sandboxMode;
+  const approvalPolicy = override?.approvalPolicy ?? s.runtime.approvalPolicy;
 
   // Inject the Macaron stdio MCP server into every codex spawn so `render_ui`
   // is always available regardless of which provider is active. We do NOT
@@ -145,14 +152,20 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
 
   if (!p) {
     // System pass-through — inherit everything from ~/.codex/config.toml.
+    // The override fields are the exception: system mode has no provider to
+    // read them from, so we thread them through only when the caller set one
+    // (a bare `override?.x`, no global fallback — an explicit `false` for
+    // webSearchEnabled must be preserved, not collapsed against a default).
     return {
       codex: {
         codexPathOverride: CODEX_BINARY,
         config: mcpConfig,
       },
       thread: {
-        sandboxMode: s.runtime.sandboxMode,
-        approvalPolicy: s.runtime.approvalPolicy,
+        sandboxMode,
+        approvalPolicy,
+        modelReasoningEffort: override?.reasoningEffort,
+        webSearchEnabled: override?.webSearchEnabled,
         skipGitRepoCheck: true,
       },
     };
@@ -170,7 +183,7 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
         model_provider: p.modelProvider,
         model: p.model,
         review_model: p.model,
-        model_reasoning_effort: p.reasoningEffort,
+        model_reasoning_effort: override?.reasoningEffort ?? p.reasoningEffort,
         model_context_window: p.contextWindow,
         model_auto_compact_token_limit: p.autoCompactTokenLimit,
         disable_response_storage: p.disableResponseStorage,
@@ -183,10 +196,10 @@ function buildOptions(): { codex: CodexOptions; thread: ThreadOptions } {
     },
     thread: {
       model: p.model,
-      sandboxMode: s.runtime.sandboxMode,
-      approvalPolicy: s.runtime.approvalPolicy,
-      modelReasoningEffort: p.reasoningEffort,
-      webSearchEnabled: p.webSearchEnabled,
+      sandboxMode,
+      approvalPolicy,
+      modelReasoningEffort: override?.reasoningEffort ?? p.reasoningEffort,
+      webSearchEnabled: override?.webSearchEnabled ?? p.webSearchEnabled,
       skipGitRepoCheck: true,
     },
   };
@@ -239,9 +252,9 @@ export async function* runCodex(opts: CodexRunOptions): AsyncGenerator<RunnerEve
     return new Promise((res) => waiters.push(res));
   };
 
-  const { codex: codexOpts, thread: threadOpts } = buildOptions();
+  const { codex: codexOpts, thread: threadOpts } = buildOptions(opts.runtime);
   console.log(
-    `[codex-runner] starting  model=${threadOpts.model}  base=${codexOpts.baseUrl || '(sdk default)'}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}  cwd=${opts.cwd}`,
+    `[codex-runner] starting  model=${threadOpts.model}  effort=${threadOpts.modelReasoningEffort ?? '(default)'}  sandbox=${threadOpts.sandboxMode}  base=${codexOpts.baseUrl || '(sdk default)'}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}  cwd=${opts.cwd}`,
   );
 
   // De-dupe tool cards: item.started and item.updated may fire multiple

@@ -30,6 +30,7 @@ import {
   updateCodexRuntime,
   type CodexCustomProvider,
   type CodexRuntimeOptions,
+  type CodexRuntimeOverride,
 } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd, liveGet } from '../lib/live-registry.js';
@@ -38,8 +39,30 @@ import type { AttachedImage } from '../lib/claude-runner.js';
 import type { SessionStreamEvent } from '@macaron/shared';
 
 type SidParams = { sid: string };
-type NewThreadBody = { text?: string; cwd?: string; images?: AttachedImage[] };
-type MessageBody = { text?: string; images?: AttachedImage[] };
+type NewThreadBody = { text?: string; cwd?: string; images?: AttachedImage[]; runtime?: CodexRuntimeOverride };
+type MessageBody = { text?: string; images?: AttachedImage[]; runtime?: CodexRuntimeOverride };
+
+// Known enum unions (must match @openai/codex-sdk's ModelReasoningEffort /
+// SandboxMode / ApprovalMode). A persisted override is client-controlled and
+// survives across turns, so an unknown or empty-string value here would wedge
+// every future turn in the workspace — validate and drop anything off-enum so
+// the field falls back to the global default instead.
+const EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh']);
+const SANDBOXES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+const APPROVALS = new Set(['never', 'on-request', 'on-failure', 'untrusted']);
+
+// Pull the per-turn runtime override off a request body, keeping only the
+// fields the client actually sent and whose values are valid enum members.
+function pickRuntimeOverride(b: { runtime?: CodexRuntimeOverride } | undefined): CodexRuntimeOverride | undefined {
+  const r = b?.runtime;
+  if (!r || typeof r !== 'object') return undefined;
+  const o: CodexRuntimeOverride = {};
+  if (typeof r.reasoningEffort === 'string' && EFFORTS.has(r.reasoningEffort)) o.reasoningEffort = r.reasoningEffort;
+  if (typeof r.sandboxMode === 'string' && SANDBOXES.has(r.sandboxMode)) o.sandboxMode = r.sandboxMode;
+  if (typeof r.approvalPolicy === 'string' && APPROVALS.has(r.approvalPolicy)) o.approvalPolicy = r.approvalPolicy;
+  if (typeof r.webSearchEnabled === 'boolean') o.webSearchEnabled = r.webSearchEnabled;
+  return Object.keys(o).length ? o : undefined;
+}
 
 export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
   // --- Threads -----------------------------------------------------------
@@ -171,7 +194,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     startSSE(reply);
     sseSend(reply, { type: 'starting', cwd });
     const abortController = new AbortController();
-    const stream = runCodex({ prompt: text, cwd, images, abortController });
+    const stream = runCodex({ prompt: text, cwd, images, abortController, runtime: pickRuntimeOverride(req.body) });
     // pipeCodexToSSE owns the iteration, so wrap the runner to install the abort
     // under the sid once the first `session` event reveals it.
     const wrapped = (async function* () {
@@ -203,7 +226,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
       const abortController = new AbortController();
       registerRun(sid, abortController);
-      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, { cwd, text, hasImages: images.length > 0 });
+      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController, runtime: pickRuntimeOverride(req.body) }), sid, { cwd, text, hasImages: images.length > 0 });
     },
   );
 
