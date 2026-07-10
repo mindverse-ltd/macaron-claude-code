@@ -105,6 +105,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     reply: Parameters<typeof startSSE>[0],
     stream: ReturnType<typeof runCodex>,
     sid: string | null,
+    abortController: AbortController,
     live: { cwd: string; text: string; hasImages: boolean },
   ) => {
     let clientGone = false;
@@ -149,7 +150,6 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
           safeSend({ type: 'done', exitCode: ev.exitCode });
           if (capturedSid) {
             liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
-            endRun(capturedSid);
             // Name the thread from its opening exchange once the turn's rollout
             // has landed. Fire-and-forget: no-op if already titled, never blocks
             // the response, failures swallowed.
@@ -163,9 +163,11 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       }
     })().catch((e: unknown) => {
       const msg = (e as Error).message;
-      if (capturedSid) { liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg }); endRun(capturedSid); }
+      if (capturedSid) liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
       safeSend({ type: 'error', error: msg });
       if (!clientGone) sseDone(reply);
+    }).finally(() => {
+      if (capturedSid) endRun(capturedSid, abortController);
     });
   };
 
@@ -194,7 +196,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         yield ev;
       }
     })();
-    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null, { cwd, text, hasImages: images.length > 0 });
+    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null, abortController, { cwd, text, hasImages: images.length > 0 });
   });
 
   app.post<{ Params: SidParams; Body: MessageBody }>(
@@ -220,12 +222,12 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         const detail = await readCodexSessionMessages(sid);
         if (detail.cwd) cwd = detail.cwd;
       } catch (e) {
-        endRun(sid);
+        endRun(sid, abortController);
         return reply.status(404).send({ error: (e as Error).message });
       }
       startSSE(reply);
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
-      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, { cwd, text, hasImages: images.length > 0 });
+      pipeCodexToSSE(reply, runCodex({ prompt: text, cwd, resume: sid, images, abortController }), sid, abortController, { cwd, text, hasImages: images.length > 0 });
     },
   );
 

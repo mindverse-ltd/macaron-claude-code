@@ -380,7 +380,6 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           else if (ev.kind === 'error') safeSend({ type: 'error', error: ev.error });
           else if (ev.kind === 'done') {
             safeSend({ type: 'done', exitCode: ev.exitCode });
-            endRun(sid);
             pushSessionDone(project, sid);
             // After the main turn: stream a throwaway follow-up-suggestions
             // query resuming the same session (shared prefix → provider cache
@@ -405,10 +404,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           }
         }
       })().catch((e: unknown) => {
-        endRun(sid);
         const msg = (e as Error).message;
         safeSend({ type: 'error', error: msg });
         if (!clientGone) sseDone(reply);
+      }).finally(() => {
+        endRun(sid, abortController);
       });
     },
   );

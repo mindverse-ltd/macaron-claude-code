@@ -17,14 +17,16 @@ export function claimRun(sid: string, ac: AbortController): boolean {
 
 export function abortRun(sid: string): boolean {
   const ac = runs.get(sid);
-  if (!ac) return false;
+  if (!ac || ac.signal.aborted) return false;
   ac.abort();
-  runs.delete(sid);
   return true;
 }
 
-export function endRun(sid: string): void {
-  runs.delete(sid);
+// Only the owner may release a claim. Aborting deliberately keeps the claim
+// until this cleanup runs, preventing stop/reclaim/stale-cleanup ABA races.
+export function endRun(sid: string, ac: AbortController): boolean {
+  if (runs.get(sid) !== ac) return false;
+  return runs.delete(sid);
 }
 
 // Idle-gate for the autonomous loop: true while a turn (user or loop) is in

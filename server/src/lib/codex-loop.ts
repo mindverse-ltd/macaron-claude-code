@@ -245,7 +245,7 @@ async function driveIteration(sid: string): Promise<void> {
     failed = true;
     emit(rt, { type: 'error', error: (e as Error).message });
   } finally {
-    endRun(sid);
+    endRun(sid, ac);
   }
 
   // The /stop route aborts via active-runs — treat that as a user halt, not an
