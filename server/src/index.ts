@@ -35,6 +35,8 @@ import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
 import { registerGitRoutes } from './routes/git.js';
 import { registerShareRoutes } from './routes/share.js';
+import { registerSearchRoutes } from './routes/search.js';
+import { isSearchEnabled, syncAll } from './lib/search-index.js';
 import { registerAgentRoutes } from './routes/agents.js';
 import { registerPushRoutes } from './routes/push.js';
 import { registerTunnelRoutes } from './routes/tunnel.js';
@@ -121,6 +123,7 @@ await app.register(async (instance) => {
   await registerCodexRoutes(instance);
   await registerGitRoutes(instance);
   await registerShareRoutes(instance);
+  await registerSearchRoutes(instance);
   await registerAgentRoutes(instance);
   await registerScheduleRoutes(instance);
   await registerTerminalRoutes(instance);
@@ -187,6 +190,16 @@ try {
   // snapshot cache; without an import TS lazily skips them and the first real render_ui still pays
   // ~300ms. checkGenUI never throws (it degrades to an ack on failure), so this can't crash boot.
   setImmediate(() => checkGenUI('import "$macaron/ui";\nexport default function App() { return null }'));
+  // Build the search index in the background so first-boot never blocks on a
+  // full ~/.claude/projects walk. Best-effort: a failed sync just leaves the
+  // index empty until the next self-refreshing search retries it.
+  if (isSearchEnabled()) {
+    setImmediate(() => {
+      syncAll()
+        .then((r) => app.log.info(`search index synced: ${r.changed}/${r.scanned} files`))
+        .catch((e) => app.log.warn(`search index sync failed: ${(e as Error).message}`));
+    });
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

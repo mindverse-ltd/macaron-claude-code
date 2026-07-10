@@ -328,6 +328,16 @@ export function Sidebar() {
         </div>
       </Link>
 
+      <button
+        type="button"
+        className="sb-search"
+        onClick={() => window.dispatchEvent(new CustomEvent('macaron:open-search'))}
+        title="Search Claude sessions (⌘K)"
+      >
+        <span className="sb-search-icon">⌕</span>
+        <span className="sb-search-label">Search sessions</span>
+        <kbd className="sb-search-kbd">⌘K</kbd>
+      </button>
       <Link className={'sb-nav-link' + (location.pathname === '/board' ? ' active' : '')} to="/board">
         <span className="sb-nav-icon">▦</span>
         <span>Dispatch board</span>

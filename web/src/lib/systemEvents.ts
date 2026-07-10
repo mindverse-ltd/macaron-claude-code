@@ -6,15 +6,21 @@
 // server restarts, so there's no manual retry loop here.
 
 import type { SystemEvent } from '@macaron/shared';
+import { getToken } from './auth';
 
 type Listener = (ev: SystemEvent) => void;
 
 let source: EventSource | null = null;
 const listeners = new Set<Listener>();
 
+function systemEventsUrl(): string {
+  const token = getToken();
+  return token ? `/api/events?token=${encodeURIComponent(token)}` : '/api/events';
+}
+
 function ensureSource(): void {
   if (source) return;
-  source = new EventSource('/api/events');
+  source = new EventSource(systemEventsUrl());
   source.onmessage = (e) => {
     let payload: SystemEvent | { type: string };
     try {

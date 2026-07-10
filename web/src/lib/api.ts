@@ -27,6 +27,8 @@ export type {
   WorktreeInfo,
   UsageResponse,
   RateLimitWindow,
+  SearchHit,
+  SearchResponse,
   HooksResponse,
   HookHandlerView,
   HookScope,
@@ -70,6 +72,7 @@ import type {
   TunnelState,
   WorktreeInfo,
   UsageResponse,
+  SearchResponse,
   HooksResponse,
   SkillInfo,
   SkillDetail,
@@ -419,6 +422,10 @@ export const api = {
       body: JSON.stringify({ provider }),
     }),
   stopTunnel: () => req<TunnelState>('/api/tunnel/stop', { method: 'POST' }),
+  search: (q: string, limit = 40) =>
+    getJSON<SearchResponse>(
+      `/api/search?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(String(limit))}`,
+    ),
   gitStatus: (project: string) =>
     getJSON<GitStatus>(`/api/git/${encodeURIComponent(project)}/status`),
   gitDiff: (project: string, file: string, opts: { staged?: boolean; untracked?: boolean } = {}) => {
