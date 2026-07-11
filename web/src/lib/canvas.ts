@@ -6,7 +6,7 @@
 // (1–12) and rowSpan (1–20). Auto-flow places tiles in order; a resize
 // nudges the numbers, an animation smooths the transition.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { newTerminalSid } from './terminal';
 
 export type TileGeom = { sid: string; colSpan: number; rowSpan: number };
@@ -170,30 +170,36 @@ export function useCanvas(project: string): {
   promoteDraft: (realSid: string) => void;
 } {
   const [state, setState] = useState<CanvasState>(() => loadCanvas(project));
+  const stateRef = useRef(state);
 
   useEffect(() => {
-    setState(loadCanvas(project));
+    const sync = () => {
+      const next = loadCanvas(project);
+      stateRef.current = next;
+      setState(next);
+    };
+    sync();
     let set = listeners.get(project);
     if (!set) {
       set = new Set();
       listeners.set(project, set);
     }
-    const cb = () => setState(loadCanvas(project));
-    set.add(cb);
+    set.add(sync);
     return () => {
-      set!.delete(cb);
+      set!.delete(sync);
       if (set!.size === 0) listeners.delete(project);
     };
   }, [project]);
 
   const update = useCallback(
     (patch: (cur: CanvasState) => CanvasState) => {
-      setState((cur) => {
-        const next = patch(cur);
-        saveCanvas(project, next);
-        notify(project);
-        return next;
-      });
+      const cur = stateRef.current;
+      const next = patch(cur);
+      if (next === cur) return;
+      stateRef.current = next;
+      saveCanvas(project, next);
+      setState(next);
+      notify(project);
     },
     [project],
   );
