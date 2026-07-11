@@ -6,7 +6,7 @@ argument-hint: "[port]"
 
 Start the Macaron WebUI server. The port defaults to 7878; the user may pass an alternate port as `$1`.
 
-The plugin arrives as source (no committed `dist/`) — `start.sh` uses `corepack pnpm` to install and build on first launch (~60s), then reuses the cached build on subsequent launches. Port collisions, install / build retries, and URL printing are all handled inside the script. **Do NOT** rm node_modules, run npm install, run npm run build, or otherwise "prepare" the plugin before invoking `start.sh` — call it once and let it print. If it errors out, follow the "fix:" line it prints on stderr and try again.
+The plugin arrives as source (no committed `dist/`) — `start.sh` uses `corepack pnpm` to install and build on first launch (~60s), then reuses the cached build on subsequent launches. When invoked from a plugin cache directory (which the host can prune under us), it transparently mirrors source into `~/.macaron/runtime/<version>/` and runs from there so `node_modules` / `dist` survive. Port collisions, install / build retries, and URL printing are all handled inside the script. **Do NOT** rm node_modules, run npm install, run npm run build, or otherwise "prepare" the plugin before invoking `start.sh` — call it once and let it print. If it errors out, follow the "fix:" line it prints on stderr and try again.
 
 Run exactly this and nothing else. `MACARON_ENGINE=claude` is explicit so a stray shell export (e.g. from a prior Codex-side session) can't flip the WebUI to the wrong engine:
 
