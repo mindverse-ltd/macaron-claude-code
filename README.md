@@ -1,4 +1,4 @@
-# Macaron · Claude Code plugin (demo)
+# Macaron · Claude Code plugin
 
 A Claude Code plugin that opens a local **WebUI** giving you three things you can't get from the CLI alone:
 
@@ -10,28 +10,12 @@ The plugin bundles the official **`genui-builder` skill** so any Claude Code ins
 
 ---
 
-## Run via npx
-
-No clone, no build — just Node 22+. Pre-release builds publish to [pkg.pr.new](https://pkg.pr.new) on every push to `main`, so `@main` always points at the latest build (a PR number or commit sha works too, e.g. `mcc@8`):
-
-```bash
-npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main            # → http://localhost:7878
-npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main --port 8080
-MACARON_API_KEY=sk-… npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main
-```
-
-The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `typescript`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
-
-`bunx` can't run a bare tarball URL, but the `name@url` form works: `bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main`.
-
----
-
 ## Install
 
-The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`). Use the full https URL — the `owner/repo` shorthand clones over SSH, which fails without a GitHub SSH key. In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
+The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`). Use the full https URL — the `owner/repo` shorthand may clone over SSH, which fails without a GitHub SSH key. In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
-/plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
+/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 ```
 
 ```
@@ -41,11 +25,11 @@ The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json
 or from the shell:
 
 ```bash
-claude plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
+claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 claude plugin install macaron@macaron
 ```
 
-For local development, install your checkout directly: `claude plugin install /path/to/macaron-claude-code`.
+For local development, install your checkout directly: `claude plugin install /path/to/macaron`.
 
 Verify:
 
@@ -100,12 +84,10 @@ Remote requests must then present the token; localhost stays frictionless (loopb
 .claude-plugin/                   plugin manifest + marketplace (install from GitHub)
 commands/macaron.md               /macaron slash command
 skills/genui-builder/             bundled skill (used by Claude Code directly)
-bin/mcc.mjs                       `mcc` npx entry — boots the prebuilt server
 start.sh                          one-time npm install + build, boots server in background
 shared/                           domain types + SSE protocol (server ↔ web)
 server/                           Fastify API, Claude Agent SDK runner, provider relay
 web/                              Vite + React UI
-.github/workflows/pkg-pr-new.yml  publishes the npx tarball to pkg.pr.new on every push
 ```
 
 ## Notes

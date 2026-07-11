@@ -10,7 +10,7 @@
 ### Claude Code
 
 ```
-/plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
+/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 /plugin install macaron@macaron
 ```
 
@@ -19,7 +19,7 @@
 ### Codex
 
 ```bash
-codex plugin marketplace add mindverse-ltd/macaron-claude-code
+codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 codex plugin add macaron@macaron
 ```
 
@@ -53,4 +53,4 @@ codex plugin add macaron@macaron           # 重装
 
 ## 反馈
 
-<https://github.com/mindverse-ltd/macaron-claude-code/issues>
+<https://github.com/MindLab-Research/macaron-artifacts/issues>

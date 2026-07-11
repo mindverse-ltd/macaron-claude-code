@@ -49,7 +49,7 @@ Quote the URL verbatim so the user can click it directly. If `open` fails in a s
 
 ## Notes for the model
 
-- Do NOT run `mcx` / `mcc` directly with `npx` — always go through `start.sh` so the port-collision handler and env plumbing (especially `MACARON_ENGINE=codex`) both apply.
+- Do NOT run `mcx` / `mcc` directly — always go through `start.sh` so the port-collision handler and env plumbing (especially `MACARON_ENGINE=codex`) both apply.
 - If the port is busy AND the script fails to reclaim it: report the failure verbatim and ask the user for a free port (`MACARON_PORT=<n>`).
 - If `start.sh` errors on install or build: it prints one or more `[macaron] fix: <command>` lines on stderr. Run each printed fix in order, then rerun `start.sh`. Report what happened.
 - The WebUI binds to `127.0.0.1:${port}` — nothing leaves the user's machine.
