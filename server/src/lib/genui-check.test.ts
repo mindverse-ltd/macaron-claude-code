@@ -41,6 +41,14 @@ test('reports strict syntax diagnostics instead of compiler recovery', async () 
   assert.match(result.diagnostics ?? '', /\(line 2:27\)/);
 });
 
+test('preserves leading source lines in shared syntax diagnostics', async () => {
+  const result = await checkGenUI(`\n\nexport default function App() {\n  const p = 'Type what you're feeling right now';\n  return <div>ok</div>;\n}`);
+
+  assert.equal(result.ok, false);
+  assert.match(result.diagnostics ?? '', /unescaped '/);
+  assert.match(result.diagnostics ?? '', /\(line 4:27\)/);
+});
+
 test('keeps host semantic diagnostics for invalid facade usage', async () => {
   const badProp = await checkGenUI(
     `import { Text } from '$macaron/ui';\nexport default function App() { return <Text bogus="value">Hello</Text>; }`,
