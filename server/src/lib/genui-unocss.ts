@@ -1,4 +1,4 @@
-import type { UnocssLintToolkit } from '@genui/lint';
+import type { UnocssLintToolkit } from '@genui/diagnostics/lint';
 import type { Rule, UserShortcuts } from '@unocss/core';
 import type { Theme } from '@unocss/preset-wind3';
 
@@ -6,7 +6,7 @@ const hsl = (name: string) => `hsl(var(--${name}))`;
 const withForeground = (name: string) => ({ DEFAULT: hsl(name), foreground: hsl(`${name}-foreground`) });
 
 // Keep this host configuration aligned with web/src/macaron-vendor/lib/standalone-uno.ts.
-// The lint implementation itself stays in @genui/lint; this file only supplies the host's theme extensions.
+// The lint implementation stays in @genui/diagnostics/lint; this file only supplies the host's theme extensions.
 const unoTheme: Theme = {
   colors: {
     border: hsl('border'),

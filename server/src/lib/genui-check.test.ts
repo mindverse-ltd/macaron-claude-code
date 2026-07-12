@@ -22,6 +22,16 @@ test('accepts host UnoCSS shortcuts', async () => {
   assert.deepEqual(await checkGenUI(validModule('bg-macaron-gradient')), { ok: true });
 });
 
+test('rejects UnoCSS utilities assembled across template interpolation', async () => {
+  const result = await checkGenUI(
+    "export default function App() { const color = 'red'; return <div className={`bg-${color}-500`}>Hello</div>; }",
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.diagnostics ?? '', /\[unocss\]/);
+  assert.match(result.diagnostics ?? '', /Dynamic UnoCSS class `bg-\$\{color\}-500` cannot be extracted/);
+});
+
 test('reports strict syntax diagnostics instead of compiler recovery', async () => {
   const result = await checkGenUI(`export default function App() {\n  const p = 'Type what you're feeling right now';\n  return <div>ok</div>;\n}`);
 

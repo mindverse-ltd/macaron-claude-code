@@ -9,7 +9,7 @@ import path from "node:path";
 import ts from "typescript";
 import { createCheckResult, hasErrorDiagnostic, type GenUICheckResult, type GenUIDiagnostic } from "@genui/diagnostics";
 import { createTypeCheckService, DEFAULT_APP_FILENAME, DEFAULT_MAX_REPORTED, diagnosticMessage, type TypeCheckService } from "@genui/diagnostics/type-check";
-import { collectGenUILintDiagnostics } from "@genui/lint";
+import { collectGenUILintDiagnostics } from "@genui/diagnostics/lint";
 import { WEB_ROOT } from "../config.js";
 import { loadGenUIUnocssToolkit } from "./genui-unocss.js";
 

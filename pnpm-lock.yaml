@@ -15,11 +15,8 @@ importers:
         specifier: ^8.0.0
         version: 8.3.0
       '@genui/diagnostics':
-        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44
-        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(typescript@5.9.3)
-      '@genui/lint':
-        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44
-        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)
+        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050
+        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -76,11 +73,8 @@ importers:
         specifier: ^8.0.0
         version: 8.3.0
       '@genui/diagnostics':
-        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44
-        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(typescript@5.9.3)
-      '@genui/lint':
-        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44
-        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)
+        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050
+        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -741,20 +735,14 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@genui/diagnostics@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44':
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44}
-    version: 0.0.1
-    engines: {node: '>=20'}
-    peerDependencies:
-      typescript: '>=5.7'
-
-  '@genui/lint@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44':
-    resolution: {tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44}
+  '@genui/diagnostics@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050':
+    resolution: {integrity: sha512-FnOgypdrGXxx7VZwqw67Y9pxiq/pCzitvvD0TtYwOkcGHdHZ24LJZP594Xo0y+OfiCOTd3MLyuyZtoYp/nkoRg==, tarball: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050}
     version: 0.0.1
     engines: {node: '>=20'}
     peerDependencies:
       '@unocss/autocomplete': ^66.7.5
       '@unocss/core': ^66.7.5
+      typescript: '>=5.7'
 
   '@hono/node-server@1.19.14':
     resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
@@ -3895,18 +3883,12 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@genui/diagnostics@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(typescript@5.9.3)':
-    dependencies:
-      typescript: 5.9.3
-
-  '@genui/lint@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/lint@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)':
+  '@genui/diagnostics@https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@c9de434b1f92f559325c3f06f3d29895dd538050(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)':
     dependencies:
       '@esm.sh/tsx': 1.5.3
-      '@genui/diagnostics': https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@e36b6ab9d5fdf1ce28ab717da6adf0781eaecb44(typescript@5.9.3)
       '@unocss/autocomplete': 66.7.5
       '@unocss/core': 66.7.5
-    transitivePeerDependencies:
-      - typescript
+      typescript: 5.9.3
 
   '@hono/node-server@1.19.14(hono@4.12.28)':
     dependencies:
