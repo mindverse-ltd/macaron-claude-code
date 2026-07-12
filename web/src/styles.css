@@ -3456,6 +3456,16 @@ textarea:focus, select:focus, input:focus {
   padding: 1px 5px;
 }
 .sb-spacer-grow { flex: 1; }
+
+/* Tools group: separator + label so the utility links visually detach
+   from the scrolling workspace list they used to blur into. */
+.sb-tools {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  margin-top: 6px;
+}
+.sb-label-plain { padding-top: 8px; padding-bottom: 4px; }
+
 .sb-settings-link {
   display: flex;
   align-items: center;
@@ -3818,8 +3828,11 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 4px;
-  padding: 7px 10px;
+  /* Content indent (margin-left + padding-left = 16px) matches
+     .sb-brand / .sb-label / .sb-ws-head / .sb-settings-link so the
+     search icon aligns with the WORKSPACES label and workspace rows. */
+  margin: 0 8px 4px;
+  padding: 7px 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -4240,8 +4253,10 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 6px 6px;
-  padding: 8px 12px;
+  /* Same margin-left + padding-left = 16px so this row's icon column
+     aligns with .sb-search above and WORKSPACES / rows below. */
+  margin: 0 8px 6px;
+  padding: 8px 8px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;

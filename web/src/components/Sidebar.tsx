@@ -483,57 +483,29 @@ export function Sidebar() {
 
       <div className="sb-spacer-grow" />
 
-      <Link className="sb-settings-link" to="/agents">
-        <span>🤖</span>
-        <span>Subagents</span>
-      </Link>
+      <div className="sb-tools">
+        <Link className="sb-settings-link" to="/usage">
+          <span>📊</span>
+          <span>Usage</span>
+        </Link>
 
-      <Link className="sb-settings-link" to="/hooks">
-        <span>⚡</span>
-        <span>Hooks</span>
-      </Link>
+        <button
+          type="button"
+          className="sb-settings-link sb-shortcuts-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('macaron:shortcuts'))}
+          title="Keyboard shortcuts"
+        >
+          <span aria-hidden="true">⌨</span>
+          <span>Shortcuts</span>
+          <span className="sb-spacer" />
+          <kbd className="sb-shortcuts-kbd" aria-hidden="true">?</kbd>
+        </button>
 
-      <Link className="sb-settings-link" to="/usage">
-        <span>📊</span>
-        <span>Usage</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/skills">
-        <span>▤</span>
-        <span>Skills</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/prompts">
-        <span>⌘</span>
-        <span>Prompts</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/schedules">
-        <span>⏰</span>
-        <span>Schedules</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/mcp">
-        <span>🧩</span>
-        <span>MCP servers</span>
-      </Link>
-
-      <button
-        type="button"
-        className="sb-settings-link sb-shortcuts-btn"
-        onClick={() => window.dispatchEvent(new CustomEvent('macaron:shortcuts'))}
-        title="Keyboard shortcuts"
-      >
-        <span aria-hidden="true">⌨</span>
-        <span>Shortcuts</span>
-        <span className="sb-spacer" />
-        <kbd className="sb-shortcuts-kbd" aria-hidden="true">?</kbd>
-      </button>
-
-      <Link className="sb-settings-link" to="/settings">
-        <span>⚙</span>
-        <span>Settings</span>
-      </Link>
+        <Link className="sb-settings-link" to="/settings">
+          <span>⚙</span>
+          <span>Settings</span>
+        </Link>
+      </div>
 
       <footer className="sb-footer">
         <RateLimitMeters />
