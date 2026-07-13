@@ -14,6 +14,7 @@ import { baseOptions } from '@/lib/layout.shared';
 import { gitConfig } from '@/lib/shared';
 import { useFumadocsLoader } from 'fumadocs-core/source/client';
 import { useMDXComponents } from '@/components/mdx';
+import { SidebarHotkey } from '@/components/sidebar-hotkey';
 
 export async function loader({ params }: Route.LoaderArgs) {
   const slugs = params['*'].split('/').filter((v) => v.length > 0);
@@ -65,6 +66,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
 
   return (
     <DocsLayout {...baseOptions()} tree={pageTree}>
+      <SidebarHotkey />
       {clientLoader.useContent(loaderData.path, {
         markdownUrl,
         path,
