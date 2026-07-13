@@ -75,15 +75,15 @@ export default function Home() {
             <Tab value="claude-code">
               <Steps>
                 <Step>
-                  <p className="font-medium">Add the marketplace source</p>
+                  <p className="font-medium">Add the Marketplace Source</p>
                   <Command code="claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
-                  <p className="font-medium">Install the plugin</p>
+                  <p className="font-medium">Install the Plugin</p>
                   <Command code="claude plugin install macaron@macaron" />
                 </Step>
                 <Step>
-                  <p className="font-medium">Run it and open the WebUI</p>
+                  <p className="font-medium">Run It and Open the WebUI</p>
                   <p className="text-sm text-fd-muted-foreground">
                     Run <code className="text-fd-foreground">/macaron</code> in a session — the WebUI opens on{' '}
                     <code className="text-fd-foreground">http://localhost:7878</code>.
@@ -94,15 +94,15 @@ export default function Home() {
             <Tab value="codex">
               <Steps>
                 <Step>
-                  <p className="font-medium">Add the marketplace source</p>
+                  <p className="font-medium">Add the Marketplace Source</p>
                   <Command code="codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
-                  <p className="font-medium">Add the plugin</p>
+                  <p className="font-medium">Add the Plugin</p>
                   <Command code="codex plugin add macaron@macaron" />
                 </Step>
                 <Step>
-                  <p className="font-medium">Run it and open the WebUI</p>
+                  <p className="font-medium">Run It and Open the WebUI</p>
                   <p className="text-sm text-fd-muted-foreground">
                     Ask Codex to open the Macaron WebUI — it serves on{' '}
                     <code className="text-fd-foreground">http://localhost:7979</code>.
@@ -121,10 +121,39 @@ export default function Home() {
           </p>
           <Tabs items={['bun', 'npm']}>
             <Tab value="bun">
-              <Command code={`bunx mcc@${PKG}\nbunx mcx@${PKG}`} />
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <ClaudeCode size={15} /> Claude — <code className="text-fd-muted-foreground">mcc</code>
+                  </div>
+                  <Command code={`bunx mcc@${PKG}`} />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <Codex size={15} /> Codex — <code className="text-fd-muted-foreground">mcx</code>
+                  </div>
+                  <Command code={`bunx mcx@${PKG}`} />
+                </div>
+              </div>
             </Tab>
             <Tab value="npm">
-              <Command code={`npx mcc@${PKG}\nnpx mcx@${PKG}`} />
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <ClaudeCode size={15} /> Claude — <code className="text-fd-muted-foreground">mcc</code>
+                  </div>
+                  <Command code={`npx mcc@${PKG}`} />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <Codex size={15} /> Codex — <code className="text-fd-muted-foreground">mcx</code>
+                  </div>
+                  <Command code={`npx -p "mcc@${PKG}" mcx`} />
+                  <p className="mt-1.5 text-xs text-fd-muted-foreground">
+                    npm resolves bins by package name, so it needs <code>-p</code> to reach the <code>mcx</code> bin.
+                  </p>
+                </div>
+              </div>
             </Tab>
           </Tabs>
         </section>
