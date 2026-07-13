@@ -32,8 +32,8 @@ export const RENDER_UI_INSTRUCTIONS =
   'explanations, code walkthroughs, debugging traces, single-line Q&A, code you\'re asked ' +
   'to write to a FILE (that\'s Edit/Write, not render_ui).';
 
-export function handleRenderUI(code: string): RenderUIResult {
-  const result = checkGenUI(code);
+export async function handleRenderUI(code: string): Promise<RenderUIResult> {
+  const result = await checkGenUI(code);
   const text = result.ok
     ? 'Rendered inline. The user sees the UI now.'
     : `Rendered inline, but the TSX has issues:\n${result.diagnostics}`;

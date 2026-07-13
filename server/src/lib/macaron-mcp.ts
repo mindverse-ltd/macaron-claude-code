@@ -34,11 +34,11 @@ export const macaronMcpServer = createSdkMcpServer({
         // The route layer streams partial code to the client from Claude's
         // input_json_delta events, so the user already sees the rendered UI by
         // the time this handler runs. What we add here is diagnostics: run TS
-        // checks against the vendored $macaron/ui source and feed { ok,
-        // diagnostics? } back to Claude as the tool_result, so a bad render
+        // shared lint + semantic checks and feed { ok, diagnostics? } back to
+        // Claude as the tool_result, so a bad render
         // (wrong props, missing exports, type errors) can self-correct in-turn.
-        const { text } = handleRenderUI(code);
-        return { content: [{ type: 'text' as const, text }] };
+        const { text, ok } = await handleRenderUI(code);
+        return { isError: !ok, content: [{ type: 'text' as const, text }] };
       },
       // Keep render_ui visible in the first prompt even when Claude defers MCP
       // tools behind tool search. The server-level alwaysLoad covers any
