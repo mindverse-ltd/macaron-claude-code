@@ -51,7 +51,14 @@ bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Clau
 bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Codex  → http://localhost:7979
 ```
 
-`bunx` resolves by bin name, so `mcx@…` runs the Codex launcher from the same `mcc` package. Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-claude-code/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
+`bunx` resolves by bin name, so `mcx@…` runs the Codex launcher from the same `mcc` package. `npx` resolves by package name instead, so use the standalone `mcx` package for it:
+
+```bash
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+```
+
+Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-claude-code/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
 
 Verify:
 

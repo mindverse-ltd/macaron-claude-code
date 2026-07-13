@@ -64,6 +64,12 @@ importers:
         specifier: ^0.0.75
         version: 0.0.75
 
+  mcx:
+    dependencies:
+      mcc:
+        specifier: workspace:*
+        version: link:..
+
   server:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':

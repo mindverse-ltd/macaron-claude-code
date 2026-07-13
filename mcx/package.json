@@ -1,0 +1,19 @@
+{
+  "name": "mcx",
+  "version": "0.1.0",
+  "description": "Macaron Codex WebUI launcher — `npx mcx@…` boots the Codex SPA over the same runtime as `mcc`.",
+  "type": "module",
+  "bin": {
+    "mcx": "./bin/mcx.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "mcc": "workspace:*"
+  }
+}
