@@ -4,15 +4,45 @@ import { Card, Cards } from 'fumadocs-ui/components/card';
 import { Tab, Tabs, TabsList, TabsTrigger } from 'fumadocs-ui/components/tabs';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { useCopyButton } from 'fumadocs-ui/utils/use-copy-button';
 import { Link } from 'react-router';
-import { MonitorPlay, MessagesSquare, SlidersHorizontal, Wand2, Puzzle, Terminal } from 'lucide-react';
+import { Check, Clipboard, MonitorPlay, MessagesSquare, SlidersHorizontal, Wand2, Puzzle, Terminal } from 'lucide-react';
 import ClaudeCode from '@lobehub/icons/es/ClaudeCode/components/Mono';
 import Codex from '@lobehub/icons/es/Codex/components/Mono';
 import { baseOptions } from '@/lib/layout.shared';
 
-// Fumadocs' code block ships shiki highlighting + a copy button; wrap it so the install steps stay terse.
+function CommandCopyButton({ code }: { code: string }) {
+  const [checked, onClick] = useCopyButton(() => navigator.clipboard.writeText(code));
+
+  return (
+    <button
+      type="button"
+      data-checked={checked || undefined}
+      className="inline-flex items-center justify-center rounded-md p-1 text-sm font-medium transition-colors duration-100 hover:text-fd-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring data-checked:text-fd-accent-foreground [&_svg]:size-4"
+      aria-label={checked ? 'Copied Text' : 'Copy Text'}
+      onClick={onClick}
+    >
+      {checked ? <Check /> : <Clipboard />}
+    </button>
+  );
+}
+
+// Keep the Fumadocs highlighting while binding each copy action directly to its command.
 function Command({ code }: { code: string }) {
-  return <DynamicCodeBlock lang="bash" code={code} />;
+  return (
+    <DynamicCodeBlock
+      lang="bash"
+      code={code}
+      codeblock={{
+        allowCopy: false,
+        Actions: ({ className }) => (
+          <div className={className}>
+            <CommandCopyButton code={code} />
+          </div>
+        ),
+      }}
+    />
+  );
 }
 
 export function meta({}: Route.MetaArgs) {
