@@ -11,14 +11,9 @@ const here = new URL('.', import.meta.url);            // mcx/scripts/
 const pkg = new URL('../', here);                       // mcx/
 const repo = new URL('../../', here);                   // repo root
 
-const copies = [
-  ['server/dist/index.js', 'server/dist/index.js'],
-  ['web/dist', 'web/dist'],
-];
-
-for (const [from, to] of copies) {
-  const dest = new URL(to, pkg);
+for (const path of ['server/dist/index.js', 'web/dist']) {
+  const dest = new URL(path, pkg);
   await rm(dest, { recursive: true, force: true });
   await mkdir(new URL('.', dest), { recursive: true });
-  await cp(new URL(from, repo), dest, { recursive: true });
+  await cp(new URL(path, repo), dest, { recursive: true });
 }

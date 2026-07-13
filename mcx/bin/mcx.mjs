@@ -34,6 +34,8 @@ async function printVersion() {
 
 const readValue = (i, flag) => {
   const v = args[i + 1];
+  // Reject only a missing or flag-like next token; an empty value passes here
+  // (matching `--flag=`) and, for --port, is caught by the range check below.
   if (v === undefined || v.startsWith('-')) throw new Error(`${flag} requires a value`);
   return v;
 };
@@ -48,6 +50,8 @@ try {
     if (flag === '--version' || flag === '-v') { await printVersion(); process.exit(0); }
     if (flag === '--host' || flag === '--port') {
       process.env[flag === '--host' ? 'MACARON_HOST' : 'MACARON_PORT'] = inline ?? readValue(i, flag);
+      // Advance past the consumed value only for the space form (inline === null).
+      // `--flag=` (inline='') already has its value, so it must NOT skip the next arg.
       if (inline === null) i++;
       continue;
     }
@@ -69,4 +73,6 @@ process.env.MACARON_ENGINE = 'codex';
 process.env.MACARON_PORT ??= '7979';
 process.env.NODE_ENV ??= 'production';
 
+// Relative to this bin file → ../server/dist/index.js (ESM import() resolves
+// against import.meta.url, so it works regardless of the caller's cwd).
 await import('../server/dist/index.js');

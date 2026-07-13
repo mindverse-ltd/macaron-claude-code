@@ -4,7 +4,7 @@
   "description": "Macaron Codex WebUI — ChatGPT-style chat over the Codex SDK. Self-contained launcher, prebuilt server + web bundles.",
   "type": "module",
   "scripts": {
-    "prepack": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server bundle && pnpm --filter @macaron/web build && node scripts/stage.mjs"
+    "prepack": "pnpm -w prepack && node scripts/stage.mjs"
   },
   "bin": {
     "mcx": "./bin/mcx.mjs"
