@@ -1508,44 +1508,50 @@ export function Session(props: SessionProps = {}) {
     }
   }, [project, sid]);
 
+  // Pick exactly one source for the current turn. A freshly-created session
+  // already has startNewSession's POST reader writing to liveStore; opening a
+  // second /live reader would replay and append every token again. On a true
+  // page refresh the module store is empty, so probe /live first and only load
+  // the canonical jsonl when the server confirms there is no active stream.
   useEffect(() => {
     setData(null);
     setLiveTurn([]);
     setLiveUser('');
     setShown(PAGE_SIZE);
-    if (isNew) return; // no jsonl yet — empty state until first send
-    // For brand-new sessions the jsonl may not exist yet — suppress the 404 error.
-    load({ silent: isPending });
-    // isPending intentionally excluded from deps — we only want this to fire
-    // on session identity change (project/sid/refreshKey), not on every flip
-    // of the pending flag. It's only used inside as a silent-mode hint on load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, sid, load, isNew, refreshKey]);
-
-  // Reattach probe: on session change, ask the server whether this sid is
-  // mid-turn (page was refreshed while streaming). If yes, attachLive opens
-  // SSE, seeds the live store, and starts feeding deltas — then we flip
-  // `reattached` so isPending becomes true and the existing pending
-  // subscription hook takes over (spinner, stop button, live text).
-  //
-  // `reattached` reset lives here, in the same session-identity effect, so
-  // it can't fight with isPending: flipping reattached → true (which flips
-  // isPending true) does NOT re-run this effect, so no reset-probe loop.
-  useEffect(() => {
     setReattached(false);
     if (isNew || !sid) return;
+
+    const local = getLive(sid);
+    if (local) {
+      setReattached(true);
+      setSending(!local.done);
+      return;
+    }
+
     let cancelled = false;
     void attachLive(project, sid).then((r) => {
       if (cancelled) return;
       if (r === 'attached') {
-        // Show "turn in flight" affordances immediately — the subscribeLive
-        // hook below is gated on isPending and will pick up the state.
+        // A buffered ended replay can reach `done` and be consumed by the
+        // pending subscription before this promise callback runs. Re-read the
+        // store instead of reviving a stream that has already been cleared.
+        const current = getLive(sid);
+        if (!current) {
+          setReattached(false);
+          setPolling(false);
+          setSending(false);
+          return;
+        }
         setReattached(true);
-        setSending(true);
+        setSending(!current.done);
+        return;
       }
+      void load({ silent: true }).finally(() => {
+        if (!cancelled) { setPolling(false); setSending(false); }
+      });
     });
     return () => { cancelled = true; };
-  }, [project, sid, isNew, refreshKey]);
+  }, [project, sid, load, isNew, refreshKey]);
 
   // Global Shift+Tab → cycle permission mode, matching claude-cli's binding.
   // The browser's own "reverse focus" behaviour is preempted; we surface the
@@ -1628,7 +1634,27 @@ export function Session(props: SessionProps = {}) {
         }),
       );
     };
-    if (seed) applyState(seed);
+    const finishLive = () => {
+      setPolling(false);
+      setSending(false);
+      setReattached(false);
+      clearLive(sid);
+      onPendingConsumed?.();
+      // Reattach intentionally renders the authoritative live replay without
+      // JSONL alongside it. Once terminal, restore canonical prior history;
+      // load() leaves the just-finished live buffers mounted if disk flush lags.
+      void load({ silent: true });
+    };
+    if (seed) {
+      applyState(seed);
+      // The retained replay can finish before attachLive's promise callback
+      // enables this subscription. Consume that terminal snapshot immediately
+      // instead of waiting for a future notification that will never arrive.
+      if (seed.done) {
+        finishLive();
+        return;
+      }
+    }
     let rafScheduled = false;
     let pendingState = seed;
     const flush = () => {
@@ -1640,19 +1666,15 @@ export function Session(props: SessionProps = {}) {
       if (s.done) {
         applyState(s);
         unsub();
-        // Don't reload from jsonl here — CLI flushes asynchronously and the
-        // file is often still stale, which would erase the just-streamed
-        // reply. The live buffers we already have in memory are the truth
-        // for this turn; they roll into completedTurns on the next send.
-        setPolling(false);
-        setSending(false);
-        clearLive(sid);
+        // Keep the live buffers mounted while finishLive restores canonical
+        // history. The CLI may still be flushing jsonl, so that reload must not
+        // replace the just-streamed turn.
+        finishLive();
         // Follow-up suggestions stream AFTER `done` over an independent
         // channel (subscribeFollowup), so clearing the live store here is
         // safe — the stop semantics are identical to before the feature.
         // Let the parent (draft-tile owner) drop this sid from its
         // pending set so a later refresh doesn't re-enter this branch.
-        onPendingConsumed?.();
         return;
       }
       if (!rafScheduled) {
@@ -1660,11 +1682,6 @@ export function Session(props: SessionProps = {}) {
         requestAnimationFrame(flush);
       }
     });
-    // Safety: if we're on a stale URL whose live store entry is gone (e.g.
-    // page refresh after streaming finished), fall back to plain load.
-    if (!seed) {
-      load({ silent: true }).then(() => { setPolling(false); setSending(false); });
-    }
     return () => {
       unsub();
     };

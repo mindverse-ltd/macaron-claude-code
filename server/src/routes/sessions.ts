@@ -14,13 +14,14 @@ import {
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { setLabel, deleteLabel } from '../lib/label-store.js';
-import { liveGet } from '../lib/live-registry.js';
-import { runClaude, runFollowup, type AttachedImage } from '../lib/claude-runner.js';
+import { liveGet, liveStart, livePush, liveEnd } from '../lib/live-registry.js';
+import { runClaude, runFollowup, type AttachedImage, type RunOptions, type RunnerEvent } from '../lib/claude-runner.js';
 import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
-import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+import { claimRun, abortRun, endRun } from '../lib/active-runs.js';
 import { resolvePending } from '../lib/permission-registry.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 import { listSlashCommands } from '../lib/slash-commands.js';
+import type { SessionStreamEvent } from '@macaron/shared';
 
 type Params = { project: string; sid: string };
 type MessageBody = {
@@ -30,7 +31,12 @@ type MessageBody = {
   images?: AttachedImage[];
 };
 
-export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
+type SessionRouteOptions = {
+  runClaude?: (opts: RunOptions) => AsyncGenerator<RunnerEvent>;
+};
+
+export async function registerSessionRoutes(app: FastifyInstance, options: SessionRouteOptions = {}): Promise<void> {
+  const runClaudeForRoute = options.runClaude ?? runClaude;
   // Grep claude transcripts for a substring — backs the command palette's
   // message search. Newest-first, capped at `limit` hits (see searchMessages).
   app.get<{ Querystring: { q?: string; limit?: string } }>(
@@ -363,6 +369,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       // project name (which claude-cli derives from the cwd).
       const cwd = await resolveSessionCwd(project, sid);
 
+      // A session can only own one runner at a time. Keep the claim until that
+      // runner's terminal cleanup so a refresh/duplicate tab cannot replace its
+      // abort controller or live replay entry with a competing POST.
+      const abortController = new AbortController();
+      if (!claimRun(sid, abortController)) {
+        return reply.status(409).send({ error: 'session already running' });
+      }
+
       startSSE(reply);
       sseSend(reply, { type: 'meta', cwd, sessionId: sid });
 
@@ -373,37 +387,45 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         try { sseSend(reply, payload); } catch { clientGone = true; }
       };
 
+      // Keep a server-authoritative copy of this turn independent of the
+      // original response. A browser refresh closes that response, but the SDK
+      // keeps running; /live replays this ring and then follows new events.
+      liveStart(sid, { cwd });
+      livePush(sid, { type: 'user-text', text });
+      const relay = (payload: SessionStreamEvent) => {
+        safeSend(payload);
+        livePush(sid, payload);
+      };
+
       // The Settings-selected active provider determines which
       // Anthropic-compatible endpoint the SDK talks to (default = ambient
       // Claude login). Same tools, same jsonl, same everything.
       const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
       void model; // eslint: kept in body for future per-message override
 
-      // Register an abort controller so `/stop` can interrupt this stream.
-      const abortController = new AbortController();
-      registerRun(sid, abortController);
-
       (async () => {
-        for await (const ev of runClaude({ prompt: text, cwd, resume: sid, model: providerModel, permissionMode, images, envOverrides: providerEnv, abortController })) {
-          if (ev.kind === 'delta') safeSend({ type: 'delta', text: ev.text });
+        for await (const ev of runClaudeForRoute({ prompt: text, cwd, resume: sid, model: providerModel, permissionMode, images, envOverrides: providerEnv, abortController })) {
+          if (ev.kind === 'delta') relay({ type: 'delta', text: ev.text });
           else if (ev.kind === 'tool_use') {
-            safeSend({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
+            relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
           }
           else if (ev.kind === 'tool_input_delta') {
-            safeSend({ type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
+            relay({ type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
           }
           else if (ev.kind === 'tool_input_done') {
-            safeSend({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
+            relay({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
           }
-          else if (ev.kind === 'tool_result') safeSend({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-          else if (ev.kind === 'permission_request') { safeSend({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
-          else if (ev.kind === 'permission_resolved') safeSend({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
-          else if (ev.kind === 'usage') safeSend({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-          else if (ev.kind === 'message') safeSend({ type: 'event', event: 'system', subtype: ev.subtype });
-          else if (ev.kind === 'error') safeSend({ type: 'error', error: ev.error });
+          else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
+          else if (ev.kind === 'permission_request') { relay({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
+          else if (ev.kind === 'permission_resolved') relay({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
+          else if (ev.kind === 'usage') relay({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
+          else if (ev.kind === 'message') relay({ type: 'event', event: 'system', subtype: ev.subtype });
+          else if (ev.kind === 'error') relay({ type: 'error', error: ev.error });
           else if (ev.kind === 'done') {
-            safeSend({ type: 'done', exitCode: ev.exitCode });
-            endRun(sid);
+            const done = { type: 'done' as const, exitCode: ev.exitCode };
+            safeSend(done);
+            liveEnd(sid, done);
+            endRun(sid, abortController);
             pushSessionDone(project, sid);
             // After the main turn: stream a throwaway follow-up-suggestions
             // query resuming the same session (shared prefix → provider cache
@@ -428,9 +450,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           }
         }
       })().catch((e: unknown) => {
-        endRun(sid);
+        endRun(sid, abortController);
         const msg = (e as Error).message;
         safeSend({ type: 'error', error: msg });
+        livePush(sid, { type: 'error', error: msg });
+        liveEnd(sid, { type: 'done', exitCode: -1, error: msg });
         if (!clientGone) sseDone(reply);
       });
     },

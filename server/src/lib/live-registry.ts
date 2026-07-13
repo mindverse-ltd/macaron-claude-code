@@ -60,6 +60,9 @@ export function liveEnd(sid: string, payload: SessionStreamEvent): void {
   // Delete only if this exact entry is still current: a later liveStart on the
   // same sid installs a fresh entry, and that turn must outlive this timer.
   ls.gc = setTimeout(() => { if (sessions.get(sid) === ls) sessions.delete(sid); }, KEEP_AROUND_MS);
+  // A replay-cache expiry should never keep a shutting-down server or a test
+  // worker alive by itself. While the server is running, the timer still fires.
+  ls.gc.unref();
 }
 
 export function liveGet(sid: string): LiveSession | undefined {

@@ -69,7 +69,13 @@ function appendText(items: LiveTurnItem[], text: string): void {
 // speak the exact same event vocabulary, so keep the switch here and just
 // call `applyLiveEvent(sid, event)` from each stream loop.
 function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown }): void {
-  if (p.type === 'delta') {
+  if (p.type === 'meta') {
+    const s = states.get(sid);
+    if (s && typeof p.cwd === 'string') s.cwd = p.cwd;
+  } else if (p.type === 'user-text') {
+    const s = states.get(sid);
+    if (s) { s.userText = String(p.text || ''); notify(sid); }
+  } else if (p.type === 'delta') {
     const s = states.get(sid);
     if (s) { appendText(s.timeline, String(p.text || '')); notify(sid); }
   } else if (p.type === 'tool_use') {
@@ -174,6 +180,12 @@ function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown })
 
 const states = new Map<string, LiveState>();
 const watchers = new Map<string, Set<(s: LiveState) => void>>();
+type AttachResult = 'attached' | 'not-live';
+type LiveAttachment = { ready: Promise<AttachResult> };
+// A reattach reader stays alive after `ready` resolves. Keep it registered
+// until the SSE closes so StrictMode/remount probes join the same reader
+// instead of replaying the ring into `states` a second time.
+const liveAttachments = new Map<string, LiveAttachment>();
 // Follow-up suggestions are an "add-on" stream: they arrive AFTER the main
 // turn's `done` (which clears the live store), so they ride a separate
 // channel with its own subscribers — independent of `states`/`watchers`
@@ -446,83 +458,89 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
  * or 'not-live' if the run had already ended (nothing to do; caller falls
  * back to reading the jsonl).
  */
-export function attachLive(project: string, sid: string): Promise<'attached' | 'not-live'> {
-  return new Promise((resolve) => {
-    let resolved = false;
-    let seenAnyEvent = false;
-    const settle = (r: 'attached' | 'not-live') => {
-      if (resolved) return;
-      resolved = true;
-      resolve(r);
-    };
+export function attachLive(project: string, sid: string): Promise<AttachResult> {
+  const state = states.get(sid);
+  if (state) return Promise.resolve(state.done ? 'not-live' : 'attached');
 
-    authedFetch(`/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/live`, {
-      method: 'GET',
-      headers: { Accept: 'text/event-stream' },
-    })
-      .then(async (resp) => {
-        if (!resp.ok || !resp.body) {
-          settle('not-live');
-          return;
-        }
-        const reader = resp.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const events = buf.split(/\r?\n\r?\n/);
-          buf = events.pop() || '';
-          for (const ev of events) {
-            const data = ev
-              .split(/\r?\n/)
-              .filter((l) => l.startsWith('data:'))
-              .map((l) => l.slice(5).trimStart())
-              .join('\n')
-              .trim();
-            if (!data || data === '[DONE]') continue;
-            try {
-              const p = JSON.parse(data);
-              // 'live-end' with reason 'not-live' fires when the server had
-              // no active run for this sid — treat as a soft miss so the
-              // caller can fall back to the jsonl.
-              if (p.type === 'live-end') {
-                if (!seenAnyEvent && p.reason === 'not-live') {
-                  settle('not-live');
-                } else {
-                  const s = states.get(sid);
-                  if (s && !s.done) { s.done = true; notify(sid); }
-                  settle('attached');
-                }
-                continue;
-              }
-              // First real event ⇒ ensure a state exists (the initial POST
-              // that created the run is long gone; we can't recover its
-              // meta cwd/userText, but the timeline is what we need).
-              if (!seenAnyEvent) {
-                seenAnyEvent = true;
-                if (!states.has(sid)) {
-                  states.set(sid, {
-                    cwd: '',
-                    userText: '',
-                    timeline: [],
-                    outputTokens: -1,
-                    done: false,
-                  });
-                }
-                settle('attached');
-              }
-              applyLiveEvent(sid, p);
-            } catch {
-              /* skip malformed event */
+  const active = liveAttachments.get(sid);
+  if (active) return active.ready;
+
+  let settleReady!: (result: AttachResult) => void;
+  let readySettled = false;
+  const ready = new Promise<AttachResult>((resolve) => { settleReady = resolve; });
+  const attachment: LiveAttachment = { ready };
+  const settle = (result: AttachResult) => {
+    if (readySettled) return;
+    readySettled = true;
+    settleReady(result);
+  };
+  liveAttachments.set(sid, attachment);
+
+  void (async () => {
+    let seenAnyEvent = false;
+    try {
+      const resp = await authedFetch(`/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/live`, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+      });
+      if (!resp.ok || !resp.body) {
+        settle('not-live');
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split(/\r?\n\r?\n/);
+        buf = events.pop() || '';
+        for (const ev of events) {
+          const data = ev
+            .split(/\r?\n/)
+            .filter((l) => l.startsWith('data:'))
+            .map((l) => l.slice(5).trimStart())
+            .join('\n')
+            .trim();
+          if (!data || data === '[DONE]') continue;
+          try {
+            const p = JSON.parse(data);
+            if (p.type === 'live-end' && p.reason === 'not-live' && !seenAnyEvent) {
+              settle('not-live');
+              await reader.cancel();
+              return;
             }
+            if (!seenAnyEvent) {
+              seenAnyEvent = true;
+              states.set(sid, {
+                cwd: p.type === 'meta' && typeof p.cwd === 'string' ? p.cwd : '',
+                userText: '',
+                timeline: [],
+                outputTokens: -1,
+                done: false,
+              });
+              settle('attached');
+            }
+            applyLiveEvent(sid, p);
+          } catch {
+            /* skip malformed event */
           }
         }
-        // Stream closed naturally — mark done if we ever attached.
-        const s = states.get(sid);
-        if (s && !s.done) { s.done = true; notify(sid); }
-      })
-      .catch(() => settle('not-live'));
-  });
+      }
+
+      if (!seenAnyEvent) settle('not-live');
+      const current = states.get(sid);
+      if (current && !current.done) { current.done = true; notify(sid); }
+    } catch {
+      settle('not-live');
+      const current = states.get(sid);
+      if (current && !current.done) { current.done = true; notify(sid); }
+    } finally {
+      if (liveAttachments.get(sid) === attachment) liveAttachments.delete(sid);
+    }
+  })();
+
+  return ready;
 }

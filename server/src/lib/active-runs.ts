@@ -9,14 +9,20 @@ export function registerRun(sid: string, ac: AbortController): void {
   runs.set(sid, ac);
 }
 
-export function abortRun(sid: string): boolean {
-  const ac = runs.get(sid);
-  if (!ac) return false;
-  ac.abort();
-  runs.delete(sid);
+export function claimRun(sid: string, ac: AbortController): boolean {
+  if (runs.has(sid)) return false;
+  runs.set(sid, ac);
   return true;
 }
 
-export function endRun(sid: string): void {
-  runs.delete(sid);
+export function abortRun(sid: string): boolean {
+  const ac = runs.get(sid);
+  if (!ac || ac.signal.aborted) return false;
+  ac.abort();
+  return true;
+}
+
+export function endRun(sid: string, owner?: AbortController): boolean {
+  if (owner && runs.get(sid) !== owner) return false;
+  return runs.delete(sid);
 }
