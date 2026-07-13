@@ -116,3 +116,147 @@ test('resumed bypass turn survives original SSE disconnect and replays through /
   assert.match(liveText, /"type":"done","exitCode":0/);
   await liveReader.cancel().catch(() => {});
 });
+
+test('synchronous setup failure ends live replay and releases the run claim', { timeout: 10_000 }, async (t) => {
+  const project = 'setup-failure-project';
+  const sid = 'setup-failure-session';
+  const cwd = path.join(tmpHome, 'setup-failure-repo');
+  await fs.mkdir(path.join(CLAUDE_PROJECTS, project), { recursive: true });
+  await fs.mkdir(cwd, { recursive: true });
+  await fs.writeFile(
+    path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`),
+    `${JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: 'earlier turn' } })}\n`,
+    'utf8',
+  );
+
+  let providerCalls = 0;
+  let runnerCalls = 0;
+  async function* fakeRunClaude(): AsyncGenerator<RunnerEvent> {
+    runnerCalls += 1;
+    yield { kind: 'done', exitCode: 0 };
+  }
+
+  const app = Fastify({ logger: false });
+  await registerSessionRoutes(app, {
+    runClaude: fakeRunClaude,
+    getActiveProviderEnv: () => {
+      providerCalls += 1;
+      if (providerCalls === 1) throw new Error('provider setup failed');
+      return { model: 'test-model', env: null };
+    },
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  t.after(async () => {
+    app.server.closeAllConnections();
+    await app.close();
+  });
+
+  const address = app.server.address();
+  assert.ok(address && typeof address !== 'string');
+  const sessionPath = `http://127.0.0.1:${address.port}/api/sessions/claude/${project}/${sid}`;
+
+  const failed = await fetch(`${sessionPath}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'first attempt' }),
+  });
+  assert.equal(failed.status, 200);
+  const failedText = await failed.text();
+  assert.match(failedText, /"type":"error","error":"provider setup failed"/);
+  assert.match(failedText, /"type":"done","exitCode":-1,"error":"provider setup failed"/);
+  assert.equal(runnerCalls, 0);
+
+  const replay = await fetch(`${sessionPath}/live`, { headers: { Accept: 'text/event-stream' } });
+  assert.equal(replay.status, 200);
+  const replayText = await replay.text();
+  assert.match(replayText, /"type":"error","error":"provider setup failed"/);
+  assert.match(replayText, /"type":"done","exitCode":-1,"error":"provider setup failed"/);
+
+  const retry = await fetch(`${sessionPath}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'second attempt' }),
+  });
+  assert.equal(retry.status, 200);
+  assert.match(await retry.text(), /"type":"done","exitCode":0/);
+  assert.equal(runnerCalls, 1);
+});
+
+test('abort retains ownership until a runner without done settles', { timeout: 10_000 }, async (t) => {
+  const project = 'abort-owner-project';
+  const sid = 'abort-owner-session';
+  const cwd = path.join(tmpHome, 'abort-owner-repo');
+  await fs.mkdir(path.join(CLAUDE_PROJECTS, project), { recursive: true });
+  await fs.mkdir(cwd, { recursive: true });
+  await fs.writeFile(
+    path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`),
+    `${JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: 'earlier turn' } })}\n`,
+    'utf8',
+  );
+
+  let finishAbort!: () => void;
+  const abortGate = new Promise<void>((resolve) => { finishAbort = resolve; });
+  let firstRunStarted!: () => void;
+  const firstRunGate = new Promise<void>((resolve) => { firstRunStarted = resolve; });
+  let runnerCalls = 0;
+  let firstOptions: RunOptions | undefined;
+  async function* fakeRunClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> {
+    runnerCalls += 1;
+    if (runnerCalls > 1) {
+      yield { kind: 'done', exitCode: 0 };
+      return;
+    }
+    firstOptions = opts;
+    yield { kind: 'delta', text: 'still running' };
+    firstRunStarted();
+    await new Promise<void>((resolve) => opts.abortController?.signal.addEventListener('abort', () => resolve(), { once: true }));
+    await abortGate;
+    // Deliberately settle without the RunnerEvent contract's terminal `done`.
+  }
+
+  const app = Fastify({ logger: false });
+  await registerSessionRoutes(app, { runClaude: fakeRunClaude });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  t.after(async () => {
+    finishAbort();
+    app.server.closeAllConnections();
+    await app.close();
+  });
+
+  const address = app.server.address();
+  assert.ok(address && typeof address !== 'string');
+  const sessionPath = `http://127.0.0.1:${address.port}/api/sessions/claude/${project}/${sid}`;
+  const original = await fetch(`${sessionPath}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'long turn' }),
+  });
+  assert.equal(original.status, 200);
+  const originalText = original.text();
+  await firstRunGate;
+
+  const stopped = await fetch(`${sessionPath}/stop`, { method: 'POST' });
+  assert.deepEqual(await stopped.json(), { ok: true, running: true });
+  assert.equal(firstOptions?.abortController?.signal.aborted, true);
+
+  const competing = await fetch(`${sessionPath}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'too early' }),
+  });
+  assert.equal(competing.status, 409);
+
+  finishAbort();
+  const terminalText = await originalText;
+  assert.match(terminalText, /runner ended without a terminal event/);
+  assert.match(terminalText, /"type":"done","exitCode":-1/);
+
+  const retry = await fetch(`${sessionPath}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'after cleanup' }),
+  });
+  assert.equal(retry.status, 200);
+  assert.match(await retry.text(), /"type":"done","exitCode":0/);
+  assert.equal(runnerCalls, 2);
+});

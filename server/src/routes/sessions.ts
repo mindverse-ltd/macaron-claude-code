@@ -33,10 +33,12 @@ type MessageBody = {
 
 type SessionRouteOptions = {
   runClaude?: (opts: RunOptions) => AsyncGenerator<RunnerEvent>;
+  getActiveProviderEnv?: typeof getActiveProviderEnv;
 };
 
 export async function registerSessionRoutes(app: FastifyInstance, options: SessionRouteOptions = {}): Promise<void> {
   const runClaudeForRoute = options.runClaude ?? runClaude;
+  const getActiveProviderEnvForRoute = options.getActiveProviderEnv ?? getActiveProviderEnv;
   // Grep claude transcripts for a substring — backs the command palette's
   // message search. Newest-first, capped at `limit` hits (see searchMessages).
   app.get<{ Querystring: { q?: string; limit?: string } }>(
@@ -339,7 +341,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
 
       const cwd = await resolveSessionCwd(project, sid);
 
-      const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
+      const { model: providerModel, env: providerEnv } = getActiveProviderEnvForRoute();
       let clientGone = false;
       reply.raw.on('close', () => { clientGone = true; });
       try {
@@ -377,86 +379,125 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.status(409).send({ error: 'session already running' });
       }
 
-      startSSE(reply);
-      sseSend(reply, { type: 'meta', cwd, sessionId: sid });
-
       let clientGone = false;
+      let sseStarted = false;
+      let liveStarted = false;
+      let terminalSent = false;
       reply.raw.on('close', () => { clientGone = true; });
       const safeSend = (payload: Parameters<typeof sseSend>[1]) => {
-        if (clientGone) return;
+        if (!sseStarted || clientGone) return;
         try { sseSend(reply, payload); } catch { clientGone = true; }
       };
 
-      // Keep a server-authoritative copy of this turn independent of the
-      // original response. A browser refresh closes that response, but the SDK
-      // keeps running; /live replays this ring and then follows new events.
-      liveStart(sid, { cwd });
-      livePush(sid, { type: 'user-text', text });
+      const finishMainRun = (exitCode: number, error?: string) => {
+        if (terminalSent) return;
+        terminalSent = true;
+        if (error) {
+          safeSend({ type: 'error', error });
+          if (liveStarted) livePush(sid, { type: 'error', error });
+        }
+        const done = { type: 'done' as const, exitCode, ...(error ? { error } : {}) };
+        safeSend(done);
+        if (liveStarted) liveEnd(sid, done);
+        endRun(sid, abortController);
+      };
+
+      let provider: ReturnType<typeof getActiveProviderEnv>;
+      try {
+        // Mark setup as attempted before each call so a partial synchronous
+        // failure still takes the corresponding terminal cleanup path.
+        sseStarted = true;
+        startSSE(reply);
+        safeSend({ type: 'meta', cwd, sessionId: sid });
+
+        // Keep a server-authoritative copy of this turn independent of the
+        // original response. A browser refresh closes that response, but the SDK
+        // keeps running; /live replays this ring and then follows new events.
+        liveStarted = true;
+        liveStart(sid, { cwd });
+        livePush(sid, { type: 'user-text', text });
+
+        // The Settings-selected active provider determines which
+        // Anthropic-compatible endpoint the SDK talks to (default = ambient
+        // Claude login). Same tools, same jsonl, same everything.
+        provider = getActiveProviderEnvForRoute();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        finishMainRun(-1, msg);
+        if (!clientGone) sseDone(reply);
+        return;
+      }
+
       const relay = (payload: SessionStreamEvent) => {
         safeSend(payload);
         livePush(sid, payload);
       };
 
-      // The Settings-selected active provider determines which
-      // Anthropic-compatible endpoint the SDK talks to (default = ambient
-      // Claude login). Same tools, same jsonl, same everything.
-      const { model: providerModel, env: providerEnv } = getActiveProviderEnv();
+      const { model: providerModel, env: providerEnv } = provider;
       void model; // eslint: kept in body for future per-message override
 
-      (async () => {
-        for await (const ev of runClaudeForRoute({ prompt: text, cwd, resume: sid, model: providerModel, permissionMode, images, envOverrides: providerEnv, abortController })) {
-          if (ev.kind === 'delta') relay({ type: 'delta', text: ev.text });
-          else if (ev.kind === 'tool_use') {
-            relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
-          }
-          else if (ev.kind === 'tool_input_delta') {
-            relay({ type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
-          }
-          else if (ev.kind === 'tool_input_done') {
-            relay({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
-          }
-          else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
-          else if (ev.kind === 'permission_request') { relay({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
-          else if (ev.kind === 'permission_resolved') relay({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
-          else if (ev.kind === 'usage') relay({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
-          else if (ev.kind === 'message') relay({ type: 'event', event: 'system', subtype: ev.subtype });
-          else if (ev.kind === 'error') relay({ type: 'error', error: ev.error });
-          else if (ev.kind === 'done') {
-            const done = { type: 'done' as const, exitCode: ev.exitCode };
-            safeSend(done);
-            liveEnd(sid, done);
-            endRun(sid, abortController);
-            pushSessionDone(project, sid);
-            // After the main turn: stream a throwaway follow-up-suggestions
-            // query resuming the same session (shared prefix → provider cache
-            // hit, near-free). persistSession:false keeps it off disk. Each
-            // text delta is forwarded as a `followup_delta` event; the WebUI
-            // accumulates + parses incrementally with partial-json. Best-effort
-            // — any failure is swallowed, never blocks the turn's close.
-            // Only on a clean finish (exitCode 0): a Stop (abort → -1) or a
-            // mid-turn error must stay byte-identical to pre-feature behavior,
-            // never spinning up a follow-up query on an aborted transcript.
-            if (!clientGone && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
-              try {
-                for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
-                  if (clientGone) break;
-                  safeSend({ type: 'followup_delta', text: delta });
-                }
-              } catch {
-                /* swallow: follow-up is enrichment, never fatal */
-              }
+      void (async () => {
+        try {
+          for await (const ev of runClaudeForRoute({ prompt: text, cwd, resume: sid, model: providerModel, permissionMode, images, envOverrides: providerEnv, abortController })) {
+            if (ev.kind === 'delta') relay({ type: 'delta', text: ev.text });
+            else if (ev.kind === 'tool_use') {
+              relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
             }
-            if (!clientGone) sseDone(reply);
+            else if (ev.kind === 'tool_input_delta') {
+              relay({ type: 'tool_input_delta', id: ev.id, name: ev.name, partial_json: ev.partial_json, accumulated: ev.accumulated });
+            }
+            else if (ev.kind === 'tool_input_done') {
+              relay({ type: 'tool_input_done', id: ev.id, name: ev.name, final_json: ev.final_json });
+            }
+            else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
+            else if (ev.kind === 'permission_request') { relay({ type: 'permission_request', id: ev.id, toolName: ev.toolName, input: ev.input, suggestion: ev.suggestion }); pushPermissionRequest(project, sid, ev.toolName); }
+            else if (ev.kind === 'permission_resolved') relay({ type: 'permission_resolved', id: ev.id, decision: ev.decision });
+            else if (ev.kind === 'usage') relay({ type: 'usage', outputTokens: ev.outputTokens, thinkingTokens: ev.thinkingTokens });
+            else if (ev.kind === 'message') relay({ type: 'event', event: 'system', subtype: ev.subtype });
+            else if (ev.kind === 'error') relay({ type: 'error', error: ev.error });
+            else if (ev.kind === 'done') {
+              // `done` is the main-turn ownership boundary. Follow-ups are
+              // non-persisting enrichment, so release the live entry and claim
+              // before generating them: queued/new user turns must be able to
+              // start, while stale follow-up deltas are client-generation gated
+              // and refreshes can regenerate them through /followups.
+              finishMainRun(ev.exitCode);
+              pushSessionDone(project, sid);
+              // After the main turn: stream a throwaway follow-up-suggestions
+              // query resuming the same session (shared prefix → provider cache
+              // hit, near-free). persistSession:false keeps it off disk. Each
+              // text delta is forwarded as a `followup_delta` event; the WebUI
+              // accumulates + parses incrementally with partial-json. Best-effort
+              // — any failure is swallowed, never blocks the turn's close.
+              // Only on a clean finish (exitCode 0): a Stop (abort → -1) or a
+              // mid-turn error must stay byte-identical to pre-feature behavior,
+              // never spinning up a follow-up query on an aborted transcript.
+              if (!clientGone && ev.exitCode === 0 && getFollowupSuggestionsEnabled()) {
+                try {
+                  for await (const delta of runFollowup({ resume: sid, cwd, model: providerModel, envOverrides: providerEnv })) {
+                    if (clientGone) break;
+                    safeSend({ type: 'followup_delta', text: delta });
+                  }
+                } catch {
+                  /* swallow: follow-up is enrichment, never fatal */
+                }
+              }
+              return;
+            }
           }
+          // Production runClaude emits `done` on every settled path, but keep
+          // the route owner-safe if a future/custom iterator simply returns.
+          finishMainRun(-1, 'runner ended without a terminal event');
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          finishMainRun(-1, msg);
+        } finally {
+          // Owner-guarded and idempotent: any settled iterator releases its
+          // claim even if terminal event handling changes later.
+          endRun(sid, abortController);
+          if (!clientGone) sseDone(reply);
         }
-      })().catch((e: unknown) => {
-        endRun(sid, abortController);
-        const msg = (e as Error).message;
-        safeSend({ type: 'error', error: msg });
-        livePush(sid, { type: 'error', error: msg });
-        liveEnd(sid, { type: 'done', exitCode: -1, error: msg });
-        if (!clientGone) sseDone(reply);
-      });
+      })();
     },
   );
 
