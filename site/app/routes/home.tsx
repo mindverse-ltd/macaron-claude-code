@@ -52,9 +52,9 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-// pkg.pr.new ships prebuilt tarballs per commit; `<sha>` stands in for a commit on main.
-const PKG = 'https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>';
-const PKG_MCX = 'https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>';
+// pkg.pr.new ships prebuilt tarballs per commit; __COMMIT_SHA__ is injected at build time (falls back to `<sha>`).
+const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@${__COMMIT_SHA__}`;
+const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@${__COMMIT_SHA__}`;
 
 export default function Home() {
   return (
@@ -148,8 +148,8 @@ export default function Home() {
           <p className="mb-3 text-sm text-fd-muted-foreground">
             The <code className="text-fd-foreground">pkg.pr.new</code> tarball ships prebuilt bundles and two bins —{' '}
             <code className="text-fd-foreground">mcc</code> (Claude, port 7878) and{' '}
-            <code className="text-fd-foreground">mcx</code> (Codex, port 7979). Replace{' '}
-            <code className="text-fd-foreground">&lt;sha&gt;</code> with a commit on <code className="text-fd-foreground">main</code>.
+            <code className="text-fd-foreground">mcx</code> (Codex, port 7979). The commands are pinned to this
+            build's commit; swap in any other commit on <code className="text-fd-foreground">main</code> to pull that build.
           </p>
           <Tabs items={['bun', 'npm']}>
             <Tab value="bun">
