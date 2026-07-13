@@ -1,7 +1,7 @@
 {
   "name": "Macaron",
   "short_name": "Macaron",
-  "description": "Macaron artifacts — WebUI for GenUI, workspace, and session management.",
+  "description": "Macaron Artifacts — WebUI for GenUI, workspace, and session management.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

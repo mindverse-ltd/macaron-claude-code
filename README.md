@@ -1,6 +1,6 @@
-# Macaron artifacts
+# Macaron Artifacts
 
-Macaron artifacts publishes the plugin manifests, local WebUI runtime, GenUI tooling, and docs for running Macaron with Claude Code and Codex.
+Macaron Artifacts publishes the plugin manifests, local WebUI runtime, GenUI tooling, and docs for running Macaron with Claude Code and Codex.
 
 1. **Visual sessions** — browse workspaces and sessions with previews, then continue a turn from the browser.
 2. **Live chat** — stream thinking, tool calls, and GenUI previews from supported agent runtimes.
@@ -119,6 +119,7 @@ start.sh                          one-time npm install + build, boots server in 
 shared/                           domain types + SSE protocol (server ↔ web)
 server/                           Fastify API, Claude Agent SDK runner, provider relay
 web/                              Vite + React UI
+site/                             Fumadocs docs + landing site (standalone, not in the workspace)
 ```
 
 ## Notes

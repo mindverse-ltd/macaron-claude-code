@@ -1,0 +1,73 @@
+---
+title: Usage
+description: Install the Macaron WebUI on Claude Code and Codex, open it, and drive sessions from the browser.
+---
+
+A WebUI that installs on both Claude Code and Codex — run both at once. After install, launch it from the CLI with one line:
+
+- Claude → [http://localhost:7878](http://localhost:7878)
+- Codex → [http://localhost:7979](http://localhost:7979)
+
+## Install
+
+### Claude Code
+
+```
+/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+/plugin install macaron@macaron
+```
+
+Then open it in a session with `/macaron`.
+
+### Codex
+
+```bash
+codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+codex plugin add macaron@macaron
+```
+
+Then say `open macaron web ui` in a session to open it.
+
+### Without Installing the Plugin — One `bunx` Line
+
+The published tarball ships the prebuilt server + web bundles as two independent packages — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Launch either in one command:
+
+```bash
+bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>    # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>    # Codex  → http://localhost:7979
+```
+
+The commands are pinned to this build's commit; swap in any other commit on `main` to pull that build. Both bins accept `--host` / `--port`; run `--help` for all flags.
+
+## Using It
+
+Once inside the WebUI:
+
+- Click a workspace in the sidebar to enter its canvas; pin a session with `+`
+- On the canvas: drag the grip to reposition, pull the bottom-right corner to resize, click a tile to focus
+- Input box: `Enter` sends · `Shift+Enter` for a newline · `↑`/`↓` cycles history · paste an image to attach it
+
+On first use, the Codex side needs a Base URL / API Key / Model filled in under **Settings**.
+
+## Updating
+
+### Claude Code
+
+```
+/plugin update macaron
+```
+
+### Codex
+
+```bash
+codex plugin marketplace upgrade macaron   # pull the latest version
+codex plugin remove macaron@macaron
+codex plugin add macaron@macaron           # reinstall
+```
+
+## Feedback
+
+[github.com/MindLab-Research/macaron-artifacts/issues](https://github.com/MindLab-Research/macaron-artifacts/issues)

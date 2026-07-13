@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Tailwind's default `hover:` is gated behind `@media (hover: hover)`, so the
+   style is dropped on touch devices — and on headless browsers that report no
+   hover capability. Use `hovered:` for landing-page affordances that should
+   respond to any pointer and stay verifiable in automated checks. */
+@custom-variant hovered (&:hover);
+
+/* Fumadocs Steps normally inherit prose margins. The landing page is not a
+   prose container, so give its install flow a deliberately spacious rhythm. */
+#nd-home-layout .fd-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+#nd-home-layout .fd-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* The counter is 2rem square. Give the title the same alignment row so their
+   visual centers stay on one axis instead of relying on text baseline metrics. */
+#nd-home-layout .fd-step > :first-child {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  line-height: 1.5rem;
+}
+
+@media (min-width: 40rem) {
+  #nd-home-layout .fd-steps {
+    gap: 2rem;
+  }
+
+  #nd-home-layout .fd-step {
+    gap: 0.875rem;
+  }
+}
+
+#nd-home-layout section.max-w-3xl > .mt-8 {
+  margin-top: 2.5rem;
+}
+
+#nd-home-layout section.max-w-3xl > .mt-8 + p {
+  margin-bottom: 1.25rem;
+  line-height: 1.6;
+}
+
+#nd-home-layout [role='tabpanel'] > .flex.flex-col {
+  gap: 1.25rem;
+}
+
+#nd-home-layout [role='tabpanel'] > .flex.flex-col > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#nd-home-layout [role='tabpanel'] > .flex.flex-col > div > .flex {
+  margin-bottom: 0;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}

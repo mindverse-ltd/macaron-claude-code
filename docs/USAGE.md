@@ -1,4 +1,4 @@
-# Macaron artifacts 使用
+# Macaron Artifacts 使用
 
 一个 WebUI，Claude Code 和 Codex 两侧都能装，可同时开。装完在 CLI 里一句话拉起：
 
