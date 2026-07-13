@@ -25,6 +25,7 @@ MACARON_ENGINE=codex MACARON_FOREGROUND=1 MACARON_PORT=7979 bash "<plugin root>/
 Port `7979` is the Codex-side default so it doesn't collide with the Claude Code plugin (which uses `7878`). Both can run at once. If 7979 is busy, tell the user to override with `MACARON_PORT=<n>`.
 
 The script:
+- **Mirrors itself out of the plugin cache on first launch.** `~/.codex/plugins/cache/…` is not a stable working directory — Codex prunes it on version sync, which erases `node_modules` + `web/dist` + `server/dist` while any surviving server still listens on 7979 and returns 404s. `start.sh` detects the cache path and rsyncs source into `~/.macaron/runtime/<version>/`, then installs/builds/runs from there. Subsequent launches re-rsync (fast) and reuse the same stable runtime.
 - Uses `corepack pnpm` (Node 22+ ships corepack) to install workspace deps + build on first launch (~60s). If frozen install fails, it retries without the lock. If build fails, it prints a `[macaron] fix: <command>` line — run the printed command and retry.
 - Skips the install/build on subsequent launches if `node_modules` is present and no source file is newer than the current build.
 - Frees the port if a stale `mcx` / `mcc` is bound (`lsof` → `kill`).
@@ -48,7 +49,7 @@ Quote the URL verbatim so the user can click it directly. If `open` fails in a s
 
 ## Notes for the model
 
-- Do NOT run `mcx` / `mcc` directly with `npx` — always go through `start.sh` so the port-collision handler and env plumbing (especially `MACARON_ENGINE=codex`) both apply.
+- Do NOT run `mcx` / `mcc` directly — always go through `start.sh` so the port-collision handler and env plumbing (especially `MACARON_ENGINE=codex`) both apply.
 - If the port is busy AND the script fails to reclaim it: report the failure verbatim and ask the user for a free port (`MACARON_PORT=<n>`).
 - If `start.sh` errors on install or build: it prints one or more `[macaron] fix: <command>` lines on stderr. Run each printed fix in order, then rerun `start.sh`. Report what happened.
 - The WebUI binds to `127.0.0.1:${port}` — nothing leaves the user's machine.

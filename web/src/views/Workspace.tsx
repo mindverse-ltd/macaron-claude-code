@@ -26,7 +26,7 @@ import {
   type TileGeom,
 } from '../lib/canvas';
 import { Session } from './Session';
-import { peekPendingCwd } from '../lib/newSession';
+import { peekPendingCwd, peekPendingPrompt } from '../lib/newSession';
 import { subscribeSystemEvents } from '../lib/systemEvents';
 import { GitPanel } from '../components/GitPanel';
 import { Terminal } from '../components/Terminal';
@@ -100,15 +100,16 @@ export function Workspace() {
     navigate(`/w/${encodeURIComponent(project)}`, { replace: true });
   }, [sidFromUrl, project, canvas, navigate]);
 
-  // Landed here from the directory picker: a cwd is staged for this project
-  // but no session exists yet. Auto-open a draft tile so the chosen folder
-  // drops straight into a composer — but only once per project. The pending
-  // cwd lingers until the first successful send, so without this guard a user
-  // who dismisses the draft (×) would have it re-added on the next render.
+  // Landed here from the directory picker OR the Demos gallery: a cwd or
+  // seed prompt is staged for this project but no session exists yet.
+  // Auto-open a draft tile so the chosen folder / demo drops straight into
+  // a composer — but only once per project. The pending state lingers until
+  // the first successful send, so without this guard a user who dismisses
+  // the draft (×) would have it re-added on the next render.
   const autoDrafted = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (autoDrafted.current.has(project)) return;
-    if (!peekPendingCwd(project)) return;
+    if (!peekPendingCwd(project) && !peekPendingPrompt(project)) return;
     if (canvas.tiles.some((t) => isDraftSid(t.sid))) return;
     autoDrafted.current.add(project);
     canvas.addDraft();
@@ -308,6 +309,22 @@ export function Workspace() {
                       if (terminal) killTerminal(project, tile.sid);
                       canvas.remove(tile.sid);
                     }}
+                    onDelete={draft || terminal ? undefined : () => {
+                      // Same "delete the underlying session + unpin" flow
+                      // as the sidebar's Delete Session context menu — kept
+                      // reachable from the tile too so a user working on
+                      // the canvas doesn't have to hunt in the sidebar.
+                      void (async () => {
+                        try {
+                          await api.deleteSession(project, tile.sid);
+                          canvas.remove(tile.sid);
+                          load();
+                        } catch {
+                          // swallow — the caller (Workspace) already
+                          // surfaces API errors via top-level `error`.
+                        }
+                      })();
+                    }}
                     onResizeStart={(e) => startResize(tile.sid, e)}
                   />
                 );
@@ -335,6 +352,7 @@ function SortableTile({
   onCreated,
   onFocus,
   onRemove,
+  onDelete,
   onResizeStart,
 }: {
   tile: TileGeom;
@@ -348,6 +366,9 @@ function SortableTile({
   onCreated: (newSid: string) => void;
   onFocus: () => void;
   onRemove: () => void;
+  /** Delete the underlying session (jsonl) and unpin. Omitted for drafts
+   *  and terminals — those have nothing on disk to delete. */
+  onDelete?: () => void;
   onResizeStart: (e: React.PointerEvent) => void;
 }) {
   const {
@@ -464,6 +485,28 @@ function SortableTile({
           </svg>
         </button>
         )}
+        {onDelete && (
+          <button
+            className="ws-tile-action ws-tile-delete"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Delete session ${tile.sid.slice(0, 8)}? This removes the jsonl on disk.`)) {
+                onDelete();
+              }
+            }}
+            title="Delete session (removes jsonl on disk)"
+            aria-label="Delete session"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+            </svg>
+          </button>
+        )}
         <button
           className="ws-tile-x"
           onPointerDown={(e) => e.stopPropagation()}
@@ -471,7 +514,7 @@ function SortableTile({
             e.stopPropagation();
             onRemove();
           }}
-          title="Remove from canvas"
+          title="Remove from canvas (does not delete the session)"
           aria-label="Remove from canvas"
         >
           ×

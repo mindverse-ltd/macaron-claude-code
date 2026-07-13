@@ -19,6 +19,7 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Copy, RefreshCw, X } from 'lucide-react';
 import { codexApi, type CodexThread, type CodexWorkspace as Wk } from './api';
 import { CodexChat } from './CodexChat';
 import {
@@ -253,26 +254,35 @@ function SortableTile({
         <span className="cx-tile-grip-dots">⋮⋮</span>
         <span className="cx-tile-grip-label">{label}</span>
         <button
+          type="button"
           className="cx-tile-action"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); copyResume(); }}
           title="Copy `codex resume` command"
           aria-label="Copy resume command"
-        >⧉</button>
+        >
+          <Copy size={14} strokeWidth={2} aria-hidden="true" />
+        </button>
         <button
+          type="button"
           className="cx-tile-action"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); setRefreshKey((k) => k + 1); }}
           title="Refresh"
           aria-label="Refresh"
-        >↻</button>
+        >
+          <RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
+        </button>
         <button
-          className="cx-tile-close"
+          type="button"
+          className="cx-tile-action cx-tile-action-danger"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           title="Remove from canvas"
           aria-label="Remove from canvas"
-        >×</button>
+        >
+          <X size={14} strokeWidth={2} aria-hidden="true" />
+        </button>
       </div>
       <div className="cx-tile-body">
         <CodexChat

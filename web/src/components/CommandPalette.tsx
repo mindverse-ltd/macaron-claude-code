@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { SEARCH_HL_CLOSE, SEARCH_HL_OPEN } from '@macaron/shared';
 import { api, basename, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
 import { addDraftSid } from '../lib/canvas';
+import { hasActiveModal } from '../lib/modal';
 
 // Dependency-free subsequence score: every query char must appear in order.
 // Contiguous + early matches rank higher. Returns -1 for no match. Good
@@ -68,18 +69,21 @@ export function CommandPalette() {
   // Global Cmd/Ctrl-K toggles the palette. IME-guarded; only bare Cmd/Ctrl+K
   // (no shift/alt) so we don't shadow other shortcuts. The sidebar search button
   // opens SearchPalette instead (macaron:open-search) — this palette keeps
-  // Cmd-K for commands + session/workspace navigation.
+  // Cmd-K for commands + session/workspace navigation. Don't open over another
+  // modal (e.g. an open SearchPalette); matches ShortcutsHelp.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setOpen((v) => !v);
+        setOpen((v) => (v ? false : !hasActiveModal()));
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // On open: reset, focus the input, and load the session/workspace list from
   // the same endpoints the sidebar already polls (server mtime-cache keeps it
   // cheap). Also snapshot current YOLO state for the toggle command's label.
   useEffect(() => {
@@ -310,7 +314,7 @@ export function CommandPalette() {
 
   return (
     <div className="cmdk-backdrop" onMouseDown={close}>
-      <div className="cmdk-panel" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal>
+      <div className="cmdk-panel" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <input
           ref={inputRef}
           className="cmdk-input"

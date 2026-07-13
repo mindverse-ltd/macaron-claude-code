@@ -65,8 +65,128 @@ function appendText(items: LiveTurnItem[], text: string): void {
   items.push({ kind: 'text', id: `live-t-${++liveTextIdSeq}`, text });
 }
 
+// Central event → state mutation. Shared between startNewSession (POST body
+// consumer) and attachLive (SSE reattach after page refresh) — both surfaces
+// speak the exact same event vocabulary, so keep the switch here and just
+// call `applyLiveEvent(sid, event)` from each stream loop.
+function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown }): void {
+  if (p.type === 'meta') {
+    const s = states.get(sid);
+    if (s && typeof p.cwd === 'string') s.cwd = p.cwd;
+  } else if (p.type === 'user-text') {
+    const s = states.get(sid);
+    if (s) { s.userText = String(p.text || ''); notify(sid); }
+  } else if (p.type === 'delta') {
+    const s = states.get(sid);
+    if (s) { appendText(s.timeline, String(p.text || '')); notify(sid); }
+  } else if (p.type === 'tool_use') {
+    const s = states.get(sid);
+    if (s) {
+      if (p.name === 'mcp__macaron__render_ui') {
+        s.timeline.push({ kind: 'genui', id: `live-${p.id}`, toolUseId: String(p.id), code: '', status: 'pending' });
+      } else {
+        s.timeline.push({ kind: 'tool', id: `live-${p.id}`, name: String(p.name), input: p.input });
+      }
+      notify(sid);
+    }
+  } else if (p.type === 'tool_input_delta') {
+    const s = states.get(sid);
+    if (s && p.name === 'mcp__macaron__render_ui') {
+      const partial = extractPartialCode(String(p.accumulated || ''));
+      if (partial) {
+        const t = s.timeline.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
+        if (t && t.kind === 'genui' && partial.length > t.code.length) {
+          t.code = partial;
+          notify(sid);
+        }
+      }
+    }
+  } else if (p.type === 'tool_input_done') {
+    const s = states.get(sid);
+    if (s && p.name === 'mcp__macaron__render_ui') {
+      try {
+        const obj = JSON.parse(String(p.final_json || ''));
+        if (typeof obj?.code === 'string') {
+          const t = s.timeline.find((x) => x.kind === 'genui' && x.toolUseId === p.id);
+          if (t && t.kind === 'genui') { t.code = obj.code; t.status = 'ready'; }
+          notify(sid);
+        }
+      } catch { /* tolerate */ }
+    } else if (s && isDiffTool(String(p.name))) {
+      try {
+        const obj = JSON.parse(String(p.final_json || ''));
+        const t = s.timeline.find((x) => x.kind === 'tool' && x.id === `live-${p.id}`);
+        if (t && t.kind === 'tool') { t.input = obj; notify(sid); }
+      } catch { /* tolerate */ }
+    }
+  } else if (p.type === 'tool_result') {
+    const s = states.get(sid);
+    if (s) {
+      const t = s.timeline.find((x) =>
+        (x.kind === 'genui' && x.toolUseId === p.tool_use_id) ||
+        (x.kind === 'tool' && x.id === `live-${p.tool_use_id}`),
+      );
+      if (t) {
+        if (t.kind === 'tool') { t.result = String(p.text || ''); t.isError = Boolean(p.isError); }
+        else if (t.kind === 'genui') {
+          if (p.isError || String(p.text || '').startsWith('render_ui failed:')) {
+            t.status = 'error';
+            t.error = String(p.text || '').replace(/^render_ui failed:/, '').trim();
+          } else if (t.status === 'pending') {
+            t.status = 'ready';
+          }
+        }
+        notify(sid);
+      }
+    }
+  } else if (p.type === 'permission_request') {
+    const s = states.get(sid);
+    if (s) {
+      s.timeline.push({
+        kind: 'permission',
+        id: `perm-${p.id}`,
+        permissionId: String(p.id),
+        toolName: String(p.toolName),
+        input: p.input,
+        suggestion: p.suggestion as { label: string } | undefined,
+        status: 'pending',
+      });
+      notify(sid);
+    }
+  } else if (p.type === 'permission_resolved') {
+    const s = states.get(sid);
+    if (s) {
+      const t = s.timeline.find((x) => x.kind === 'permission' && x.permissionId === p.id);
+      if (t && t.kind === 'permission') {
+        t.status = p.decision as 'allow' | 'deny';
+        notify(sid);
+      }
+    }
+  } else if (p.type === 'usage') {
+    const s = states.get(sid);
+    if (s && typeof p.outputTokens === 'number' && p.outputTokens >= s.outputTokens) {
+      s.outputTokens = p.outputTokens;
+      notify(sid);
+    }
+  } else if (p.type === 'followup_delta') {
+    followupWatchers.get(sid)?.forEach((cb) => cb(String(p.text || '')));
+  } else if (p.type === 'done') {
+    const s = states.get(sid);
+    if (s) { s.done = true; notify(sid); }
+  } else if (p.type === 'error') {
+    const s = states.get(sid);
+    if (s) { s.error = String(p.error || ''); notify(sid); }
+  }
+}
+
 const states = new Map<string, LiveState>();
 const watchers = new Map<string, Set<(s: LiveState) => void>>();
+type AttachResult = 'attached' | 'not-live';
+type LiveAttachment = { ready: Promise<AttachResult> };
+// A reattach reader stays alive after `ready` resolves. Keep it registered
+// until the SSE closes so StrictMode/remount probes join the same reader
+// instead of replaying the ring into `states` a second time.
+const liveAttachments = new Map<string, LiveAttachment>();
 // Follow-up suggestions are an "add-on" stream: they arrive AFTER the main
 // turn's `done` (which clears the live store), so they ride a separate
 // channel with its own subscribers — independent of `states`/`watchers`
@@ -335,4 +455,102 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
         }
       });
   });
+}
+
+/**
+ * Reattach to a server-side live run for an existing sid. Used on page
+ * refresh: if the CLI is still mid-turn, the server's /live SSE replays
+ * the buffered events and forwards new ones, so we can rebuild the same
+ * streaming UI without racing the jsonl flush.
+ *
+ * Resolves with 'attached' if the server had an active run (state is now
+ * seeded in the module store and subscribers will start receiving deltas),
+ * or 'not-live' if the run had already ended (nothing to do; caller falls
+ * back to reading the jsonl).
+ */
+export function attachLive(project: string, sid: string): Promise<AttachResult> {
+  const state = states.get(sid);
+  if (state) return Promise.resolve(state.done ? 'not-live' : 'attached');
+
+  const active = liveAttachments.get(sid);
+  if (active) return active.ready;
+
+  let settleReady!: (result: AttachResult) => void;
+  let readySettled = false;
+  const ready = new Promise<AttachResult>((resolve) => { settleReady = resolve; });
+  const attachment: LiveAttachment = { ready };
+  const settle = (result: AttachResult) => {
+    if (readySettled) return;
+    readySettled = true;
+    settleReady(result);
+  };
+  liveAttachments.set(sid, attachment);
+
+  void (async () => {
+    let seenAnyEvent = false;
+    try {
+      const resp = await authedFetch(`/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/live`, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+      });
+      if (!resp.ok || !resp.body) {
+        settle('not-live');
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split(/\r?\n\r?\n/);
+        buf = events.pop() || '';
+        for (const ev of events) {
+          const data = ev
+            .split(/\r?\n/)
+            .filter((l) => l.startsWith('data:'))
+            .map((l) => l.slice(5).trimStart())
+            .join('\n')
+            .trim();
+          if (!data || data === '[DONE]') continue;
+          try {
+            const p = JSON.parse(data);
+            if (p.type === 'live-end' && p.reason === 'not-live' && !seenAnyEvent) {
+              settle('not-live');
+              await reader.cancel();
+              return;
+            }
+            if (!seenAnyEvent) {
+              seenAnyEvent = true;
+              states.set(sid, {
+                cwd: p.type === 'meta' && typeof p.cwd === 'string' ? p.cwd : '',
+                userText: '',
+                timeline: [],
+                outputTokens: -1,
+                done: false,
+              });
+              settle('attached');
+            }
+            applyLiveEvent(sid, p);
+          } catch {
+            /* skip malformed event */
+          }
+        }
+      }
+
+      if (!seenAnyEvent) settle('not-live');
+      const current = states.get(sid);
+      if (current && !current.done) { current.done = true; notify(sid); }
+    } catch {
+      settle('not-live');
+      const current = states.get(sid);
+      if (current && !current.done) { current.done = true; notify(sid); }
+    } finally {
+      if (liveAttachments.get(sid) === attachment) liveAttachments.delete(sid);
+    }
+  })();
+
+  return ready;
 }

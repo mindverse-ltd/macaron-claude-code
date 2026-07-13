@@ -40,7 +40,7 @@ type Item =
   | { id: string; kind: 'plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
   // Codex-native approval request. `decision` set once answered (or 'stale'
   // when the server cleared it) so the card disables its buttons.
-  | { id: string; kind: 'approval'; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[]; decision?: CodexDecision | 'stale' };
+  | { id: string; kind: 'approval'; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string; port?: number }; available: CodexDecision[]; decision?: CodexDecision | 'stale' };
 
 function toolInputToCmd(name: string, input: unknown): string {
   if (name === 'Bash') {
@@ -176,7 +176,7 @@ function withPlan(cur: Item[], steps: Array<{ step: string; status: CodexPlanSta
 
 function withApproval(cur: Item[], ev: Extract<CodexStreamEvent, { type: 'codex_approval_request' }>): Item[] {
   if (cur.some((it) => it.kind === 'approval' && it.id === ev.id)) return cur;
-  return [...cur, { id: ev.id, kind: 'approval', approval: ev.kind, command: ev.command, cwd: ev.cwd, reason: ev.reason, grantRoot: ev.grantRoot, network: ev.network, available: ev.available }];
+  return [...cur, { id: ev.id, kind: 'approval', approval: ev.kind, command: ev.command, cwd: ev.cwd, reason: ev.reason, fileChanges: ev.fileChanges, grantRoot: ev.grantRoot, network: ev.network, available: ev.available }];
 }
 
 function withApprovalResolved(cur: Item[], id: string, decision?: CodexDecision | 'stale'): Item[] {
@@ -295,10 +295,16 @@ function ApprovalCard({ it, onDecide }: { it: Extract<Item, { kind: 'approval' }
         {resolved && <span className="cx-approval-status">{it.decision === 'stale' ? 'expired' : it.decision}</span>}
       </div>
       {it.command && <div className="cx-approval-cmd">{it.command}</div>}
-      {it.network && <div className="cx-approval-net">{it.network.protocol}://{it.network.host}</div>}
+      {it.network && <div className="cx-approval-net">{it.network.protocol}://{it.network.host}{it.network.port != null ? `:${it.network.port}` : ''}</div>}
       {it.cwd && <div className="cx-approval-cwd">{it.cwd}</div>}
       {it.grantRoot && <div className="cx-approval-cwd">grant root: {it.grantRoot}</div>}
       {it.reason && <div className="cx-approval-reason">{it.reason}</div>}
+      {it.fileChanges?.map((c, i) => (
+        <div key={i} className="cx-approval-file">
+          <div className="cx-approval-file-head">{c.kind === 'add' ? '＋' : c.kind === 'delete' ? '－' : '△'} {c.path}</div>
+          {c.diff && <pre className="cx-approval-diff">{c.diff}</pre>}
+        </div>
+      ))}
       {!resolved && (
         <div className="cx-approval-actions">
           {it.available.map((d) => (
@@ -391,6 +397,10 @@ export function CodexChat(props: CodexChatProps = {}) {
   // changes, not on every keystroke.
   const runtimeRef = useRef<CodexRuntimeOverride>({});
   const setRuntime = useCallback((ov: CodexRuntimeOverride) => { runtimeRef.current = ov; }, []);
+  // On a brand-new thread the route `sid` stays empty until `onDone` navigates,
+  // but approvals arrive mid-turn — so approve/stop must target the sid the
+  // server reveals via `meta`. Captured here the instant it streams in.
+  const liveSidRef = useRef('');
   // True only after the user kicks off a turn on THIS mount. A server-side
   // reattach also flips `sending`, but must not create a completion notification.
   const streamedRef = useRef(false);
@@ -503,14 +513,16 @@ export function CodexChat(props: CodexChatProps = {}) {
   // Answer an approval optimistically (disable the card), then POST. On failure
   // the server already treated it as resolved (stale race), so we keep it off.
   const decideApproval = useCallback((id: string, decision: CodexDecision) => {
-    if (!sid) return;
+    const target = sid || liveSidRef.current;
+    if (!target) return;
     setLive((cur) => withApprovalResolved(cur, id, decision));
-    void codexApi.approve(sid, id, decision).catch(() => {});
+    void codexApi.approve(target, id, decision).catch(() => {});
   }, [sid]);
 
   const stop = useCallback(async () => {
-    if (!sid) return;
-    try { await codexApi.stopThread(sid); } catch { /* nop */ }
+    const target = sid || liveSidRef.current;
+    if (!target) return;
+    try { await codexApi.stopThread(target); } catch { /* nop */ }
   }, [sid]);
 
   const submit = useCallback(async (opts?: { text?: string }) => {
@@ -534,7 +546,7 @@ export function CodexChat(props: CodexChatProps = {}) {
       if (isNew) {
         let newSid = '';
         await startCodexThread({ text, images: wire, runtime: runtimeRef.current }, {
-          onMeta: (s) => { newSid = s; },
+          onMeta: (s) => { newSid = s; liveSidRef.current = s; },
           onDelta: appendAssistantDelta,
           onReasoning: appendReasoning,
           onToolUse: (ev) => appendTool(ev.id, ev.name, ev.input),

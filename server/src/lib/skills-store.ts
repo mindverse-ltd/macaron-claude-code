@@ -21,7 +21,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 // Minimal frontmatter reader. Skill frontmatter is a flat block of single-line
 // scalars (name, description, allowed-tools, …) — no need to pull in a YAML
-// dependency and bloat the npx tarball. Returns the parsed keys plus the body
+// dependency and bloat the packaged server. Returns the parsed keys plus the body
 // with the frontmatter stripped.
 function parseSkillMd(text: string): { fm: Record<string, string>; body: string } {
   const fm: Record<string, string> = {};

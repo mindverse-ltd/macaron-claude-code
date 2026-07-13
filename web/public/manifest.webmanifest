@@ -1,7 +1,7 @@
 {
   "name": "Macaron",
   "short_name": "Macaron",
-  "description": "Claude Code plugin — WebUI for the GenUI builder, workspace + session management.",
+  "description": "Macaron Artifacts — WebUI for GenUI, workspace, and session management.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

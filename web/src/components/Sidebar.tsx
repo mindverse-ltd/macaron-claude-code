@@ -13,6 +13,7 @@ import {
   toggleCanvasSid,
   focusCanvasSid,
   subscribeCanvas,
+  removeCanvasSid,
 } from '../lib/canvas';
 import { subscribeSystemEvents } from '../lib/systemEvents';
 
@@ -308,6 +309,10 @@ export function Sidebar() {
           onClick: async () => {
             try {
               await api.deleteSession(w.project, s.sessionId);
+              // Also unpin from the workspace canvas so the tile disappears
+              // — otherwise the tile keeps mounting a Session whose jsonl
+              // no longer exists (404s until manually unpinned).
+              removeCanvasSid(w.project, s.sessionId);
               toast(`deleted ${s.sessionId.slice(0, 8)}`);
               loadData();
             } catch (err) {
@@ -332,15 +337,13 @@ export function Sidebar() {
         type="button"
         className="sb-search"
         onClick={() => window.dispatchEvent(new CustomEvent('macaron:open-search'))}
-        title="Search Claude sessions (⌘K)"
+        title="Search Claude sessions"
       >
         <span className="sb-search-icon">⌕</span>
         <span className="sb-search-label">Search sessions</span>
-        <kbd className="sb-search-kbd">⌘K</kbd>
       </button>
-      <Link className={'sb-nav-link' + (location.pathname === '/board' ? ' active' : '')} to="/board">
-        <span className="sb-nav-icon">▦</span>
-        <span>Dispatch board</span>
+      <Link className={'sb-nav-link' + (location.pathname === '/examples' ? ' active' : '')} to="/examples">
+        <span>Examples</span>
       </Link>
 
       <div className="sb-label">
@@ -348,21 +351,12 @@ export function Sidebar() {
         <div className="sb-label-actions">
           <button
             type="button"
-            className="sb-new-session"
-            onClick={() => setPickerOpen(true)}
-            title="New session in a folder..."
-            aria-label="New session in a folder"
-          >
-            📁
-          </button>
-          <button
-            type="button"
             className="sb-new-project"
             onClick={() => setShowNewProject(true)}
             title="New project (create dir or clone a repo)"
             aria-label="New project"
           >
-            +
+            + new
           </button>
         </div>
       </div>
@@ -482,59 +476,26 @@ export function Sidebar() {
         )}
       </div>
 
-      <div className="sb-spacer-grow" />
+      <div className="sb-tools">
+        <Link className="sb-settings-link" to="/usage">
+          <span>Usage</span>
+        </Link>
 
-      <Link className="sb-settings-link" to="/agents">
-        <span>🤖</span>
-        <span>Subagents</span>
-      </Link>
+        <button
+          type="button"
+          className="sb-settings-link sb-shortcuts-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('macaron:shortcuts'))}
+          title="Keyboard shortcuts"
+        >
+          <span>Shortcuts</span>
+          <span className="sb-spacer" />
+          <kbd className="sb-shortcuts-kbd" aria-hidden="true">?</kbd>
+        </button>
 
-      <Link className="sb-settings-link" to="/hooks">
-        <span>⚡</span>
-        <span>Hooks</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/usage">
-        <span>📊</span>
-        <span>Usage</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/skills">
-        <span>▤</span>
-        <span>Skills</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/prompts">
-        <span>⌘</span>
-        <span>Prompts</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/schedules">
-        <span>⏰</span>
-        <span>Schedules</span>
-      </Link>
-
-      <Link className="sb-settings-link" to="/mcp">
-        <span>🧩</span>
-        <span>MCP servers</span>
-      </Link>
-
-      <button
-        type="button"
-        className="sb-settings-link sb-shortcuts-btn"
-        onClick={() => window.dispatchEvent(new CustomEvent('macaron:shortcuts'))}
-        title="Keyboard shortcuts"
-      >
-        <span aria-hidden="true">⌨</span>
-        <span>Shortcuts</span>
-        <span className="sb-spacer" />
-        <kbd className="sb-shortcuts-kbd" aria-hidden="true">?</kbd>
-      </button>
-
-      <Link className="sb-settings-link" to="/settings">
-        <span>⚙</span>
-        <span>Settings</span>
-      </Link>
+        <Link className="sb-settings-link" to="/settings">
+          <span>Settings</span>
+        </Link>
+      </div>
 
       <footer className="sb-footer">
         <RateLimitMeters />

@@ -62,7 +62,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: 'text', text: 'code is required and must be at least 20 chars' }],
     };
   }
-  const { text, ok } = handleRenderUI(code);
+  const { text, ok } = await handleRenderUI(code);
   return {
     isError: !ok,
     content: [{ type: 'text', text }],

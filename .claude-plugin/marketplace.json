@@ -8,7 +8,7 @@
     {
       "name": "macaron",
       "source": "./",
-      "description": "Macaron WebUI for Claude Code — streaming GenUI builder, model switcher, and visual session manager."
+      "description": "Macaron artifacts for Claude Code and Codex — streaming GenUI builder, model switcher, and visual session manager."
     }
   ]
 }

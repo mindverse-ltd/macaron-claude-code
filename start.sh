@@ -19,7 +19,55 @@ set -euo pipefail
 #  * Uses pnpm via corepack (Node 22+ ships with it), so plain `node` +
 #    `bash` on the user's machine is enough — no manual npm/pnpm setup.
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Codex plugin cache (~/.codex/plugins/cache/…) is NOT a stable working dir:
+# Codex prunes/regenerates it on version sync, killing our node_modules +
+# web/dist + server/dist and leaving a listening server pointing at
+# nothing. Claude Code plugin cache (~/.claude/plugins/cache/…) has the
+# same class of behavior. Detect either and rsync source into a stable
+# runtime dir under $HOME, then run install/build/launch from there.
+DIR="$SRC_DIR"
+_needs_mirror=0
+case "$SRC_DIR" in
+  *"/.codex/plugins/cache/"*|*"/.claude/plugins/cache/"*) _needs_mirror=1 ;;
+esac
+if [ "$_needs_mirror" = 1 ]; then
+  # Version key: pull from package.json so parallel major bumps get
+  # isolated runtime dirs. Fall back to a stable "current" if jq/node
+  # aren't handy — the rsync below still keeps that dir up-to-date.
+  _version=""
+  if command -v node >/dev/null 2>&1; then
+    _version="$(node -e 'try{console.log(require(process.argv[1]).version||"")}catch{}' "$SRC_DIR/package.json" 2>/dev/null || true)"
+  fi
+  [ -z "$_version" ] && _version="current"
+  DIR="$HOME/.macaron/runtime/$_version"
+  mkdir -p "$DIR"
+  echo "[macaron] plugin cache dir is not persistent — mirroring to $DIR" >&2
+  # rsync source (fast: excludes generated dirs). Preserves mtimes so the
+  # rebuild-on-source-change check downstream still fires correctly.
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete \
+      --exclude='.git' \
+      --exclude='node_modules' \
+      --exclude='web/dist' \
+      --exclude='server/dist' \
+      --exclude='shared/dist' \
+      --exclude='.macaron-install-marker' \
+      "$SRC_DIR/" "$DIR/"
+  else
+    # Fallback: cp -R (slower first sync, but rsync should exist on macOS).
+    # Preserve node_modules/dist that already exist in $DIR by copying
+    # only non-generated top-levels.
+    for _item in "$SRC_DIR"/*; do
+      _base="$(basename "$_item")"
+      case "$_base" in
+        node_modules|.git) continue ;;
+      esac
+      cp -R "$_item" "$DIR/" 2>/dev/null || true
+    done
+  fi
+fi
 
 # Snapshot caller-provided MACARON_* env before sourcing .env so a stale
 # .env in the plugin cache can't clobber an explicit override (e.g.
@@ -102,7 +150,7 @@ if [ "$needs_install" = 1 ]; then
 [macaron] pnpm install failed.
 [macaron] fix: cd "$DIR" && rm -rf node_modules && $_PNPM install
 [macaron] if that still fails, the pnpm-lock.yaml may be corrupt; open
-[macaron] an issue at https://github.com/mindverse-ltd/macaron-claude-code/issues
+[macaron] an issue at https://github.com/MindLab-Research/macaron-artifacts/issues
 EOF
       exit 1
     fi

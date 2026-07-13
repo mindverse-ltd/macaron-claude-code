@@ -263,7 +263,7 @@ export function runCodexAppServer(opts: CodexRunOptions): AsyncGenerator<RunnerE
             const changes = fileChangesByItem.get(String(params.itemId ?? ''));
             push({ kind: 'codex_approval_request', id: approvalId, approval: 'file', reason: (params.reason as string) ?? null, grantRoot: (params.grantRoot as string) ?? null, fileChanges: changes, available: normalizeDecisions(params.availableDecisions) });
           } else {
-            const net = params.networkApprovalContext as { host: string; protocol: string } | null | undefined;
+            const net = params.networkApprovalContext as { host: string; protocol: string; port?: number } | null | undefined;
             push({
               kind: 'codex_approval_request',
               id: approvalId,
@@ -271,7 +271,7 @@ export function runCodexAppServer(opts: CodexRunOptions): AsyncGenerator<RunnerE
               command: (params.command as string) ?? undefined,
               cwd: (params.cwd as string) ?? undefined,
               reason: (params.reason as string) ?? null,
-              network: net ? { host: net.host, protocol: net.protocol } : undefined,
+              network: net ? { host: net.host, protocol: net.protocol, port: net.port } : undefined,
               available: normalizeDecisions(params.availableDecisions),
             });
           }

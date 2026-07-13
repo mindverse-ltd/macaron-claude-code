@@ -28,6 +28,7 @@ build/
 # Logs & tmp
 *.log
 /tmp/
+.tmp/
 .cache/
 
 # Claude Code local

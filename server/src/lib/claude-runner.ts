@@ -49,7 +49,7 @@ export type RunnerEvent =
   // these; they carry the shared SSE payload verbatim so the route can relay
   // them without re-shaping. See shared/src/sse.ts for field semantics.
   | { kind: 'codex_plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
-  | { kind: 'codex_approval_request'; id: string; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { kind: 'codex_approval_request'; id: string; approval: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string; port?: number }; available: CodexDecision[] }
   | { kind: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }
   | { kind: 'error'; error: string }
   | { kind: 'done'; exitCode: number };
@@ -174,6 +174,12 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
           abortController: opts.abortController,
           mcpServers: { macaron: macaronMcpServer },
           allowedTools: ['mcp__macaron__render_ui'],
+          // AskUserQuestion is the CLI's built-in "pick one of these" prompt.
+          // We ship render_ui as a superior replacement (real UI, arbitrary
+          // widgets, sendUserMessage) so the model doesn't fall back to the
+          // text-only Ask variant when a click-to-answer card would beat it.
+          // See skills/ask-via-ui/SKILL.md for the authored guidance.
+          disallowedTools: ['AskUserQuestion'],
           // canUseTool: pause the SDK, ask the client, resume once decided.
           // A promise is registered under a random id; the client's POST to
           // /permission-decision looks the id up and resolves it.

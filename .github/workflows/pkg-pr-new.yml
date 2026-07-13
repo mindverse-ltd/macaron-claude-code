@@ -24,10 +24,13 @@ jobs:
       # `pnpm exec`, not `pnpm dlx`/`bunx`: pkg.pr.new warns against dlx-style
       # runners in CI (they fetch an unpinned build each run). pkg-pr-new is a
       # devDependency, so this executes the lockfile-pinned binary from
-      # node_modules/.bin. publish runs `npm pack`, which fires the root `prepack`
-      # hook (build shared → bundle server → build web), so the tarball ships
-      # prebuilt server/dist + web/dist and runs without Vite at runtime — no
-      # separate build step needed. Force long-form URLs because compact URLs
-      # require npm repository metadata; `mcc` is only published through
-      # pkg.pr.new, and --bin shows a CLI command.
-      - run: pnpm exec pkg-pr-new publish --no-compact --bin
+      # node_modules/.bin. publish runs `npm pack`, which fires each package's
+      # `prepack` hook (build shared → bundle server → build web; mcx then stages
+      # those outputs into itself), so both tarballs ship prebuilt server/dist +
+      # web/dist and run without Vite at runtime — no separate build step needed.
+      # Force long-form URLs because compact URLs require npm repository metadata;
+      # these are only published through pkg.pr.new, and --bin shows a CLI command.
+      # Publish both `mcc` (root, `.`, Claude) and `mcx` (Codex) — two independent,
+      # self-contained packages, each with its own bundle. `npx mcx@…` works bare
+      # (bin name = package name) and pulls in only mcx.
+      - run: pnpm exec pkg-pr-new publish --no-compact --bin . ./mcx

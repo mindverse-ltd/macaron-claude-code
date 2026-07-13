@@ -16,7 +16,7 @@ export type CodexStreamEvent =
   | { type: 'usage'; outputTokens: number; thinkingTokens?: number }
   | { type: 'event'; subtype: string }
   | { type: 'codex_plan'; steps: Array<{ step: string; status: CodexPlanStatus }>; explanation?: string | null }
-  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string }; available: CodexDecision[] }
+  | { type: 'codex_approval_request'; id: string; kind: CodexApprovalKind; command?: string; cwd?: string; reason?: string | null; fileChanges?: Array<{ path: string; kind: string; diff?: string }>; grantRoot?: string | null; network?: { host: string; protocol: string; port?: number }; available: CodexDecision[] }
   | { type: 'codex_approval_resolved'; id: string; decision?: CodexDecision | 'stale' }
   | { type: 'error'; error: string }
   | { type: 'done'; exitCode: number }

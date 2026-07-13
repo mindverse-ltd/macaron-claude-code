@@ -30,3 +30,58 @@ export function takePendingCwd(project: string): string | undefined {
   pending.delete(project);
   return v;
 }
+
+// Pending seed prompt — set when a Demos-page card or the Home landing wants
+// to open a new session with a preloaded first message. Consumed once by
+// Session's isNew branch; auto-sent so the user sees the render immediately.
+//
+// `images` / `isolate` / `permissionMode` let the Home composer forward the
+// same knobs the Session composer exposes (attach, worktree, permission chip)
+// so the first turn starts with the setup the user picked on the landing.
+export type PendingImage = { id?: string; name?: string; mimeType: string; dataUrl: string };
+export type PendingPermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export type PendingSeed = {
+  text: string;
+  auto: boolean;
+  images?: PendingImage[];
+  isolate?: boolean;
+  permissionMode?: PendingPermissionMode;
+};
+
+const pendingPrompt = new Map<string, PendingSeed & { expiresAt: number }>();
+
+export function setPendingPrompt(
+  project: string,
+  text: string,
+  opts?: {
+    auto?: boolean;
+    images?: PendingImage[];
+    isolate?: boolean;
+    permissionMode?: PendingPermissionMode;
+  },
+): void {
+  pendingPrompt.set(project, {
+    text,
+    auto: opts?.auto ?? true,
+    images: opts?.images,
+    isolate: opts?.isolate,
+    permissionMode: opts?.permissionMode,
+    expiresAt: Date.now() + PENDING_TTL_MS,
+  });
+}
+
+export function takePendingPrompt(project: string): PendingSeed | undefined {
+  const v = pendingPrompt.get(project);
+  if (!v) return undefined;
+  pendingPrompt.delete(project);
+  if (v.expiresAt <= Date.now()) return undefined;
+  const { expiresAt: _e, ...seed } = v;
+  return seed;
+}
+
+export function peekPendingPrompt(project: string): PendingSeed | undefined {
+  const v = pendingPrompt.get(project);
+  if (!v || v.expiresAt <= Date.now()) return undefined;
+  const { expiresAt: _e, ...seed } = v;
+  return seed;
+}

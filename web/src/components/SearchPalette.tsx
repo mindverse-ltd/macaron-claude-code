@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SEARCH_HL_OPEN, SEARCH_HL_CLOSE } from '@macaron/shared';
 import { api, basename, type SearchHit } from '../lib/api';
+import { hasActiveModal } from '../lib/modal';
 
 // Split a server snippet on the highlight delimiters and render matched runs as
 // <mark>. We never set innerHTML, so message text can't inject markup — the
@@ -51,11 +52,10 @@ export function SearchPalette() {
     setActive(0);
   }, []);
 
-  // Open on the sidebar search-button event. Cmd-K stays with CommandPalette
-  // (commands + navigation) so the two palettes don't fight over the same key —
-  // the button is the full-text search entry point.
+  // Open on the sidebar search-button event (macaron:open-search). Don't stack
+  // over another open modal (e.g. CommandPalette) — matches ShortcutsHelp.
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = () => setOpen((v) => v || !hasActiveModal());
     window.addEventListener('macaron:open-search', onOpen);
     return () => window.removeEventListener('macaron:open-search', onOpen);
   }, []);

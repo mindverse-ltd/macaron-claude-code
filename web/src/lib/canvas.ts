@@ -6,7 +6,7 @@
 // (1–12) and rowSpan (1–20). Auto-flow places tiles in order; a resize
 // nudges the numbers, an animation smooths the transition.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { newTerminalSid } from './terminal';
 
 export type TileGeom = { sid: string; colSpan: number; rowSpan: number };
@@ -134,6 +134,19 @@ export function addDraftSid(project: string): void {
   notify(project);
 }
 
+// Remove a sid from the canvas without adding it if absent. Used by callers
+// that already know they want it gone (e.g. sidebar's "Delete Session"
+// context menu — the session's jsonl is being deleted, so the pinned tile
+// must go too or it'd render a Session that 404s forever).
+export function removeCanvasSid(project: string, sid: string): void {
+  const cur = loadCanvas(project);
+  if (!cur.tiles.some((t) => t.sid === sid)) return;
+  const tiles = cur.tiles.filter((t) => t.sid !== sid);
+  const focusedSid = cur.focusedSid === sid ? tiles[0]?.sid || null : cur.focusedSid;
+  saveCanvas(project, { tiles, focusedSid });
+  notify(project);
+}
+
 export function focusCanvasSid(project: string, sid: string): void {
   const cur = loadCanvas(project);
   if (!cur.tiles.some((t) => t.sid === sid)) return;
@@ -170,30 +183,36 @@ export function useCanvas(project: string): {
   promoteDraft: (realSid: string) => void;
 } {
   const [state, setState] = useState<CanvasState>(() => loadCanvas(project));
+  const stateRef = useRef(state);
 
   useEffect(() => {
-    setState(loadCanvas(project));
+    const sync = () => {
+      const next = loadCanvas(project);
+      stateRef.current = next;
+      setState(next);
+    };
+    sync();
     let set = listeners.get(project);
     if (!set) {
       set = new Set();
       listeners.set(project, set);
     }
-    const cb = () => setState(loadCanvas(project));
-    set.add(cb);
+    set.add(sync);
     return () => {
-      set!.delete(cb);
+      set!.delete(sync);
       if (set!.size === 0) listeners.delete(project);
     };
   }, [project]);
 
   const update = useCallback(
     (patch: (cur: CanvasState) => CanvasState) => {
-      setState((cur) => {
-        const next = patch(cur);
-        saveCanvas(project, next);
-        notify(project);
-        return next;
-      });
+      const cur = stateRef.current;
+      const next = patch(cur);
+      if (next === cur) return;
+      stateRef.current = next;
+      saveCanvas(project, next);
+      setState(next);
+      notify(project);
     },
     [project],
   );

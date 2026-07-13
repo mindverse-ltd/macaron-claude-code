@@ -37,15 +37,24 @@ export type CustomProvider = {
   apiKey: string;
 };
 
+// Canonical permission-mode set, mirrored on the client via PermissionMode in
+// StatusBar.tsx. New sessions initialise their per-session picker to whichever
+// mode this global default names — sessions may still override themselves.
+export type DefaultPermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'bypassPermissions';
+
 export type Settings = {
   activeProviderId: string; // 'anthropic' or a CustomProvider.id
   customProviders: CustomProvider[];
-  // When true, every SDK subprocess is launched with
-  // `permissionMode: 'bypassPermissions'` + `allowDangerouslySkipPermissions:
-  // true`, regardless of what the WebUI sends. Off by default — bypass mode
-  // auto-approves every tool call with no client prompt, so it should be an
-  // explicit opt-in.
-  yoloMode: boolean;
+  // Global default for the per-session permission picker. Sessions initialise
+  // their own permissionMode to this value on start; a session can still cycle
+  // its picker (Shift+Tab / chip select) to override for that session only.
+  // 'bypassPermissions' reproduces the old YOLO behaviour (SDK auto-approves
+  // every tool call) but per-session override remains available.
+  defaultPermissionMode: DefaultPermissionMode;
   // Follow-up suggestions make an extra model call after each clean turn.
   // Default off so users explicitly opt into the token spend.
   followupSuggestions: boolean;
@@ -75,7 +84,7 @@ export type PublicSettings = {
   activeProviderId: string;
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
-  yoloMode: boolean;
+  defaultPermissionMode: DefaultPermissionMode;
   followupSuggestions: boolean;
 };
 
@@ -101,9 +110,21 @@ function makeDefaults(): Settings {
     // Ship one seeded Macaron entry — users see it in the list, can add key,
     // switch to it, or delete it. Same UX as any other custom provider.
     customProviders: [seedMacaronProvider()],
-    yoloMode: false,
+    defaultPermissionMode: 'default',
     followupSuggestions: false,
   };
+}
+
+const PERMISSION_MODES: readonly DefaultPermissionMode[] = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'bypassPermissions',
+] as const;
+function normalizePermissionMode(v: unknown): DefaultPermissionMode {
+  return typeof v === 'string' && (PERMISSION_MODES as readonly string[]).includes(v)
+    ? (v as DefaultPermissionMode)
+    : 'default';
 }
 
 function normalizeActiveId(id: string): string {
@@ -121,14 +142,23 @@ function migrateIfLegacy(raw: unknown): Settings {
     activeProviderId?: string;
     customProviders?: CustomProvider[];
     yoloMode?: boolean;
+    defaultPermissionMode?: DefaultPermissionMode;
     followupSuggestions?: boolean;
   };
+  // A legacy `yoloMode: true` collapses onto `defaultPermissionMode:
+  // 'bypassPermissions'` so existing installs preserve their auto-approve
+  // behaviour after the picker landed.
+  const inferredDefault: DefaultPermissionMode = legacy?.defaultPermissionMode
+    ? normalizePermissionMode(legacy.defaultPermissionMode)
+    : legacy?.yoloMode
+      ? 'bypassPermissions'
+      : 'default';
   if (legacy && Array.isArray(legacy.customProviders)) {
     // Already current shape — just normalize the legacy 'anthropic' id.
     return {
       activeProviderId: normalizeActiveId(legacy.activeProviderId || SYSTEM_PROVIDER_ID),
       customProviders: legacy.customProviders.map(sanitizeProvider),
-      yoloMode: Boolean(legacy.yoloMode),
+      defaultPermissionMode: inferredDefault,
       followupSuggestions: Boolean(legacy.followupSuggestions),
     };
   }
@@ -144,7 +174,7 @@ function migrateIfLegacy(raw: unknown): Settings {
   return {
     activeProviderId: wasMacaronActive ? macaron.id : SYSTEM_PROVIDER_ID,
     customProviders: [macaron],
-    yoloMode: Boolean(legacy?.yoloMode),
+    defaultPermissionMode: inferredDefault,
     followupSuggestions: Boolean(legacy?.followupSuggestions),
   };
 }
@@ -208,7 +238,7 @@ export async function readPublicSettings(): Promise<PublicSettings> {
       model: p.model,
       configured: Boolean(p.apiKey),
     })),
-    yoloMode: s.yoloMode,
+    defaultPermissionMode: s.defaultPermissionMode,
     followupSuggestions: s.followupSuggestions,
   };
 }
@@ -329,13 +359,19 @@ export function getActiveProviderRaw():
 // Sync getter for hot-path consumers (claude-runner reads this on every run
 // to decide whether to force bypassPermissions). Cache is warmed at startup
 // by warmSettingsCache(), so this never blocks on disk I/O.
+// Back-compat shim: the legacy `yoloMode` boolean maps onto the new
+// `defaultPermissionMode === 'bypassPermissions'` semantic.
 export function getYoloMode(): boolean {
-  return (cache ?? makeDefaults()).yoloMode ?? false;
+  return getDefaultPermissionMode() === 'bypassPermissions';
 }
 
-export async function setYoloMode(enabled: boolean): Promise<void> {
+export function getDefaultPermissionMode(): DefaultPermissionMode {
+  return (cache ?? makeDefaults()).defaultPermissionMode ?? 'default';
+}
+
+export async function setDefaultPermissionMode(mode: DefaultPermissionMode): Promise<void> {
   const s = await readSettings();
-  s.yoloMode = Boolean(enabled);
+  s.defaultPermissionMode = mode;
   await persist();
 }
 

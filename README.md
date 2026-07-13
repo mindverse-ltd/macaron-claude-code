@@ -1,37 +1,25 @@
-# Macaron · Claude Code plugin (demo)
+# Macaron Artifacts
 
-A Claude Code plugin that opens a local **WebUI** giving you three things you can't get from the CLI alone:
+Macaron Artifacts publishes the plugin manifests, local WebUI runtime, GenUI tooling, and docs for running Macaron with Claude Code and Codex.
 
-1. **Visual `/resume`** — browse Claude Code workspaces & sessions with previews; one click copies the `--resume` command.
-2. **Live chat** — continue any session (or start a new one) in the browser; streams thinking, tool calls and GenUI previews via the Claude Agent SDK.
-3. **Provider switcher** — run sessions against your ambient Claude Code login or any Anthropic-compatible endpoint (Macaron, OpenRouter, LiteLLM, …).
+1. **Visual sessions** — browse workspaces and sessions with previews, then continue a turn from the browser.
+2. **Live chat** — stream thinking, tool calls, and GenUI previews from supported agent runtimes.
+3. **Provider controls** — run against an ambient login or a compatible endpoint such as Macaron, OpenRouter, or LiteLLM.
 
-The plugin bundles the official **`genui-builder` skill** so any Claude Code instance that has it loaded can also produce GenUI TSX from the command line.
-
----
-
-## Run via npx
-
-No clone, no build — just Node 22+. Pre-release builds publish to [pkg.pr.new](https://pkg.pr.new) on every push to `main`, so `@main` always points at the latest build (a PR number or commit sha works too, e.g. `mcc@8`):
-
-```bash
-npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main            # → http://localhost:7878
-npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main --port 8080
-MACARON_API_KEY=sk-… npx https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main
-```
-
-The tarball ships the prebuilt web UI + a bundled server; only the npm-installable runtime deps (`fastify`, `@fastify/static`, `zod`, `typescript`, `@anthropic-ai/claude-agent-sdk`) are fetched on first run.
-
-`bunx` can't run a bare tarball URL, but the `name@url` form works: `bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@main`.
+The plugin bundle includes the official **`genui-builder` skill** so supported agents can produce GenUI TSX from the command line.
 
 ---
 
 ## Install
 
-The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json`). Use the full https URL — the `owner/repo` shorthand clones over SSH, which fails without a GitHub SSH key. In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
+The repo doubles as its own plugin marketplace. Use the full https URL — the `owner/repo` shorthand may clone over SSH, which fails without a GitHub SSH key.
+
+### Claude Code
+
+In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
-/plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
+/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 ```
 
 ```
@@ -41,11 +29,36 @@ The repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json
 or from the shell:
 
 ```bash
-claude plugin marketplace add https://github.com/mindverse-ltd/macaron-claude-code
+claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
 claude plugin install macaron@macaron
 ```
 
-For local development, install your checkout directly: `claude plugin install /path/to/macaron-claude-code`.
+For local development, install your checkout directly: `claude plugin install /path/to/macaron`.
+
+### Codex
+
+```bash
+codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+codex plugin add macaron@macaron
+```
+
+### Run without installing
+
+Two independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Install one, get only that one. Launch either in one command, no plugin install needed:
+
+```bash
+bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+```
+
+`npx` works the same way — bin name = package name for both:
+
+```bash
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+```
+
+Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-claude-code/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
 
 Verify:
 
@@ -56,13 +69,15 @@ claude plugin list
 
 ## Use
 
-Inside any Claude Code session:
+Inside Claude Code:
 
 ```
 /macaron
 ```
 
 The slash command starts the local server (`node server/dist/index.js`, port `7878` by default) and opens `http://localhost:7878` in your browser. Pass a custom port with `/macaron 8080`.
+
+Inside Codex, ask it to open the Macaron WebUI. The Codex-side default port is `7979`.
 
 ### Views
 
@@ -99,13 +114,12 @@ Remote requests must then present the token; localhost stays frictionless (loopb
 ```
 .claude-plugin/                   plugin manifest + marketplace (install from GitHub)
 commands/macaron.md               /macaron slash command
-skills/genui-builder/             bundled skill (used by Claude Code directly)
-bin/mcc.mjs                       `mcc` npx entry — boots the prebuilt server
+skills/genui-builder/             bundled GenUI authoring skill
 start.sh                          one-time npm install + build, boots server in background
 shared/                           domain types + SSE protocol (server ↔ web)
 server/                           Fastify API, Claude Agent SDK runner, provider relay
 web/                              Vite + React UI
-.github/workflows/pkg-pr-new.yml  publishes the npx tarball to pkg.pr.new on every push
+site/                             Fumadocs docs + landing site (standalone, not in the workspace)
 ```
 
 ## Notes
