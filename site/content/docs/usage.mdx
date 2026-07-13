@@ -30,17 +30,17 @@ Then say `open macaron web ui` in a session to open it.
 
 ### Without Installing the Plugin — One `bunx` Line
 
-The published tarball ships the prebuilt server + web bundles and exposes two bins — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Launch either in one command:
+The published tarball ships the prebuilt server + web bundles as two independent packages — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Launch either in one command:
 
 ```bash
-bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>          # Claude → http://localhost:7878
-bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>          # Codex  → http://localhost:7979
+bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
 
-npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>           # Claude → http://localhost:7878
-npx -p "mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>" mcx  # Codex  → http://localhost:7979
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>    # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>    # Codex  → http://localhost:7979
 ```
 
-`bunx` resolves by bin name, so `mcx@…` boots the Codex launcher from the same `mcc` package. `npx` resolves the bin by package name instead, so the Codex launcher needs `-p "mcc@…" mcx` (a bare `npx mcx@…` would run `mcc`). Replace `<sha>` with a commit on `main`. Both bins accept `--host` / `--port`; run `--help` for all flags.
+Replace `<sha>` with a commit on `main`. Both bins accept `--host` / `--port`; run `--help` for all flags.
 
 ## Using It
 

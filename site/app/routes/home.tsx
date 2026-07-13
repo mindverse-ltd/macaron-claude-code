@@ -24,6 +24,7 @@ export function meta({}: Route.MetaArgs) {
 
 // pkg.pr.new ships prebuilt tarballs per commit; `<sha>` stands in for a commit on main.
 const PKG = 'https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>';
+const PKG_MCX = 'https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>';
 
 export default function Home() {
   return (
@@ -132,7 +133,7 @@ export default function Home() {
                   <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
                     <Codex size={15} /> Codex — <code className="text-fd-muted-foreground">mcx</code>
                   </div>
-                  <Command code={`bunx mcx@${PKG}`} />
+                  <Command code={`bunx mcx@${PKG_MCX}`} />
                 </div>
               </div>
             </Tab>
@@ -148,10 +149,7 @@ export default function Home() {
                   <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
                     <Codex size={15} /> Codex — <code className="text-fd-muted-foreground">mcx</code>
                   </div>
-                  <Command code={`npx -p "mcc@${PKG}" mcx`} />
-                  <p className="mt-1.5 text-xs text-fd-muted-foreground">
-                    npm resolves bins by package name, so it needs <code>-p</code> to reach the <code>mcx</code> bin.
-                  </p>
+                  <Command code={`npx mcx@${PKG_MCX}`} />
                 </div>
               </div>
             </Tab>
