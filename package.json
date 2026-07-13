@@ -1,7 +1,7 @@
 {
   "name": "mcc",
   "version": "0.1.0",
-  "description": "Macaron artifacts for Claude Code and Codex — WebUI runtime, GenUI tooling, and plugin manifests.",
+  "description": "Macaron Claude Code WebUI — GenUI tooling and plugin manifests. Self-contained launcher, prebuilt server + web bundles.",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @macaron/server dev\" \"pnpm --filter @macaron/web dev\"",
@@ -14,8 +14,7 @@
     "typecheck": "pnpm --filter @macaron/shared typecheck && pnpm --filter @macaron/server typecheck && pnpm --filter @macaron/web typecheck"
   },
   "bin": {
-    "mcc": "./bin/mcc.mjs",
-    "mcx": "./bin/mcx.mjs"
+    "mcc": "./bin/mcc.mjs"
   },
   "files": [
     "bin",

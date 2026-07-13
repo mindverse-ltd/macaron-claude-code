@@ -27,14 +27,21 @@ codex plugin add macaron@macaron
 
 ### 不装插件，一句 bunx 拉起
 
-发布的 tarball 自带预构建的 server + web 产物，并暴露两个 bin —— `mcc`（Claude WebUI，端口 `7878`）和 `mcx`（Codex WebUI，端口 `7979`）。任选一个一句话拉起：
+两个互相独立的包，各自自带预构建的 server + web 产物 —— `mcc`（Claude WebUI，端口 `7878`）和 `mcx`（Codex WebUI，端口 `7979`）。装哪个就只装哪个。任选一个一句话拉起：
 
 ```bash
 bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
-bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Codex  → http://localhost:7979
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
 ```
 
-`bunx` 按 bin 名解析，所以 `mcx@…` 会从同一个 `mcc` 包里跑起 Codex 启动器。`<sha>` 换成 `main` 上的某个 commit。两个 bin 都支持 `--host` / `--port`，`--help` 看全部参数。
+`npx` 同理，两个包都是 bin 名 = 包名：
+
+```bash
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+```
+
+`<sha>` 换成 `main` 上的某个 commit。两个 bin 都支持 `--host` / `--port`，`--help` 看全部参数。
 
 ## 使用
 
