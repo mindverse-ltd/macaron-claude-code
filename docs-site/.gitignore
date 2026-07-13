@@ -5,3 +5,5 @@
 /.react-router/
 /build/
 .source
+.vercel
+.env*
