@@ -44,14 +44,14 @@ codex plugin add macaron@macaron
 
 ### Run without installing
 
-The published tarball ships the prebuilt server + web bundles and exposes two bins — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Launch either in one command, no plugin install needed:
+Two independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Install one, get only that one. Launch either in one command, no plugin install needed:
 
 ```bash
 bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
-bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Codex  → http://localhost:7979
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
 ```
 
-`bunx` resolves by bin name, so `mcx@…` runs the Codex launcher from the same `mcc` package. `npx` resolves by package name instead, so use the standalone `mcx` package for it:
+`npx` works the same way — bin name = package name for both:
 
 ```bash
 npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
