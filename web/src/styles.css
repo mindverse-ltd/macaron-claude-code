@@ -4,6 +4,39 @@
    src/lib/theme.ts keeps it in sync at runtime. Add a color to the dark block
    only when a hardcoded value below reads wrong on the dark surfaces. */
 
+/* --- Z-INDEX LADDER (single source of truth, referenced via var(--z-*)) ----
+   Rule: everything that needs to stack MUST reach for a variable here rather
+   than inventing a new integer. New tier? Add a name here, then use it.
+     10  tile-inline    inline overlays painted inside a canvas tile
+     20  anchored-pop   dropdowns anchored to composer (menus, palettes)
+     40  side-panel     persistent side drawer (git panel)
+     60  mobile-drawer  mobile sidebar (backdrop is 65, drawer 70)
+     80  mention        @-mention/file autocomplete popup
+    100  toast          transient toast in the viewport corner
+    110  notify         in-app notification stack (over toast)
+    200  modal          regular modal backdrop (confirm, NewProject, DirPicker…)
+    220  modal-nested   a modal opened from inside another modal
+    300  palette        Cmd-K palette / Search palette (over all modals)
+   ---------------------------------------------------------------------- */
+:root {
+  --z-tile-inline: 10;
+  --z-anchored-pop: 20;
+  --z-side-panel: 40;
+  --z-mobile-drawer-bg: 65;
+  --z-mobile-drawer: 70;
+  --z-mention: 80;
+  --z-toast: 100;
+  --z-notify: 110;
+  --z-modal: 200;
+  --z-modal-nested: 220;
+  --z-palette: 300;
+}
+/* Escape hatch for a modal opened from inside another modal — wrap the child
+   modal in <div className="above-modal">…</div> and its .confirm-backdrop
+   inherits the higher tier automatically. */
+.above-modal .confirm-backdrop,
+.above-modal .search-backdrop { z-index: var(--z-modal-nested); }
+
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
@@ -1834,7 +1867,7 @@ textarea:focus, select:focus, input:focus {
   transform: translateY(-100%);
   max-height: 260px;
   overflow-y: auto;
-  z-index: 80;
+  z-index: var(--z-mention);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--surface);
@@ -1886,7 +1919,7 @@ textarea:focus, select:focus, input:focus {
   border-radius: 12px;
   padding: 4px;
   box-shadow: 0 6px 20px rgba(61, 57, 41, 0.12);
-  z-index: 20;
+  z-index: var(--z-anchored-pop);
   animation: ctx-in 0.12s ease-out;
 }
 .slash-item {
@@ -2112,7 +2145,7 @@ textarea:focus, select:focus, input:focus {
   right: 0;
   height: 2px;
   overflow: hidden;
-  z-index: 4;
+  z-index: var(--z-tile-inline);
   pointer-events: none;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
@@ -2180,7 +2213,7 @@ textarea:focus, select:focus, input:focus {
     );
   opacity: 0;
   transition: opacity 0.15s ease;
-  z-index: 3;
+  z-index: var(--z-tile-inline);
 }
 .ws-tile:hover .ws-tile-resize { opacity: 0.7; }
 .ws-tile-resize:hover { opacity: 1; }
@@ -2232,6 +2265,7 @@ textarea:focus, select:focus, input:focus {
 .ws-tile:hover .ws-tile-action,
 .ws-tile:hover .ws-tile-x { opacity: 1; }
 .ws-tile-action:hover { color: var(--accent); background: var(--surface); }
+.ws-tile-action.ws-tile-delete:hover { color: var(--bad); background: rgba(192, 82, 74, 0.08); }
 .ws-tile-x:hover { color: var(--bad); background: rgba(192, 82, 74, 0.08); }
 .ws-tile-body {
   flex: 1;
@@ -2431,7 +2465,7 @@ textarea:focus, select:focus, input:focus {
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(61, 57, 41, 0.12);
   padding: 6px;
-  z-index: 20;
+  z-index: var(--z-anchored-pop);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2564,7 +2598,7 @@ textarea:focus, select:focus, input:focus {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
-  z-index: 20;
+  z-index: var(--z-anchored-pop);
   min-width: 190px;
   padding: 8px 10px;
   background: var(--surface);
@@ -2863,7 +2897,7 @@ textarea:focus, select:focus, input:focus {
   border-radius: 999px;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(61, 57, 41, 0.2);
-  z-index: 5;
+  z-index: var(--z-tile-inline);
 }
 .genui-status.ok  { color: #fff; background: var(--good); }
 .genui-status.err { color: #fff; background: var(--bad); }
@@ -2880,7 +2914,7 @@ textarea:focus, select:focus, input:focus {
   font-size: 11px;
   white-space: pre-wrap;
   border-bottom: 1px solid rgba(192, 82, 74, 0.3);
-  z-index: 2;
+  z-index: var(--z-tile-inline);
 }
 
 .genui-modelinfo {
@@ -2914,7 +2948,7 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 110;
+  z-index: var(--z-notify);
   max-width: 340px;
   pointer-events: none;
 }
@@ -2981,7 +3015,7 @@ textarea:focus, select:focus, input:focus {
   transition: opacity 0.18s ease, transform 0.18s ease;
   pointer-events: none;
   box-shadow: 0 6px 20px rgba(61, 57, 41, 0.18);
-  z-index: 100;
+  z-index: var(--z-toast);
 }
 .toast.show { opacity: 1; transform: translateY(0); }
 
@@ -2994,7 +3028,7 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-modal);
   animation: confirm-fade-in 0.12s ease;
 }
 .confirm-dialog {
@@ -3134,6 +3168,40 @@ textarea:focus, select:focus, input:focus {
 .np-field > span { font-size: 12px; color: var(--muted); }
 .np-field .settings-input { width: 100%; box-sizing: border-box; }
 .np-optional { font-style: normal; color: var(--muted-2); }
+.np-location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.np-location-path {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-x: auto;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.np-location-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.np-location-btn:hover:not(:disabled) { background: var(--surface-2); }
+.np-location-btn.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+.np-location-btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.np-location-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .np-hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0; }
 .np-error {
   font-size: 12.5px;
@@ -3148,18 +3216,20 @@ textarea:focus, select:focus, input:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  font-size: 13px;
+  gap: 2px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
   line-height: 1;
   color: var(--muted);
   background: transparent;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 5px;
   cursor: pointer;
+  white-space: nowrap;
 }
-.sb-new-project:hover { color: var(--text); background: var(--surface-2); }
-.dash-new-project { margin-top: 10px; }
+.sb-new-project:hover { color: var(--text); background: var(--surface-2); border-color: var(--border-strong); }
+.dash-new-project { margin-top: 6px; margin-bottom: 20px; }
 .link-btn {
   background: none;
   border: none;
@@ -3303,8 +3373,11 @@ textarea:focus, select:focus, input:focus {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* Sidebar itself does NOT scroll — brand + search + top nav stay pinned
+     up top, tools stay pinned at the bottom. Only .sb-ws-list scrolls in
+     the middle. Overflow hidden here plus flex:1+min-height:0 on the list
+     is the standard "flex child that gets its own scroll region" pattern. */
+  overflow: hidden;
 }
 .sb-brand {
   display: flex;
@@ -3349,6 +3422,14 @@ textarea:focus, select:focus, input:focus {
 .sb-ws-list {
   display: flex;
   flex-direction: column;
+  /* Own scroll region — takes all leftover vertical space between the
+     WORKSPACES label above and the .sb-tools band below, and scrolls
+     internally when it overflows. min-height:0 is required for a flex
+     child to shrink below its content height and let overflow kick in. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .sb-ws-head {
   display: flex;
@@ -3455,8 +3536,6 @@ textarea:focus, select:focus, input:focus {
   border-radius: 4px;
   padding: 1px 5px;
 }
-.sb-spacer-grow { flex: 1; }
-
 /* Tools group: separator + label so the utility links visually detach
    from the scrolling workspace list they used to blur into. */
 .sb-tools {
@@ -3854,6 +3933,25 @@ textarea:focus, select:focus, input:focus {
   padding: 1px 5px;
 }
 
+/* ---------- top-nav links (Demos, and future single-line entries) ---------- */
+/* Same margin-left + padding-left = 16px as .sb-search / .sb-label so text
+   aligns with the WORKSPACES label and workspace rows below. */
+.sb-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 8px 6px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.sb-nav-link:hover { background: var(--surface); color: var(--text); }
+.sb-nav-link.active { background: var(--surface); color: var(--accent); }
+
 /* ---------- Cmd+K search palette ---------- */
 .search-backdrop {
   position: fixed;
@@ -3864,7 +3962,7 @@ textarea:focus, select:focus, input:focus {
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  z-index: 210;
+  z-index: var(--z-modal);
   animation: confirm-fade-in 0.12s ease;
 }
 .search-palette {
@@ -4058,7 +4156,7 @@ textarea:focus, select:focus, input:focus {
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  z-index: 300;
+  z-index: var(--z-palette);
   animation: confirm-fade-in 0.12s ease;
 }
 .cmdk-panel {
@@ -4171,7 +4269,7 @@ textarea:focus, select:focus, input:focus {
     position: fixed;
     top: calc(10px + env(safe-area-inset-top));
     left: calc(10px + env(safe-area-inset-left));
-    z-index: 60;
+    z-index: var(--z-mobile-drawer-bg);
     width: 40px;
     height: 40px;
     border-radius: 10px;
@@ -4189,7 +4287,7 @@ textarea:focus, select:focus, input:focus {
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 70;
+    z-index: var(--z-mobile-drawer);
     height: 100dvh;
     width: min(84vw, 300px);
     transform: translateX(-100%);
@@ -4213,7 +4311,7 @@ textarea:focus, select:focus, input:focus {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 65;
+    z-index: var(--z-mobile-drawer-bg);
     background: rgba(30, 28, 20, 0.32);
   }
 
@@ -4248,240 +4346,12 @@ textarea:focus, select:focus, input:focus {
   .sb-ws-head, .sb-sess, .sb-settings-link { min-height: 44px; }
 }
 
-/* ---------- dispatch board ---------- */
-.sb-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* Same margin-left + padding-left = 16px so this row's icon column
-     aligns with .sb-search above and WORKSPACES / rows below. */
-  margin: 0 8px 6px;
-  padding: 8px 8px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-2);
-  text-decoration: none;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.sb-nav-link:hover { background: var(--surface); }
-.sb-nav-link.active { background: var(--surface); color: var(--accent); }
-.sb-nav-icon { font-size: 14px; line-height: 1; }
-
-.board-view {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  min-height: 0;
-  padding: 16px 20px;
-  gap: 14px;
-}
-.board-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
-.board-title { display: flex; align-items: baseline; gap: 12px; }
-.board-title h1 {
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 500;
-  margin: 0;
-}
-.board-sub { font-size: 12px; color: var(--muted); }
-.board-active { color: var(--accent); font-weight: 500; }
-
-.board-dispatch {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-}
-.board-task {
-  width: 100%;
-  min-height: 52px;
-  font-family: inherit;
-  font-size: 13.5px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  resize: vertical;
-}
-.board-task:focus { outline: none; border-color: var(--accent-soft-2); }
-.board-dispatch-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-.board-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.board-field select,
-.board-field input {
-  font-family: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--text);
-}
-.board-field input { width: 64px; }
-.board-hint {
-  font-size: 11px;
-  color: var(--muted-2);
-  margin-left: auto;
-}
-.board-dispatch-row .primary { flex-shrink: 0; }
-
-.board-columns {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
-  overflow: hidden;
-}
-.board-col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.board-col-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.board-col-name { font-size: 12px; font-weight: 600; color: var(--text-2); }
-.board-col-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--surface);
-  border-radius: 10px;
-  padding: 0 7px;
-}
-.board-col-running .board-col-name { color: var(--accent); }
-.board-col-input .board-col-name { color: var(--warn); }
-.board-col-failed .board-col-name { color: var(--bad); }
-.board-col-done .board-col-name { color: var(--good); }
-.board-col-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.board-col-empty {
-  font-size: 11.5px;
-  color: var(--muted-2);
-  text-align: center;
-  padding: 16px 6px;
-}
-
-.board-card {
-  position: relative;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 10px;
-  overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.board-card.clickable { cursor: pointer; }
-.board-card.clickable:hover { border-color: var(--accent-soft-2); box-shadow: 0 2px 10px rgba(61, 57, 41, 0.05); }
-.board-card.running { border-color: var(--accent-soft-2); }
-.board-card-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  overflow: hidden;
-}
-.board-card-bar::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -40%;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(201, 100, 66, 0.4) 20%, #ff6b3d 50%, rgba(201, 100, 66, 0.4) 80%, transparent);
-  animation: ws-tile-bar-slide 1.4s cubic-bezier(0.45, 0, 0.35, 1) infinite;
-}
-.board-card-task {
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.board-card-preview {
-  font-size: 11.5px;
-  color: var(--muted);
-  margin-top: 5px;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.board-card-preview.err { color: var(--bad); }
-.board-card-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 10.5px;
-  color: var(--muted-2);
-}
-.board-card-sid { font-family: var(--font-mono); }
-.board-card-tok { font-family: var(--font-mono); }
-.board-card-detached {
-  color: var(--warn);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 4px;
-}
-.board-card-time { margin-left: auto; }
-.board-card-x {
-  border: none;
-  background: transparent;
-  color: var(--muted-2);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-}
-.board-card-x:hover { color: var(--bad); }
 /* ---------- git panel ---------- */
 .git-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(61, 57, 41, 0.20);
-  z-index: 40;
+  z-index: var(--z-side-panel);
   display: flex;
   justify-content: flex-end;
 }
@@ -4705,4 +4575,249 @@ textarea:focus, select:focus, input:focus {
   font-size: 13px;
   padding: 40px;
   text-align: center;
+}
+
+/* ---------- demos gallery ---------- */
+.examples-view {
+  padding: 32px 40px 60px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.examples-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.examples-head > div:first-child { flex: 1; }
+.examples-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+.examples-sub {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 640px;
+  line-height: 1.55;
+}
+.examples-sub code {
+  background: var(--surface-2);
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.examples-target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.examples-target select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  min-width: 220px;
+  cursor: pointer;
+}
+.examples-section { margin-top: 28px; }
+.examples-section-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 0 0 12px;
+}
+.examples-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.example-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  min-height: 176px;
+}
+.example-card:hover { border-color: var(--border-strong); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.example-card-emoji { font-size: 24px; line-height: 1; }
+.example-card-body { flex: 1; }
+.example-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.example-card-blurb {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.example-card-details {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.example-card-details summary {
+  cursor: pointer;
+  padding: 2px 0;
+  color: var(--muted);
+  user-select: none;
+}
+.example-card-details summary:hover { color: var(--text-2); }
+.example-card-details pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.example-card-try {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.example-card-try:hover:not(:disabled) { background: var(--accent-strong, var(--accent)); filter: brightness(0.95); }
+.example-card-try:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- home ("/") landing chat ---------- */
+/* Sits inside the app grid's right column (260px 1fr). No fixed positioning
+   needed — the grid already gives us the right pane. */
+.home-view {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: var(--bg);
+  overflow-y: auto;
+  background: var(--bg);
+}
+.home-inner {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.home-title {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: center;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+.home-sub {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
+  margin: 0;
+}
+/* Home reuses .session-input* for the composer shell — same rounded border,
+   drag-over highlight, toolbar row, mention/slash popups. These tweaks lift
+   it into the landing layout (wider textarea, softer shadow, no top margin
+   competing with the title). */
+.home-session-input {
+  margin-top: 0;
+  padding: 12px;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+}
+.home-session-input textarea {
+  min-height: 96px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+/* Full Session StatusBar mounted right under the composer — pull it tight so
+   it reads as one attached block (Session renders them inside the same
+   flex column with an internal border, we do the same visually). */
+.home-inner > .status-bar {
+  margin-top: -14px;
+  padding: 8px 12px 4px;
+}
+.home-inner > .status-bar .status-row { flex-wrap: wrap; }
+/* Hide the shift+tab affordance on the landing — the hint is useful once the
+   user is inside a Session (keyboard-driven), but on the landing the
+   permission chip's own dropdown does the work and the trailing text just
+   reads as noise. Kept in the shared StatusBar for Session. */
+.home-inner > .status-bar .status-perm-hint { display: none; }
+/* Workspace chip in the toolbar — reuse .provider-chip visuals but cap the
+   label so a long workspace name doesn't push the Send button out of the row. */
+.home-ws-chip .provider-chip-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Workspace picker in the toolbar — a compact micro-label + select that
+   reads like the CLI's "cwd" crumb without stealing the row. */
+.home-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.home-target select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  min-width: 160px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.home-error {
+  color: var(--bad, #c5392f);
+  background: rgba(197, 57, 47, 0.08);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+@media (max-width: 720px) {
+  .home-view { padding: 24px 16px; }
+  .home-title { font-size: 26px; }
+  .home-target select { min-width: 120px; }
 }

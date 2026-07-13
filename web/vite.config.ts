@@ -36,7 +36,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: 'http://127.0.0.1:7878', changeOrigin: true },
-      '/mindlab-symbol.svg': { target: 'http://127.0.0.1:7878', changeOrigin: true },
+      // /mindlab-symbol.svg is NOT proxied — vite serves it from
+      // web/public/. Proxying would fall through to the server's static
+      // handler rooted at web/dist/, which only has the SVG after `pnpm
+      // build`. In dev that's an empty miss and the SPA fallback returns
+      // index.html, breaking the <img>.
     },
   },
 });

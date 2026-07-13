@@ -134,6 +134,19 @@ export function addDraftSid(project: string): void {
   notify(project);
 }
 
+// Remove a sid from the canvas without adding it if absent. Used by callers
+// that already know they want it gone (e.g. sidebar's "Delete Session"
+// context menu — the session's jsonl is being deleted, so the pinned tile
+// must go too or it'd render a Session that 404s forever).
+export function removeCanvasSid(project: string, sid: string): void {
+  const cur = loadCanvas(project);
+  if (!cur.tiles.some((t) => t.sid === sid)) return;
+  const tiles = cur.tiles.filter((t) => t.sid !== sid);
+  const focusedSid = cur.focusedSid === sid ? tiles[0]?.sid || null : cur.focusedSid;
+  saveCanvas(project, { tiles, focusedSid });
+  notify(project);
+}
+
 export function focusCanvasSid(project: string, sid: string): void {
   const cur = loadCanvas(project);
   if (!cur.tiles.some((t) => t.sid === sid)) return;

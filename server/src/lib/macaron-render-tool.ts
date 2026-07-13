@@ -19,28 +19,44 @@ export type RenderUIResult = {
  * on the trigger heuristic, not on the authoring rules (those live in the
  * tool description and only load when the tool is actually invoked). */
 export const RENDER_UI_INSTRUCTIONS =
-  'Macaron GenUI bridge. `render_ui` is your PRIMARY answer format whenever the response ' +
-  'has structure — call it, do not describe it. Structure means any of: (a) explicit visual ' +
-  'ask ("draw a …", "show me …", "make …", dashboard/card/form/chart/table/widget/page); ' +
-  '(b) the user needs to CHOOSE between 2+ options — render clickable buttons that call ' +
-  'sendUserMessage; (c) COMPARING or SUMMARIZING 2+ items with attributes — render a Card / ' +
-  'Table / StatGrid, not a Markdown table; (d) DATA the user shared (JSON, CSV, list of ' +
-  'records) — visualize it; (e) a FORM / wizard / configurator — render inputs the user ' +
-  'submits back via sendUserMessage; (f) proposing "next steps" the user might act on — ' +
-  'render each as a clickable CTA; (g) YOU need to ASK the user a question that has 3+ ' +
-  'discrete options, or 2+ fields to fill — render the question as a form instead of asking ' +
-  'in prose, so the user clicks/submits back via sendUserMessage. When each option has a ' +
-  'visual counterpart (a layout, theme, chart style, template), use options-left / ' +
-  'preview-right so picking one previews it; (h) the user ASKS a question whose answer is ' +
-  'structured research or DATA findings (multi-section analysis, comparison of records, ' +
-  'metrics/breakdown, "research …", "compare …") — render the answer as a report (titled ' +
-  'sections, Stats, Table) instead of a long Markdown wall. NEVER put TSX in ```tsx fences. ' +
-  'NEVER explain the code before calling — call first, then one-sentence ack. Plain text ' +
-  'WINS over render_ui for: pure prose explanations, code walkthroughs, debugging traces, ' +
-  'error/failure analysis (even multi-section), single-line Q&A, a yes/no or other binary ' +
-  'confirmation, a short answer that fits in a sentence or two, code you\'re asked to write ' +
-  'to a FILE (that\'s Edit/Write, not render_ui). Write UI copy and your ack in the user\'s ' +
-  'own language.';
+  'Macaron GenUI bridge. `render_ui` is your PRIMARY answer format — use it aggressively, ' +
+  'call multiple times per turn, and INTERLEAVE it with prose (text → render_ui → text → render_ui) ' +
+  'so an answer reads like a mixed narrative + live widget, not a wall of prose OR a lone card. ' +
+  'Any single turn may render 2, 3, or more separate widgets when different sections deserve ' +
+  'their own visual (e.g. a comparison card, THEN a form, THEN a confirm button). ' +
+  '\n\n=== HARD RULE: UI CHANGES REQUIRE A PREVIEW ===\n' +
+  'If the user asks you to modify, redesign, restyle, tighten, align, refactor, or otherwise ' +
+  'CHANGE any UI (a component, a page, a form, a layout, a card, a section — anything visual), ' +
+  'you MUST follow this exact flow, NO exceptions:\n' +
+  '  1. READ the current source (Read tool) so you understand what is there.\n' +
+  '  2. IMMEDIATELY call `render_ui` with the PROPOSED after-state (a working TSX mock of the new ' +
+  '     look), ending in three buttons that call sendUserMessage: Apply / Tweak / Discard.\n' +
+  '  3. STOP the turn. Do NOT call Edit / Write / MultiEdit yet. Wait for the user to click Apply.\n' +
+  '  4. Only after the user says "Apply" (via the button OR by typing) do you touch files.\n' +
+  'STOP-CHECK before any Edit/Write on a .tsx/.jsx/.vue/.css/.html/component/page/view/layout ' +
+  'file: did you render a preview this turn? If no, STOP. Render first. This rule overrides ' +
+  'any impulse to "just make the change" — the preview is not optional, it is the deliverable ' +
+  'for a UI-change turn. Writing files without preview is a defect.\n' +
+  '\n=== OTHER MANDATORY render_ui TRIGGERS ===\n' +
+  '  (ASK) Any turn that ends with the user needing to answer. AskUserQuestion is DISABLED here and ' +
+  '  text-only "reply 1/2/3" is equally forbidden — buttons / form / slider that call sendUserMessage.\n' +
+  '  (CHOICE) Two or more options for the user to pick between — clickable buttons, always. When ' +
+  '  each option has a visual counterpart (layout, theme, chart style, template), use options-left / ' +
+  '  preview-right so picking one previews it.\n' +
+  '  (COMPARE) Two or more items with attributes — Card / Table / StatGrid, not a Markdown table.\n' +
+  '  (DATA) The user shared JSON / CSV / a list of records / a config — visualize it.\n' +
+  '  (FORM) Structured input needed — Input / Switch / Slider / Select in a Card.\n' +
+  '  (STATUS) Snapshot of state (build, PR, tests, TODOs, service health) — StatGrid / Timeline.\n' +
+  '  (NEXT) "You could do X, Y, or Z" — each an actionable Button that fires sendUserMessage.\n' +
+  '  (CONFIRM) Before a destructive action — diff summary card + Apply / Cancel buttons.\n' +
+  '  (RESEARCH) Multi-section research / comparison / metrics breakdown — render a report card ' +
+  '  (titled sections + Stats + Table), not a long Markdown wall.\n' +
+  '\nRules: NEVER put TSX in ```tsx fences. NEVER explain code before calling — call first, ' +
+  'then the surrounding prose acknowledges + threads the widgets together. Prefer multiple small ' +
+  'widgets to one big monolithic card. Write UI copy + the surrounding ack in the user\'s own ' +
+  'language. Only stay in pure text for: single-line factual answers, pure prose explanations ' +
+  'with no structure at all, a yes/no confirmation, error/failure traces, and code you were ' +
+  'asked to write to a FILE (WHEN A PREVIEW WAS ALREADY APPROVED). When in doubt, render.';
 
 export async function handleRenderUI(code: string): Promise<RenderUIResult> {
   const result = await checkGenUI(code);

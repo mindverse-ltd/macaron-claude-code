@@ -32,12 +32,13 @@ import { unoTheme, unoShortcuts, unoRules } from './macaron-vendor/lib/standalon
 
 import { App } from './App';
 import { Dashboard } from './views/Dashboard';
-import { Board } from './views/Board';
+import { Home } from './views/Home';
 import { Workspace } from './views/Workspace';
 import { FileExplorer } from './views/FileExplorer';
 import { Settings } from './views/Settings';
 import { Analytics } from './views/Analytics';
 import { Prompts } from './views/Prompts';
+import { Examples } from './views/Examples';
 import { ShareView } from './views/ShareView';
 import { Agents } from './views/Agents';
 import { Hooks } from './views/Hooks';
@@ -107,8 +108,9 @@ const router = createHashRouter([
     path: '/',
     element: <App />,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'board', element: <Board /> },
+      { index: true, element: <Home /> },
+      { path: 'dashboard', element: <Dashboard /> },
+      { path: 'examples', element: <Examples /> },
       { path: 'usage', element: <Analytics /> },
       { path: 'prompts', element: <Prompts /> },
       { path: 'settings', element: <Settings /> },

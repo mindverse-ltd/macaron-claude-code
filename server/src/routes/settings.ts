@@ -5,7 +5,7 @@ import {
   updateProvider,
   deleteProvider,
   setActiveProvider,
-  setYoloMode,
+  setDefaultPermissionMode,
   setFollowupSuggestionsEnabled,
 } from '../lib/settings-store.js';
 
@@ -88,7 +88,9 @@ export async function registerSettingsRoutes(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'enabled (boolean) required' });
     }
     try {
-      await setYoloMode(req.body.enabled);
+      // Back-compat: legacy /api/settings/yolo maps onto
+      // defaultPermissionMode ('bypassPermissions' when enabled, else 'default').
+      await setDefaultPermissionMode(req.body.enabled ? 'bypassPermissions' : 'default');
       return await readPublicSettings();
     } catch (e) {
       return reply.status(500).send({ error: (e as Error).message });

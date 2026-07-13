@@ -13,8 +13,8 @@ import {
   type SlashCommand,
 } from '../lib/api';
 import { streamSession } from '../lib/sse';
-import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession } from '../lib/liveStore';
-import { peekPendingCwd, takePendingCwd } from '../lib/newSession';
+import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession, attachLive } from '../lib/liveStore';
+import { peekPendingCwd, takePendingCwd, takePendingPrompt } from '../lib/newSession';
 import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
 import { SlashPalette } from '../components/SlashPalette';
@@ -1079,7 +1079,12 @@ export function Session(props: SessionProps = {}) {
   const navigate = useNavigate();
   const isNew = !sid;
   const routePending = Boolean((location.state as { pending?: boolean } | null)?.pending);
-  const isPending = routePending || Boolean(props.initialPending);
+  // Set to true if the mount-time probe finds a live server-side run for this
+  // sid (page refreshed mid-turn). Fed into isPending so the existing
+  // subscribeLive branch runs the same way it does for a freshly-started
+  // session.
+  const [reattached, setReattached] = useState(false);
+  const isPending = routePending || Boolean(props.initialPending) || reattached;
   const onCreated = props.onCreated;
   const onPendingConsumed = props.onPendingConsumed;
   // When mounted as a canvas tile the parent decides focus. Standalone
@@ -1511,8 +1516,36 @@ export function Session(props: SessionProps = {}) {
     if (isNew) return; // no jsonl yet — empty state until first send
     // For brand-new sessions the jsonl may not exist yet — suppress the 404 error.
     load({ silent: isPending });
-    // refreshKey included so an incrementing parent nonce forces reload.
-  }, [project, sid, load, isPending, isNew, refreshKey]);
+    // isPending intentionally excluded from deps — we only want this to fire
+    // on session identity change (project/sid/refreshKey), not on every flip
+    // of the pending flag. It's only used inside as a silent-mode hint on load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, sid, load, isNew, refreshKey]);
+
+  // Reattach probe: on session change, ask the server whether this sid is
+  // mid-turn (page was refreshed while streaming). If yes, attachLive opens
+  // SSE, seeds the live store, and starts feeding deltas — then we flip
+  // `reattached` so isPending becomes true and the existing pending
+  // subscription hook takes over (spinner, stop button, live text).
+  //
+  // `reattached` reset lives here, in the same session-identity effect, so
+  // it can't fight with isPending: flipping reattached → true (which flips
+  // isPending true) does NOT re-run this effect, so no reset-probe loop.
+  useEffect(() => {
+    setReattached(false);
+    if (isNew || !sid) return;
+    let cancelled = false;
+    void attachLive(project, sid).then((r) => {
+      if (cancelled) return;
+      if (r === 'attached') {
+        // Show "turn in flight" affordances immediately — the subscribeLive
+        // hook below is gated on isPending and will pick up the state.
+        setReattached(true);
+        setSending(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [project, sid, isNew, refreshKey]);
 
   // Global Shift+Tab → cycle permission mode, matching claude-cli's binding.
   // The browser's own "reverse focus" behaviour is preempted; we surface the
@@ -1733,12 +1766,20 @@ export function Session(props: SessionProps = {}) {
   }, [liveUser, liveTurn, liveUserImages]);
 
   const send = useCallback(
-    async (opts?: { text?: string; images?: AttachedImage[] }) => {
+    async (opts?: {
+      text?: string;
+      images?: AttachedImage[];
+      permissionMode?: PermissionMode;
+      isolate?: boolean;
+    }) => {
       // `opts` present = programmatic send (auto-dequeue / send-now / the
       // $macaron/chat bridge) with the given text; absent = the user submitting
-      // the composer's current draft.
+      // the composer's current draft. permissionMode/isolate overrides let the
+      // seed path apply the Home landing's picks without racing setState.
       const text = (opts?.text ?? input).trim();
       const sentImages = opts ? (opts.images ?? []) : images;
+      const effectivePermissionMode = opts?.permissionMode ?? permissionMode;
+      const effectiveIsolate = opts?.isolate ?? isolate;
       if ((!text && sentImages.length === 0) || sending) return;
       if (!opts) {
         mention.close();
@@ -1782,9 +1823,9 @@ export function Session(props: SessionProps = {}) {
         try {
           const newSid = await startNewSession(project, {
             text,
-            permissionMode,
+            permissionMode: effectivePermissionMode,
             images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
-            isolate,
+            isolate: effectiveIsolate,
             // Directory-picker path: start this brand-new session in the chosen
             // folder. Undefined for sessions opened inside an existing workspace.
             cwd: pendingCwd,
@@ -1814,7 +1855,7 @@ export function Session(props: SessionProps = {}) {
         `/api/sessions/claude/${encodeURIComponent(project)}/${encodeURIComponent(sid)}/message`,
         {
           text,
-          permissionMode,
+          permissionMode: effectivePermissionMode,
           images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
         },
         {
@@ -1977,6 +2018,55 @@ export function Session(props: SessionProps = {}) {
     if (!t) return;
     setQueue((q) => [...q, { id: queueId(), text: t }]);
   }, []);
+
+  // Demos and Home flow: a card / the landing composer stashes a prompt via
+  // setPendingPrompt(project, ...) before navigating here. On mount of a
+  // brand-new session, pop it and either auto-send (default) or drop into the
+  // composer as a draft. The seed also carries the images / isolate /
+  // permissionMode the sender picked, so the first turn honours them without
+  // the user having to re-configure the composer here. Guarded by a ref so a
+  // re-render / hook re-fire doesn't double-send.
+  const seededPromptRef = useRef(false);
+  useEffect(() => {
+    if (!isNew || seededPromptRef.current) return;
+    const seed = takePendingPrompt(project);
+    if (!seed) return;
+    seededPromptRef.current = true;
+    // Apply UI-facing knobs upfront so the composer chrome reflects the picks
+    // even before the first turn resolves. send() takes explicit overrides
+    // below to avoid racing these setState calls on the auto path.
+    if (seed.permissionMode) setPermissionMode(seed.permissionMode);
+    if (seed.isolate !== undefined) setIsolate(seed.isolate);
+    const seedImages: AttachedImage[] = (seed.images ?? []).map((img, i) => ({
+      id: img.id ?? `seed-img-${i}`,
+      name: img.name ?? `image-${i + 1}`,
+      mimeType: img.mimeType,
+      dataUrl: img.dataUrl,
+    }));
+    if (seed.auto) {
+      // Auto-send path: don't populate the composer. send() uses opts.text
+      // directly and the programmatic branch skips setInput('') clean-up —
+      // leaving the seed visible for the whole first turn until the user
+      // types over it. Fire on the next tick so the initial mount commits
+      // before we kick off the SDK call.
+      setTimeout(() => {
+        void send({
+          text: seed.text,
+          images: seedImages,
+          permissionMode: seed.permissionMode,
+          isolate: seed.isolate,
+        });
+      }, 0);
+    } else {
+      // Draft path: drop the text into the composer for the user to edit
+      // and press Send themselves.
+      setInput(seed.text);
+      if (seedImages.length > 0) setImages(seedImages);
+    }
+    // send intentionally excluded — we only fire this on mount, and
+    // capturing the identity at mount avoids re-firing when send changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, isNew]);
 
   // The composer's submit path: while a turn runs, Enter/Send queues the text
   // instead of being blocked; when idle it sends immediately. Images ride the

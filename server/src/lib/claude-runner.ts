@@ -169,6 +169,12 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
           abortController: opts.abortController,
           mcpServers: { macaron: macaronMcpServer },
           allowedTools: ['mcp__macaron__render_ui'],
+          // AskUserQuestion is the CLI's built-in "pick one of these" prompt.
+          // We ship render_ui as a superior replacement (real UI, arbitrary
+          // widgets, sendUserMessage) so the model doesn't fall back to the
+          // text-only Ask variant when a click-to-answer card would beat it.
+          // See skills/ask-via-ui/SKILL.md for the authored guidance.
+          disallowedTools: ['AskUserQuestion'],
           // canUseTool: pause the SDK, ask the client, resume once decided.
           // A promise is registered under a random id; the client's POST to
           // /permission-decision looks the id up and resolves it.

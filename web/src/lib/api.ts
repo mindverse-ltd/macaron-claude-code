@@ -289,12 +289,13 @@ export const api = {
     return r.json() as Promise<ConfigFile>;
   },
   workspaces: () => getJSON<WorkspacesResponse>('/api/workspaces'),
-  createProject: (input: { name?: string; gitUrl?: string }) =>
+  createProject: (input: { name?: string; gitUrl?: string; parent?: string }) =>
     req<{ project: string; cwd: string; name: string }>('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     }),
+  defaultProjectParent: () => getJSON<{ path: string }>('/api/projects/default-parent'),
   searchMessages: (q: string, limit = 30) =>
     getJSON<MessageSearchResponse>(
       `/api/search/messages?q=${encodeURIComponent(q)}&limit=${limit}`,

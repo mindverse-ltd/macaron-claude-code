@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
+import { DirPicker } from './DirPicker';
 
 type Mode = 'create' | 'clone';
 
@@ -18,7 +20,17 @@ export function NewProjectModal({
   const [gitUrl, setGitUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Parent dir: where the new project folder gets created. Defaults to the
+  // server's PROJECTS_ROOT (typically ~/macaron-projects). User can pick any
+  // existing directory via DirPicker. Empty string = "use server default".
+  const [parent, setParent] = useState<string>('');
+  const [defaultParent, setDefaultParent] = useState<string>('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const firstInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    api.defaultProjectParent().then((r) => setDefaultParent(r.path)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     queueMicrotask(() => firstInputRef.current?.focus());
@@ -43,10 +55,10 @@ export function NewProjectModal({
     setBusy(true);
     setError('');
     try {
-      const body =
-        mode === 'create'
-          ? { name: name.trim() }
-          : { gitUrl: gitUrl.trim(), ...(name.trim() ? { name: name.trim() } : {}) };
+      const base = mode === 'create'
+        ? { name: name.trim() }
+        : { gitUrl: gitUrl.trim(), ...(name.trim() ? { name: name.trim() } : {}) };
+      const body = parent ? { ...base, parent } : base;
       const r = await api.createProject(body);
       onCreated(r.project);
     } catch (e) {
@@ -56,8 +68,14 @@ export function NewProjectModal({
     }
   };
 
-  return (
-    <div className="confirm-backdrop" onClick={() => !busy && onClose()}>
+  // Portal to body: without this, the modal renders inside whatever
+  // called it (Sidebar / Dashboard) and gets trapped under stacking
+  // contexts created by the composer's `transform`. Fixed position alone
+  // isn't enough — z-index only competes within the current stacking
+  // context, and Sidebar/session-input each create their own.
+  return createPortal(
+    <>
+      <div className="confirm-backdrop" onClick={() => !busy && onClose()}>
       <div
         className="confirm-dialog np-dialog"
         role="dialog"
@@ -120,10 +138,37 @@ export function NewProjectModal({
               autoCapitalize="off"
             />
           </label>
+          <div className="np-field">
+            <span>Location</span>
+            <div className="np-location">
+              <code className="np-location-path" title={parent || defaultParent}>
+                {parent || defaultParent || '(loading…)'}
+              </code>
+              <button
+                type="button"
+                className="np-location-btn"
+                onClick={() => setPickerOpen(true)}
+                disabled={busy}
+              >
+                Change
+              </button>
+              {parent && (
+                <button
+                  type="button"
+                  className="np-location-btn ghost"
+                  onClick={() => setParent('')}
+                  disabled={busy}
+                  title="Reset to default"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
           <p className="np-hint">
             {mode === 'create'
-              ? 'Creates an empty directory in your workspace root, then opens a session there.'
-              : 'Clones the repo into your workspace root over HTTPS/SSH, then opens a session there.'}
+              ? 'Creates an empty directory inside the location above, then opens a session there.'
+              : 'Clones the repo into the location above over HTTPS/SSH, then opens a session there.'}
           </p>
           {error && <p className="np-error">{error}</p>}
         </div>
@@ -138,5 +183,18 @@ export function NewProjectModal({
         </div>
       </div>
     </div>
+    {/* Rendered AFTER the modal so DOM paint order puts it on top when both
+        share the same z-index tier. Also gets --z-modal-nested via the
+        .above-modal class so a triple-nest could raise it further. */}
+    {pickerOpen && (
+      <div className="above-modal">
+        <DirPicker
+          onPick={(p) => { setParent(p); setPickerOpen(false); }}
+          onClose={() => setPickerOpen(false)}
+        />
+      </div>
+    )}
+    </>,
+    document.body,
   );
 }
