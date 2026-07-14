@@ -1,4 +1,4 @@
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, X } from 'lucide-react';
 import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getTokenStyleObject } from 'shiki/core';
 import type { RecallToken } from '@shikijs/stream';
@@ -21,6 +21,26 @@ export interface ShikiStreamCodeBlockProps {
 
 function PlainCode({ code }: { code: string }) {
   return <pre className="chat-code-plain">{code}</pre>;
+}
+
+// Copy that also works on the LAN-over-HTTP surfaces (phones opening a dev box by IP),
+// where the page isn't a secure context and navigator.clipboard is absent. Falls back to
+// a hidden textarea + execCommand; throws if neither path succeeds so the button can flag it.
+async function copyChatCode(text: string) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) return navigator.clipboard.writeText(text);
+  if (typeof document === 'undefined') throw new Error('Clipboard unavailable');
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = (document as unknown as { execCommand(id: string): boolean }).execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('Clipboard copy failed');
 }
 
 function StaticHighlightedCode({ code, language }: { code: string; language: ReturnType<typeof resolveChatCodeLanguage> }) {
@@ -166,6 +186,7 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const programmaticScrollRef = useRef(false);
 
   useEffect(() => { setCopyState('idle'); }, [code]);
 
@@ -175,19 +196,26 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
     return () => window.clearTimeout(timeoutId);
   }, [copyState]);
 
+  // Auto-follow the tail. Mark the scroll as programmatic so the `scroll` listener below
+  // doesn't misread our own smooth-scroll as the user scrolling and drop stickiness.
+  const stickToBottom = (viewport: HTMLDivElement) => {
+    if (typeof viewport.scrollTo !== 'function') return;
+    programmaticScrollRef.current = true;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    window.setTimeout(() => { programmaticScrollRef.current = false; }, 120);
+  };
+
   useEffect(() => {
     const viewport = viewportRef.current;
-    if (!streaming || !viewport || !shouldStickToBottomRef.current || typeof viewport.scrollTo !== 'function') return;
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    if (!streaming || !viewport || !shouldStickToBottomRef.current) return;
+    stickToBottom(viewport);
   }, [code, streaming]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!streaming || !viewport || typeof MutationObserver === 'undefined') return;
     const observer = new MutationObserver(() => {
-      if (shouldStickToBottomRef.current && typeof viewport.scrollTo === 'function') {
-        viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-      }
+      if (shouldStickToBottomRef.current) stickToBottom(viewport);
     });
     observer.observe(viewport, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
@@ -195,8 +223,7 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
 
   const handleCopy = async () => {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(code);
+      await copyChatCode(code);
       setCopyState('copied');
     } catch {
       setCopyState('error');
@@ -208,6 +235,21 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
     if (!viewport) return;
     shouldStickToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 72;
   };
+
+  // Sample stickiness from the actual `scroll` event, not just wheel/touch: this also
+  // catches scrollbar drags and keyboard scrolling, so reading upward mid-stream isn't
+  // yanked back to the bottom by the next token. `programmaticScrollRef` suppresses the
+  // scroll events our own auto-follow scrollTo emits, which would otherwise re-stick.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!streaming || !viewport) return;
+    const onScroll = () => {
+      if (programmaticScrollRef.current) return;
+      updateStickToBottom();
+    };
+    viewport.addEventListener('scroll', onScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', onScroll);
+  }, [streaming]);
 
   const copyLabel = copyState === 'copied' ? 'Code copied' : copyState === 'error' ? 'Copy code failed, try again' : 'Copy code';
 
@@ -223,12 +265,13 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
         aria-label={copyLabel}
         title={copyLabel}
         className="chat-shiki-code__copy"
+        data-copy-state={copyState}
         disabled={!code.trim()}
         onClick={() => void handleCopy()}
       >
-        {copyState === 'copied' ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
+        {copyState === 'copied' ? <Check size={16} aria-hidden /> : copyState === 'error' ? <X size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
       </button>
-      <div ref={viewportRef} onWheel={updateStickToBottom} onTouchMove={updateStickToBottom} className="chat-shiki-code__viewport">
+      <div ref={viewportRef} className="chat-shiki-code__viewport">
         {streaming ? (
           <StreamingHighlightedCode code={code} language={resolvedLanguage} />
         ) : (

@@ -47,3 +47,17 @@ test('language aliases resolve to canonical ids, unknown falls back to text', ()
   assert.equal(resolveChatCodeLanguage('not-a-language'), 'text');
   assert.equal(resolveChatCodeLanguage(undefined), 'text');
 });
+
+test('loose fence hints map onto the shipped allowlist', () => {
+  // Aliases models commonly emit should reach a grammar we actually bundle.
+  assert.equal(resolveChatCodeLanguage('shell'), 'bash');
+  assert.equal(resolveChatCodeLanguage('c++'), 'cpp');
+  assert.equal(resolveChatCodeLanguage('py'), 'python');
+  assert.equal(resolveChatCodeLanguage('golang'), 'go');
+});
+
+test('languages outside the curated allowlist fall back to text', () => {
+  // These are real Shiki grammars but intentionally not shipped — must degrade, not throw.
+  assert.equal(resolveChatCodeLanguage('cobol'), 'text');
+  assert.equal(resolveChatCodeLanguage('fortran'), 'text');
+});

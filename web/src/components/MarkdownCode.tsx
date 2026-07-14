@@ -89,7 +89,10 @@ export function MarkdownPre({ node: _node, children }: MarkdownPreProps) {
 
   if (!codeElement) return <pre className="chat-code-plain">{children}</pre>;
 
-  const code = extractText(codeElement.props.children).replace(/\n+$/, '');
+  // Strip only the single trailing newline mdast appends to fenced code — not every
+  // trailing blank line, which would silently drop meaningful empty lines the user wrote
+  // (rendered and copied content must equal the fenced source).
+  const code = extractText(codeElement.props.children).replace(/\n$/, '');
   const language = getLanguage(codeElement.props.className);
   const shouldStream = streaming && isMarkdownCodeFenceIncomplete(content, codeElement.props.node);
 
