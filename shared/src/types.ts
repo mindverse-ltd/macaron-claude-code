@@ -135,6 +135,13 @@ export type AnalyticsResponse = {
   window: string;
   since: number;
   until: number;
+  // Calendar-day bounds (YYYY-MM-DD) in the *server's* local timezone, matching
+  // the keys in `daily`. The web grid must build its date range from these
+  // strings rather than re-deriving days from `since`/`until` in the browser's
+  // timezone — otherwise a UTC server + LA browser disagree on the day boundary
+  // and whole days go missing from the heatmap.
+  sinceDate: string;
+  untilDate: string;
   totals: UsageTotals;
   daily: UsageDaily[];
   byModel: UsageByModel[];

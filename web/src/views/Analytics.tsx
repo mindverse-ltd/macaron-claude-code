@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { api, fmtAgo, type AnalyticsResponse, type UsageBySession } from '../lib/api';
+import { availableWeeks, buildHeatmap, isDay, intensityFor, navCells, navTarget } from '../lib/heatmap';
 
 const WINDOWS: Array<{ id: string; label: string }> = [
   { id: '7d', label: '7d' },
@@ -33,6 +34,169 @@ type SortKey = keyof Pick<
 >;
 
 const SESSION_CAP = 100;
+
+// GitHub-style contribution grid: equal fixed-size squares, one per day
+// (columns = weeks, rows = weekday), shaded by that day's message count. Layout
+// is driven by the container's measured width — we render only as many whole
+// week-columns as fit at the fixed cell+gap size, showing the most-recent days,
+// so squares never stretch and no half-column is ever clipped or scrolled. The
+// bucketing and keyboard-nav math live in ../lib/heatmap (pure + unit-tested).
+const CELL = 13; // px — square side; matches the reference figure's dense grid
+const GAP = 4;
+
+export function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  // `active` drives the caption (hover OR focus). `rovingKey` is the single
+  // tabbable cell — updated only by keyboard focus, never hover, so the mouse
+  // can't steal the roving tab stop. `focusedRef` remembers the focused cell so
+  // a mouseleave restores its caption instead of blanking it.
+  const [active, setActive] = useState<{ key: string; count: number } | null>(null);
+  const [rovingKey, setRovingKey] = useState<string | null>(null);
+  const focusedRef = useRef<{ key: string; count: number } | null>(null);
+  // How many whole columns the container currently fits. Measured before paint
+  // (useLayoutEffect) so a long history never flashes its full width for a frame
+  // before clamping — the first visible paint already has the fitted count.
+  const [fitWeeks, setFitWeeks] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.clientWidth;
+      // n columns take n*CELL + (n-1)*GAP; solve for the largest n that fits.
+      setFitWeeks(Math.max(1, Math.floor((w + GAP) / (CELL + GAP))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const maxWeeks = useMemo(() => availableWeeks(daily, sinceDate, untilDate, window), [daily, sinceDate, untilDate, window]);
+  // Always fill the container: render as many whole columns as fit, even when
+  // the window's own span is shorter — buildHeatmap pads the pre-window columns
+  // with inert L0 squares so a short history never leaves the panel half-blank.
+  // Fall back to the window span only before the first measurement lands.
+  const weeks = fitWeeks || maxWeeks;
+  // For 'all', clamp the window's low bound to the first active day (sinceDate is
+  // epoch), so buildHeatmap clips leading padding to real in-window days only.
+  const effectiveSince = window === 'all' ? (daily.length ? daily[0]!.date : untilDate) : sinceDate;
+  const grid = useMemo(() => buildHeatmap(daily, effectiveSince, untilDate, weeks), [daily, effectiveSince, untilDate, weeks]);
+
+  // A day's shade = its rank-based intensity in the window's distribution, mapped
+  // to the accent at that fraction. Continuous, so the scale auto-adapts to the
+  // selected window instead of snapping to fixed bands — 0 stays background.
+  const intensity = (count: number) => intensityFor(count, grid.ramp);
+
+  // Keep keyboard state coherent across any resize (both directions). When the
+  // visible columns change, the roving key, the real DOM focus, and the caption
+  // must all still point at the SAME visible day. Because cells are keyed by
+  // date, a focused day that scrolls out of range unmounts and the browser drops
+  // focus to <body> — so we drive re-focus from focusedRef (remembered on focus),
+  // not from document.activeElement, which is already gone by the time this runs.
+  useLayoutEffect(() => {
+    const visibleKeys = grid.weeks.flat().filter(isDay).map((c) => c.key);
+    const visible = new Set(visibleKeys);
+    const firstVisible = visibleKeys[0] ?? null;
+    const wasFocused = focusedRef.current;
+    // The focused day fell off the visible set → move real focus to the nearest
+    // still-visible day, and let its onFocus resync rovingKey + caption.
+    if (wasFocused && !visible.has(wasFocused.key) && firstVisible) {
+      gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${firstVisible}"]`)?.focus();
+      return; // onFocus handles rovingKey/active; nothing left to reconcile
+    }
+    // No live focus, but the roving tab stop pointed at a now-hidden day → retarget
+    // it so Tab still lands on a visible cell.
+    if (rovingKey && !visible.has(rovingKey)) setRovingKey(firstVisible);
+    // A caption must never outlive its day. When the captioned day scrolls out of
+    // the visible set and nothing is focused to re-emit it (e.g. focus was already
+    // dropped onto the All pill before the resize), clear it — otherwise the detail
+    // line keeps naming a date the grid no longer shows.
+    if (active && !visible.has(active.key) && !focusedRef.current) setActive(null);
+  }, [grid]);
+
+  // Roving tabindex over a row-major (weekday × week) cell space. All target
+  // resolution (arrows stay put at an edge; Home/End walk the weekday row;
+  // Ctrl/⌘+Home/End pick the earliest/latest day by date key, not DOM order)
+  // lives in navTarget; here we only translate the resolved key back to focus.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const cells = navCells(grid);
+    const fromKey = (document.activeElement as HTMLElement)?.dataset.key ?? '';
+    const targetKey = navTarget(cells, fromKey, e.key, e.ctrlKey || e.metaKey);
+    if (targetKey) gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${targetKey}"]`)?.focus();
+  };
+
+  const captionText = active ? `${active.key} · ${active.count} message${active.count === 1 ? '' : 's'}` : 'Hover or focus a day for details';
+
+  // The tabbable cell: the keyboard-visited one, else the first in-range day.
+  const firstKey = grid.weeks.flat().find(isDay)?.key ?? null;
+  const tabKey = rovingKey ?? firstKey;
+
+  return (
+    <div className="heatmap" ref={wrapRef} style={{ '--cell': `${CELL}px`, '--gap': `${GAP}px`, '--weeks': grid.weeks.length } as React.CSSProperties}>
+      <div
+        className="heatmap-grid"
+        role="grid"
+        aria-label="Daily message activity"
+        aria-rowcount={7}
+        aria-colcount={grid.weeks.length}
+        ref={gridRef}
+        onKeyDown={onKeyDown}
+        onMouseLeave={() => setActive(focusedRef.current)}
+      >
+        {/* Row-major for ARIA: one role=row per weekday, cells placed into the
+            shared column track by grid-column-start so they still read as weeks.
+            Real cells are keyed by their stable date, NOT column index: on a
+            resize the visible columns shift, and a positional key would let React
+            reuse the focused DOM node for a different date (activeElement's
+            data-key would silently change). A date key ties each node to one day,
+            so the reconcile effect below can move real focus deterministically. */}
+        {[0, 1, 2, 3, 4, 5, 6].map((r) => (
+          <div key={r} className="heatmap-row" role="row" aria-rowindex={r + 1}>
+            {grid.weeks.map((week, wi) => {
+              const cell = week[r];
+              if (isDay(cell)) return (
+                <div
+                  key={cell.key}
+                  className="heatmap-cell"
+                  style={{ gridColumnStart: wi + 1, '--hm-i': intensity(cell.count) } as React.CSSProperties}
+                  data-active={cell.count > 0 ? 1 : 0}
+                  data-key={cell.key}
+                  data-row={r}
+                  data-col={wi}
+                  role="gridcell"
+                  aria-colindex={wi + 1}
+                  tabIndex={cell.key === tabKey ? 0 : -1}
+                  aria-label={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
+                  onMouseEnter={() => setActive({ key: cell.key, count: cell.count })}
+                  onFocus={() => { const a = { key: cell.key, count: cell.count }; focusedRef.current = a; setActive(a); setRovingKey(cell.key); }}
+                  onBlur={() => { focusedRef.current = null; }}
+                />
+              );
+              // Pre-window pad → a visible-but-inert background square (fills the
+              // column, never focuses, never enters the ARIA date range). Future
+              // day → a hidden slot that only reserves grid space.
+              if (cell) return <div key={`pad-${r}-${wi}`} className="heatmap-cell" style={{ gridColumnStart: wi + 1 }} data-active={0} role="presentation" aria-hidden="true" />;
+              return <div key={`empty-${r}-${wi}`} className="heatmap-cell heatmap-cell--empty" style={{ gridColumnStart: wi + 1 }} role="presentation" aria-hidden="true" />;
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-footer">
+        <div className="heatmap-detail" aria-live="polite">{captionText}</div>
+        <div className="heatmap-legend">
+          <span>Less</span>
+          <div className="heatmap-cell" data-active={0} aria-hidden="true" />
+          {[0.25, 0.5, 0.75, 1].map((i) => <div key={i} className="heatmap-cell" data-active={1} style={{ '--hm-i': i } as React.CSSProperties} aria-hidden="true" />)}
+          <span>More</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Analytics() {
   const [window, setWindow] = useState('30d');
@@ -129,6 +293,15 @@ export function Analytics() {
               <div className="stat-value">{int(totals.sessionCount)}</div>
               <div className="stat-sub">{dailyChart.length} active day{dailyChart.length === 1 ? '' : 's'}</div>
             </div>
+          </div>
+
+          <div className="usage-panel">
+            <h2 className="sec-title">Activity</h2>
+            {dailyChart.length === 0 ? (
+              <p className="muted">No activity in this window.</p>
+            ) : (
+              <UsageHeatmap daily={data.daily} sinceDate={data.sinceDate} untilDate={data.untilDate} window={window} />
+            )}
           </div>
 
           <div className="usage-panel">

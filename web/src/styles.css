@@ -4168,6 +4168,72 @@ textarea:focus, select:focus, input:focus {
   .usage-tiles { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* GitHub-style contribution heatmap. Columns are weeks, rows are weekdays;
+   cell shade steps through 5 tints keyed by that day's message count. */
+/* Fixed-size squares, never stretched: the JS measures the container and sets
+   --weeks to how many whole CELL+GAP columns fit, so the grid is exactly that
+   wide and no half-column is ever clipped or scrolled. Both the JS geometry and
+   this template use the same --cell/--gap, so desktop and phone show whole,
+   equal squares. */
+.heatmap-row {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks, 1), var(--cell, 13px));
+  gap: var(--gap, 4px);
+}
+.heatmap-grid { display: flex; flex-direction: column; gap: var(--gap, 4px); }
+/* Every cell is a borderless solid square — empty days (L0) a light fill,
+   active days (L1–L4) progressively deeper. No level carries a border or ring,
+   matching the reference figure exactly. */
+.heatmap-cell {
+  width: var(--cell, 13px);
+  height: var(--cell, 13px);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.heatmap-cell[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.heatmap-cell--empty { visibility: hidden; }
+/* Solid fills, no border. Shade is CONTINUOUS: --hm-i (0..1) is a day's rank in
+   the selected window's distribution, so the scale auto-adapts to the data
+   instead of snapping to fixed levels. accent% ramps 16%→100% of accent mixed
+   into surface-2 — the lowest active day is a clearly light tint, the busiest is
+   full accent, every distinct value in between gets its own shade. The light-
+   theme darken toward --text scales WITH intensity (0 at the light end, up to
+   16% at the dark end) so low days stay genuinely light rather than being pushed
+   dark by a flat offset, while the darkest days still gain panel contrast. Dark
+   theme needs no darken — its charcoal panel already separates the tints.
+   data-active=0 (empty in-window day or pre-window pad) is the inert background
+   square that reads as "no activity", never a data value. */
+.heatmap-cell[data-active='0'] { background: var(--surface-2); }
+.heatmap-cell[data-active='1'] {
+  --hm-p: calc(16% + var(--hm-i, 0) * 84%);
+  --hm-darken: calc(var(--hm-i, 0) * 16%);
+  background: color-mix(in srgb, var(--text) var(--hm-darken), color-mix(in srgb, var(--accent) var(--hm-p), var(--surface-2)));
+}
+:root[data-theme='dark'] .heatmap-cell[data-active='1'] { --hm-darken: 0%; }
+.heatmap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.heatmap-detail {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  flex: 1 1 220px; /* wraps the legend below when cramped rather than clipping the caption */
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.heatmap-legend span { margin: 0 3px; }
+.heatmap-legend .heatmap-cell { width: 11px; height: 11px; } /* legend swatches are small fixed squares */
+
 /* Command palette (Cmd-K) — overlay convention mirrors .confirm-backdrop,
    but top-anchored like a spotlight search rather than centered. */
 .cmdk-backdrop {
