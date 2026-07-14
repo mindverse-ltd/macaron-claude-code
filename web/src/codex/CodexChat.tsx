@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import type { SessionDetail, Message, Block, CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 import { codexApi } from './api';
 import type { CodexRuntimeOverride } from './api';
@@ -318,7 +319,9 @@ function ApprovalCard({ it, onDecide }: { it: Extract<Item, { kind: 'approval' }
   );
 }
 
-function MessageRow({ it, onDecide }: { it: Item; onDecide?: (id: string, decision: CodexDecision) => void }) {
+const CODEX_MARKDOWN_COMPONENTS = { code: MarkdownCode, pre: MarkdownPre } as const;
+
+function MessageRow({ it, streaming = false, onDecide }: { it: Item; streaming?: boolean; onDecide?: (id: string, decision: CodexDecision) => void }) {
   if (it.kind === 'reasoning') return <Reasoning text={it.text} />;
   if (it.kind === 'tool') return <ToolCard it={it} />;
   if (it.kind === 'genui') return <GenuiCard it={it} />;
@@ -341,7 +344,9 @@ function MessageRow({ it, onDecide }: { it: Item; onDecide?: (id: string, decisi
           <div className="cx-msg-text">{it.text}</div>
         ) : (
           <div className="cx-msg-text md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{it.text}</ReactMarkdown>
+            <MarkdownCodeStreamingProvider content={it.text} streaming={streaming}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={CODEX_MARKDOWN_COMPONENTS}>{it.text}</ReactMarkdown>
+            </MarkdownCodeStreamingProvider>
           </div>
         )}
       </div>
@@ -638,7 +643,14 @@ export function CodexChat(props: CodexChatProps = {}) {
           </div>
         ) : (
           <div className="cx-thread-body">
-            {items.map((it) => <MessageRow key={it.id} it={it} onDecide={decideApproval} />)}
+            {items.map((it, i) => (
+              <MessageRow
+                key={it.id}
+                it={it}
+                streaming={sending && i === items.length - 1 && it.kind === 'assistant'}
+                onDecide={decideApproval}
+              />
+            ))}
             {/* Show the thinking spinner at the tail of the thread while a
                 turn is in flight. Hide it once the last item is a live
                 assistant message that has actually started emitting text —

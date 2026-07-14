@@ -388,7 +388,7 @@ body {
 .cx-msg-text.md li > p { margin: 0; }
 .cx-msg-text.md pre {
   background: var(--cx-code);
-  border: 1px solid var(--cx-border);
+  border: 0;
   border-radius: 8px;
   padding: 10px 12px;
   margin: 8px 0 12px;

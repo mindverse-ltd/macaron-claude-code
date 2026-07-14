@@ -52,6 +52,7 @@ import { consumeTokenFromUrl } from './lib/auth';
 import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
 import { registerServiceWorker } from './lib/pwa';
 import './styles.css';
+import './chat-code.css';
 
 // Pick up a ?token=... bootstrap from a shared link before anything fetches.
 consumeTokenFromUrl();

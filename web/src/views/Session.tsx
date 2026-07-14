@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import { sessionToMarkdown } from '@macaron/shared';
 import {
   api,
@@ -477,10 +478,14 @@ function UserItem({
   );
 }
 
+const CHAT_MARKDOWN_COMPONENTS = { code: MarkdownCode, pre: MarkdownPre } as const;
+
 function AssistantItem({ text }: { text: string }) {
   return (
     <div className="ti-text md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <MarkdownCodeStreamingProvider content={text} streaming={false}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{text}</ReactMarkdown>
+      </MarkdownCodeStreamingProvider>
     </div>
   );
 }
@@ -488,7 +493,9 @@ function AssistantItem({ text }: { text: string }) {
 function LiveAssistantItem({ text }: { text: string }) {
   return (
     <div className="ti-text md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <MarkdownCodeStreamingProvider content={text} streaming>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{text}</ReactMarkdown>
+      </MarkdownCodeStreamingProvider>
     </div>
   );
 }
