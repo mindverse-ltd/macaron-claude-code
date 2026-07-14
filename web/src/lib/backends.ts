@@ -99,19 +99,20 @@ let lastSeenRaw: string | null = null;
 function flush(): void {
   if (dirty && cache) {
     // Prefer persisting the FULL registry: a legacy-backed LOCAL token becomes real
-    // registry state, after which the legacy key is redundant and gets removed below.
+    // registry state, after which the legacy key is redundant — schedule its removal
+    // (and drop the marker) so a later reset can't roll back to the old token.
     const full = toStored(cache);
-    if (write(BACKENDS_KEY, full)) { dirty = false; lastSeenRaw = JSON.stringify(full); }
-    else if (legacyBackedLocalToken) {
+    if (write(BACKENDS_KEY, full)) {
+      dirty = false;
+      lastSeenRaw = JSON.stringify(full);
+      if (legacyBackedLocalToken) { legacyBackedLocalToken = undefined; pendingLegacyRemoval = true; }
+    } else if (legacyBackedLocalToken) {
       // Quota-full fallback: the full write grew past the quota. Persist a SHRUNK shape
       // that drops the still-legacy-backed LOCAL — reload re-absorbs it from the legacy
       // key, so nothing is lost, and now a later REMOTE clear only shrinks the stored
-      // value. Crucially we must KEEP the legacy key (it's LOCAL's backing) — so skip
-      // the removal below entirely.
+      // value. LOCAL's token now lives ONLY in the legacy key, so the legacy key is its
+      // backing — KEEP it (cancel any pending removal) and leave the marker set.
       const shrunk = toStored(cache, legacyBackedLocalToken);
-      // LOCAL's token now lives ONLY in the legacy key (it's stripped from the persisted
-      // registry), so the legacy key is LOCAL's backing — keep it. Cancel any pending
-      // removal so a later flush can't delete it out from under LOCAL.
       if (write(BACKENDS_KEY, shrunk)) { dirty = false; lastSeenRaw = JSON.stringify(shrunk); pendingLegacyRemoval = false; return; }
     }
   }
@@ -142,10 +143,13 @@ function hydrate(raw: string | null): Backend[] {
   if (stored && stored.length > 0 && stored.some((b) => b.id === LOCAL_BACKEND_ID)) {
     cache = stored;
     lastSeenRaw = raw;
-    // A LOCAL-bearing registry means migration already happened; any leftover legacy
-    // key is stale (a previous removal must have failed). Reconcile it — retried every
-    // load — so a later reset can't re-migrate the old token. On failure defer via
-    // pendingLegacyRemoval so flush() retries it (the cache-hit path only retries that).
+    // A LOCAL-bearing registry is self-sufficient: LOCAL's token (if any) lives in the
+    // registry, not the legacy key, so clear the marker — else a later quota fallback
+    // could wrongly strip LOCAL as "legacy-backed" and lose the sole token. Any leftover
+    // legacy key is stale; reconcile it — retried every load — so a reset can't
+    // re-migrate the old token. On failure defer via pendingLegacyRemoval so flush()
+    // retries it (the cache-hit path only retries that).
+    legacyBackedLocalToken = undefined;
     try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch { pendingLegacyRemoval = true; }
     return cache;
   }
@@ -168,13 +172,30 @@ export function loadBackends(): Backend[] {
   // Unpersisted local changes are authoritative — never let storage clobber them.
   if (cache && dirty) { flush(); return cache; }
   const { ok, raw } = readRegistryRaw();
-  // A read that THREW (private-mode SecurityError) is not a delete — keep the good
-  // in-memory cache rather than resetting it to a tokenless LOCAL and later writing
-  // `[]`, which would permanently drop every token + REMOTE config once storage recovers.
-  if (!ok && cache) { flush(); return cache; }
+  // A read that THREW (private-mode SecurityError) is not a delete. With a warm cache,
+  // keep it authoritative. With NO cache yet (cold load), we can't know what storage
+  // holds — return an ephemeral LOCAL default WITHOUT caching or marking it dirty, so a
+  // later successful load re-reads the real registry instead of a dirty-flush writing
+  // `[]` over the (present but unreadable) stored token + REMOTE config once reads recover.
+  if (!ok) {
+    if (cache) { flush(); return cache; }
+    return [localDefault()];
+  }
   // Single raw read drives both the no-op and revalidation paths, so the parsed value
   // and the raw we compare against can't drift out of sync.
-  if (cache && raw === lastSeenRaw) { flush(); return cache; }
+  if (cache && raw === lastSeenRaw) {
+    // If LOCAL's token is backed ONLY by the legacy key (quota fallback stripped it from
+    // the persisted registry), revalidation must watch that key too — the registry raw
+    // alone won't reflect another tab clearing LOCAL by deleting the legacy key. If it's
+    // gone, drop LOCAL's now-unbacked token so we don't re-persist it once quota recovers.
+    if (legacyBackedLocalToken && !readLegacy()) {
+      cache = cache.map((b) => (b.id === LOCAL_BACKEND_ID && b.token === legacyBackedLocalToken ? { ...b, token: undefined } : b));
+      legacyBackedLocalToken = undefined;
+      dirty = true;
+    }
+    flush();
+    return cache;
+  }
   // Cold load, or another tab changed storage (including a real delete → raw null):
   // adopt it through the same normalization a fresh page load uses.
   return hydrate(raw);
@@ -195,6 +216,7 @@ export function __resetForTests(): void {
   cache = null;
   dirty = false;
   pendingLegacyRemoval = false;
+  legacyBackedLocalToken = undefined;
   lastSeenRaw = null;
 }
 

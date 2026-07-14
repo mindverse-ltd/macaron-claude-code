@@ -383,6 +383,57 @@ test('a corrupt [null] stored registry hydrates to a clean LOCAL instead of cras
   assert.equal(auth.getToken(), '');
 });
 
+test('cold-load storage SecurityError does not clobber a present-but-unreadable registry', async () => {
+  // Blocker 1: read throws with NO cache yet (fresh page load in private mode). We must
+  // NOT seed a dirty tokenless LOCAL that later flushes `[]` over the real (unreadable)
+  // registry. Instead return an ephemeral default and re-read once storage recovers.
+  const persisted = JSON.stringify([
+    { id: 'local', label: 'Local', baseUrl: '', token: 'tok-1' },
+    { id: 'remote', label: 'Box', baseUrl: 'https://box.example.com', token: 'remote-tok' },
+  ]);
+  const ls = installLocalStorage({ macaron_backends: persisted });
+  ls.failReads = true;                            // getItem throws from the very first load
+  const { backends, auth } = await freshModules();
+  assert.equal(auth.getToken(), '');              // ephemeral LOCAL default, nothing cached
+  // Storage must not have been overwritten with `[]` — the read failure is transparent.
+  ls.failReads = false;
+  const list = backends.loadBackends();           // now re-reads the real registry
+  assert.equal(list.find((b) => b.id === 'local')?.token, 'tok-1');
+  assert.equal(list.find((b) => b.id === 'remote')?.token, 'remote-tok');
+  assert.equal(JSON.parse(localStorage.getItem('macaron_backends')!).length, 2);
+});
+
+test('legacy-backed LOCAL: another tab deleting the legacy key clears LOCAL on revalidation', async () => {
+  // Blocker 2: after a quota fallback, LOCAL's token lives ONLY in the legacy key.
+  // Another tab clearing LOCAL deletes that key; revalidation must watch it (not just the
+  // registry raw) and drop the now-unbacked token so recovery can't re-persist it.
+  const stored = JSON.stringify([{ id: 'remote', label: 'Box', baseUrl: 'https://box.example.com', token: 'remote-tok' }]);
+  const ls = installLocalStorage({ macaron_backends: stored, macaron_auth_token: 'legacy-abc' });
+  ls.quotaFull = true;                            // force the shrunk fallback at hydrate
+  const { backends } = await freshModules();
+  assert.equal(backends.loadBackends().find((b) => b.id === 'local')?.token, 'legacy-abc'); // absorbed onto LOCAL
+  // Another tab clears LOCAL by removing the legacy key.
+  localStorage.removeItem('macaron_auth_token');
+  const list = backends.loadBackends();           // revalidation notices the missing backing
+  assert.equal(list.find((b) => b.id === 'local')?.token, undefined);
+});
+
+test('marker lifecycle: a successful full write retires the legacy key and resists reset', async () => {
+  // Blocker 3: once the full registry persists (LOCAL's token is now real registry state),
+  // the legacy key must be removed and the marker cleared — else a reset rolls back to the
+  // old token, or a later quota fallback wrongly strips LOCAL as still legacy-backed.
+  installLocalStorage({ macaron_auth_token: 'legacy-abc' });
+  const { backends } = await freshModules();
+  assert.equal(backends.getActiveBackend().token, 'legacy-abc'); // migrated onto LOCAL
+  backends.loadBackends();                        // flush the deferred legacy removal
+  assert.equal(localStorage.getItem('macaron_auth_token'), null); // legacy key retired
+  const persisted = JSON.parse(localStorage.getItem('macaron_backends')!) as Backend[];
+  assert.equal(persisted.find((b) => b.id === 'local')?.token, 'legacy-abc'); // now real state
+  // A reset (fresh reload) reads the persisted token back — no rollback to a stale legacy.
+  backends.__resetForTests();
+  assert.equal(backends.getActiveBackend().token, 'legacy-abc');
+});
+
 test('no legacy token → LOCAL backend has no token', async () => {
   installLocalStorage();
   const { auth } = await freshModules();
