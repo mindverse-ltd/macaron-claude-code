@@ -1,7 +1,7 @@
 // A single file rendered inside a canvas tile. Shares the tile chrome
 // (grip / actions / close) with Session and Terminal; the body toggles
 // between preview (markdown / image / plain text with syntax colors) and
-// edit (CodeMirror). Default = preview.
+// edit (Monaco). Default = preview.
 //
 // Fetches on mount and on refreshKey change. Save writes back via
 // api.writeFile; unsaved changes are indicated by a dot and confirmed
@@ -13,7 +13,7 @@ import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
 import { useToast } from './Toast';
 
-// CodeMirror is heavy — only load it when the user flips to Edit mode.
+// Monaco is heavy — only load it when the user flips to Edit mode.
 const CodeEditor = lazy(() => import('./CodeEditor'));
 
 const MAX_INLINE_PREVIEW_BYTES = 512 * 1024;

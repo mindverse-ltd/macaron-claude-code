@@ -5116,6 +5116,8 @@ textarea:focus, select:focus, input:focus {
   min-height: 0;
   overflow: hidden;
 }
+/* Monaco container (CodeEditor) — fill whatever pane hosts it. */
+.code-editor { width: 100%; height: 100%; }
 .ft-split {
   flex: 1;
   min-width: 0;
