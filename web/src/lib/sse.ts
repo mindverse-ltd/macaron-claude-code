@@ -75,7 +75,7 @@ export async function streamOpenAI(
 // Parse our session-message protocol ({type:'delta'|'meta'|'event'|'error'|'done'}).
 export type SessionStreamHandlers = {
   onDelta?: (text: string) => void;
-  onMeta?: (m: { cwd: string; sessionId: string }) => void;
+  onMeta?: (m: { cwd: string; sessionId: string; startedAt?: number }) => void;
   onStarting?: (m: { cwd: string }) => void;
   onEvent?: (e: { event: string; subtype?: string | null }) => void;
   onToolUse?: (t: { id: string; name: string; input: unknown }) => void;
@@ -86,7 +86,7 @@ export type SessionStreamHandlers = {
   onPermissionResolved?: (p: { id: string; decision: 'allow' | 'deny' }) => void;
   onUsage?: (u: { outputTokens: number; thinkingTokens?: number }) => void;
   onError?: (msg: string) => void;
-  onDone?: () => void;
+  onDone?: (terminalSeen: boolean) => void;
   onFollowupDelta?: (text: string) => void;
 };
 
@@ -95,9 +95,21 @@ export async function streamSession(
   body: unknown,
   h: SessionStreamHandlers,
 ): Promise<void> {
+  let terminalSeen = false;
+  let doneNotified = false;
+  const notifyDone = (terminal: boolean) => {
+    if (terminal) terminalSeen = true;
+    if (doneNotified) return;
+    doneNotified = true;
+    h.onDone?.(terminalSeen);
+  };
   const finishWithError = (msg: string) => {
+    // The main turn can finish before the server's optional follow-up stream.
+    // A later socket close must not report a second completion/error into a
+    // newer turn that the user already started.
+    if (doneNotified) return;
     h.onError?.(msg);
-    h.onDone?.();
+    notifyDone(false);
   };
   let resp: Response;
   try {
@@ -133,7 +145,7 @@ export async function streamSession(
           .trim();
         if (!data) continue;
         if (data === '[DONE]') {
-          h.onDone?.();
+          notifyDone(false);
           return;
         }
         try {
@@ -149,14 +161,18 @@ export async function streamSession(
           else if (p.type === 'permission_request') h.onPermissionRequest?.(p);
           else if (p.type === 'permission_resolved') h.onPermissionResolved?.(p);
           else if (p.type === 'usage') h.onUsage?.(p);
-          else if (p.type === 'error') h.onError?.(p.error);
+          else if (p.type === 'error') {
+            if (!doneNotified) h.onError?.(p.error);
+          }
           else if (p.type === 'warn') console.warn('[claude]', p.text);
           // The server keeps the stream open after `done` to append follow-up
           // suggestions, so fire onDone on the business event — the turn is
           // over the moment it arrives, not when the socket closes. The
-          // trailing onDone at stream close stays as the error-path fallback
-          // (it's idempotent).
-          else if (p.type === 'done') h.onDone?.();
+          // transport close remains the fallback only when no terminal event
+          // was seen; notifyDone guarantees one completion callback per POST.
+          else if (p.type === 'done') {
+            notifyDone(true);
+          }
           else if (p.type === 'followup_delta') h.onFollowupDelta?.(p.text);
         } catch {
           /* ignore */
@@ -167,5 +183,5 @@ export async function streamSession(
     finishWithError((e as Error).message);
     return;
   }
-  h.onDone?.();
+  notifyDone(false);
 }

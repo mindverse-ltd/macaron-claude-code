@@ -224,6 +224,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // once it has a sid) can interrupt this stream. Navigating away does
       // NOT abort — only an explicit /stop does.
       const abortController = new AbortController();
+      const startedAt = Date.now();
       const stream = runClaude({ prompt: text, cwd, model, permissionMode, images, envOverrides: providerEnv, abortController });
 
       let clientGone = false;
@@ -246,11 +247,11 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         for await (const ev of stream) {
           if (ev.kind === 'session' && !capturedSid) {
             capturedSid = ev.sessionId;
-            liveStart(capturedSid, { cwd });
+            liveStart(capturedSid, { cwd, startedAt });
             registerRun(capturedSid, abortController);
             if (pendingWt) bindWorktree(capturedSid, pendingWt).catch(() => {});
-            livePush(capturedSid, { type: 'user-text', text });
-            safeSend({ type: 'meta', cwd, sessionId: capturedSid });
+            livePush(capturedSid, { type: 'user-text', text, images });
+            safeSend({ type: 'meta', cwd, sessionId: capturedSid, startedAt });
           } else if (ev.kind === 'delta') {
             safeSend({ type: 'delta', text: ev.text });
             if (capturedSid) livePush(capturedSid, { type: 'delta', text: ev.text });

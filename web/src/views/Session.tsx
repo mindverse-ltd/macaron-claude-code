@@ -13,7 +13,18 @@ import {
   type SlashCommand,
 } from '../lib/api';
 import { streamSession } from '../lib/sse';
-import { getLive, subscribeLive, clearLive, subscribeFollowup, startNewSession, attachLive } from '../lib/liveStore';
+import {
+  attachLive,
+  clearLive,
+  discardLive,
+  fingerprintLiveTurn,
+  getLive,
+  snapshotCoversLiveTurn,
+  startNewSession,
+  subscribeFollowup,
+  subscribeLive,
+  type LiveTurnFingerprint,
+} from '../lib/liveStore';
 import { peekPendingCwd, takePendingCwd, takePendingPrompt } from '../lib/newSession';
 import { hasActiveModal } from '../lib/modal';
 import { extractPartialCode, parseFollowups } from '../lib/partialJson';
@@ -1138,6 +1149,10 @@ export function Session(props: SessionProps = {}) {
   // subscribeLive branch runs the same way it does for a freshly-started
   // session.
   const [reattached, setReattached] = useState(false);
+  // A pending prop can stay true across a transport reconnect, so boolean
+  // isPending alone is not enough to restart the liveStore subscription.
+  const [liveSubscriptionGen, setLiveSubscriptionGen] = useState(0);
+  const liveDisconnected = useRef(false);
   const isPending = routePending || Boolean(props.initialPending) || reattached;
   const onCreated = props.onCreated;
   const onPendingConsumed = props.onPendingConsumed;
@@ -1146,6 +1161,8 @@ export function Session(props: SessionProps = {}) {
   const focused = props.focused ?? true;
   const hideBar = props.hideBar ?? false;
   const refreshKey = props.refreshKey ?? 0;
+  const [reconnectKey, setReconnectKey] = useState(0);
+  const lastRefreshKey = useRef({ refreshKey, reconnectKey });
   const onSendingChange = props.onSendingChange;
   // Ref rather than closure — send() captures props once, but permission
   // notifications may fire long after the send call. Ref lets the click
@@ -1169,15 +1186,22 @@ export function Session(props: SessionProps = {}) {
   // 'error' cue as if the turn had actually failed.
   const stoppingRef = useRef(false);
   const [data, setData] = useState<SessionDetail | null>(null);
+  // Invalidates a post-done JSONL poll when the session changes or another
+  // turn starts before the prior handoff finishes.
+  const snapshotHandoffGen = useRef(0);
+  const pendingSnapshotTurn = useRef<ReturnType<typeof fingerprintLiveTurn> | null>(null);
+  const directSnapshotTurn = useRef<LiveTurnFingerprint | null>(null);
+  const directTurnStartedAt = useRef<number | undefined>(undefined);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [handoffPending, setHandoffPending] = useState(false);
   // Notify the parent tile whenever the effective "running" state flips
   // (either an in-flight send OR the initial new-session SSE poll). Debounced
   // by a microtask so React batches state updates naturally.
   useEffect(() => {
-    onSendingChange?.(sending || polling);
-  }, [sending, polling, onSendingChange]);
+    onSendingChange?.(sending || polling || handoffPending);
+  }, [sending, polling, handoffPending, onSendingChange]);
   // Browser notification on stream completion. Tracks the running edge:
   // fires on true→false when we actually streamed this turn (avoids
   // pinging on the initial jsonl load when everything starts at false).
@@ -1560,22 +1584,54 @@ export function Session(props: SessionProps = {}) {
     }
   }, [project, sid, toast]);
 
+  const commitSnapshot = useCallback((next: SessionDetail, clearLiveOverlay = false) => {
+    setData(next);
+    setShown(PAGE_SIZE);
+    setCompletedTurns([]);
+    if (clearLiveOverlay) {
+      // Commit the authoritative snapshot and retire every volatile source in
+      // the same React batch. Rendering data first and clearing live after an
+      // await exposes both copies for a frame.
+      setLiveUser('');
+      setLiveTurn([]);
+      setLiveUserImages([]);
+      setOutputTokens(-1);
+    }
+  }, []);
+
+  const fetchSnapshot = useCallback(() => api.session(project, sid), [project, sid]);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setError('');
     try {
-      const d = await api.session(project, sid);
-      setData(d);
-      setShown(PAGE_SIZE);
-      // A successful load means the jsonl is now canonical; drop any
-      // in-memory completedTurns that were carrying the tail across a stale
-      // "done" event.
-      setCompletedTurns([]);
+      const d = await fetchSnapshot();
+      commitSnapshot(d);
       return d;
     } catch (e) {
       if (!opts?.silent) setError((e as Error).message);
       return null;
     }
-  }, [project, sid]);
+  }, [commitSnapshot, fetchSnapshot]);
+
+  const refreshFromDisk = useCallback(async () => {
+    const generation = ++snapshotHandoffGen.current;
+    setError('');
+    try {
+      const next = await fetchSnapshot();
+      if (snapshotHandoffGen.current !== generation) return;
+      const liveTurn = pendingSnapshotTurn.current ?? directSnapshotTurn.current;
+      if (liveTurn && !snapshotCoversLiveTurn(next.messages, liveTurn)) {
+        setError('Transcript is still flushing; the complete live turn was kept visible.');
+        return;
+      }
+      pendingSnapshotTurn.current = null;
+      directSnapshotTurn.current = null;
+      commitSnapshot(next, true);
+      clearLive(sid, directTurnStartedAt.current);
+    } catch (e) {
+      if (snapshotHandoffGen.current === generation) setError((e as Error).message);
+    }
+  }, [commitSnapshot, fetchSnapshot, sid]);
 
   // Pick exactly one source for the current turn. A freshly-created session
   // already has startNewSession's POST reader writing to liveStore; opening a
@@ -1583,6 +1639,25 @@ export function Session(props: SessionProps = {}) {
   // page refresh the module store is empty, so probe /live first and only load
   // the canonical jsonl when the server confirms there is no active stream.
   useEffect(() => {
+    const refreshRequested = refreshKey !== lastRefreshKey.current.refreshKey
+      || reconnectKey !== lastRefreshKey.current.reconnectKey;
+    lastRefreshKey.current = { refreshKey, reconnectKey };
+    // Canvas refresh is a source switch. Ignore a stale/programmatic click
+    // while a direct POST, reattach, or snapshot handoff still owns the turn.
+    if (refreshRequested && (sending || polling || handoffPending)) return;
+    // If automatic handoff exhausted its retry window, a later tile refresh
+    // must still pass the same completeness gate instead of dropping the live
+    // overlay and loading a stale/partial snapshot.
+    if (refreshRequested && (pendingSnapshotTurn.current || directSnapshotTurn.current)) {
+      void refreshFromDisk();
+      return;
+    }
+    snapshotHandoffGen.current += 1;
+    pendingSnapshotTurn.current = null;
+    directSnapshotTurn.current = null;
+    directTurnStartedAt.current = undefined;
+    if (!refreshRequested) liveDisconnected.current = false;
+    setHandoffPending(false);
     setData(null);
     setLiveTurn([]);
     setLiveUser('');
@@ -1594,6 +1669,10 @@ export function Session(props: SessionProps = {}) {
     if (local) {
       setReattached(true);
       setSending(!local.done);
+      if (liveDisconnected.current) {
+        liveDisconnected.current = false;
+        setLiveSubscriptionGen((generation) => generation + 1);
+      }
       return;
     }
 
@@ -1613,6 +1692,10 @@ export function Session(props: SessionProps = {}) {
         }
         setReattached(true);
         setSending(!current.done);
+        if (liveDisconnected.current) {
+          liveDisconnected.current = false;
+          setLiveSubscriptionGen((generation) => generation + 1);
+        }
         return;
       }
       void load({ silent: true }).finally(() => {
@@ -1620,7 +1703,7 @@ export function Session(props: SessionProps = {}) {
       });
     });
     return () => { cancelled = true; };
-  }, [project, sid, load, isNew, refreshKey]);
+  }, [project, sid, load, isNew, refreshKey, reconnectKey, refreshFromDisk]);
 
   // Global Shift+Tab → cycle permission mode, matching claude-cli's binding.
   // The browser's own "reverse focus" behaviour is preempted; we surface the
@@ -1720,32 +1803,34 @@ export function Session(props: SessionProps = {}) {
         }),
       );
     };
-    // Snapshot the message count at subscribe time so we can tell when the
-    // CLI has actually flushed our just-streamed turn to disk. The
-    // reload → clear-live handoff below only fires once the count has grown.
-    const preCount = data?.messages?.length ?? 0;
-
-    const finishLive = () => {
+    const finishLive = (finished: NonNullable<typeof seed>) => {
+      const turn = fingerprintLiveTurn(finished);
+      const generation = ++snapshotHandoffGen.current;
+      pendingSnapshotTurn.current = turn;
       setPolling(false);
       setSending(false);
+      setHandoffPending(true);
       setReattached(false);
+      liveDisconnected.current = false;
       clearLive(sid);
       onPendingConsumed?.();
-      // Atomic swap: reload the jsonl and — once disk actually has our new
-      // turn — clear the live buffers so we don't render both the live copy
-      // AND the persisted copy at the same time. Retry a couple times if
-      // the flush lags. If the CLI never catches up, leave live buffers
-      // mounted (the next send's rollLiveIntoHistory sweeps them up).
+      // Poll without publishing intermediate snapshots. JSONL can briefly
+      // contain only old history or the new user line; neither is allowed to
+      // coexist with (or replace) the complete live turn.
       const swap = async () => {
-        for (let attempt = 0; attempt < 6; attempt++) {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt));
-          const d = await load({ silent: true });
-          if (d && d.messages.length > preCount) {
-            setLiveUser('');
-            setLiveTurn([]);
-            setLiveUserImages([]);
-            return;
+        try {
+          for (let attempt = 0; attempt < 6; attempt++) {
+            if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt));
+            const d = await fetchSnapshot().catch(() => null);
+            if (snapshotHandoffGen.current !== generation) return;
+            if (d && snapshotCoversLiveTurn(d.messages, turn)) {
+              pendingSnapshotTurn.current = null;
+              commitSnapshot(d, true);
+              return;
+            }
           }
+        } finally {
+          if (snapshotHandoffGen.current === generation) setHandoffPending(false);
         }
       };
       void swap();
@@ -1756,7 +1841,15 @@ export function Session(props: SessionProps = {}) {
       // enables this subscription. Consume that terminal snapshot immediately
       // instead of waiting for a future notification that will never arrive.
       if (seed.done) {
-        finishLive();
+        if (seed.terminalSeen) finishLive(seed);
+        else {
+          setPolling(false);
+          setSending(false);
+          setReattached(false);
+          liveDisconnected.current = true;
+          discardLive(sid);
+          setError('Live stream disconnected before completion. Refresh to reconnect.');
+        }
         return;
       }
     }
@@ -1774,7 +1867,15 @@ export function Session(props: SessionProps = {}) {
         // Keep the live buffers mounted while finishLive restores canonical
         // history. The CLI may still be flushing jsonl, so that reload must not
         // replace the just-streamed turn.
-        finishLive();
+        if (s.terminalSeen) finishLive(s);
+        else {
+          setPolling(false);
+          setSending(false);
+          setReattached(false);
+          liveDisconnected.current = true;
+          discardLive(sid);
+          setError('Live stream disconnected before completion. Refresh to reconnect.');
+        }
         // Follow-up suggestions stream AFTER `done` over an independent
         // channel (subscribeFollowup), so clearing the live store here is
         // safe — the stop semantics are identical to before the feature.
@@ -1790,7 +1891,7 @@ export function Session(props: SessionProps = {}) {
     return () => {
       unsub();
     };
-  }, [isPending, sid, load, onPendingConsumed]);
+  }, [commitSnapshot, fetchSnapshot, isPending, liveSubscriptionGen, sid, onPendingConsumed]);
 
   const rawItems = useMemo(() => (data ? flatten(data.messages) : []), [data]);
   // Collapse consecutive read-only tool operations (Read / Grep / Glob /
@@ -1812,7 +1913,7 @@ export function Session(props: SessionProps = {}) {
   const lastItemKind = items[items.length - 1]?.kind;
   const idleFollowupFired = useRef(false);
   useEffect(() => {
-    if (isNew || isPending || sending || polling) return;
+    if (isNew || isPending || sending || polling || handoffPending) return;
     if (lastItemKind !== 'assistant' || followupRaw || idleFollowupFired.current) return;
     idleFollowupFired.current = true;
     const gen = ++followupGen.current;
@@ -1821,7 +1922,7 @@ export function Session(props: SessionProps = {}) {
       {},
       { onFollowupDelta: (t) => { if (followupGen.current === gen) setFollowupRaw((prev) => prev + t); } },
     );
-  }, [project, sid, isNew, isPending, sending, polling, lastItemKind]);
+  }, [project, sid, isNew, isPending, sending, polling, handoffPending, lastItemKind]);
 
   // Latest TodoWrite snapshot (flatten dedupes to keep only one at any time).
   // The status bar mirrors the current in-progress task + progress fraction.
@@ -1919,6 +2020,25 @@ export function Session(props: SessionProps = {}) {
       // New turn ⇒ new follow-up generation: clears the chips and invalidates
       // any deltas still streaming from the previous turn's follow-up query.
       const fGen = resetFollowups();
+      // Any pending snapshot handoff belongs to the previous turn. Also allow
+      // a remount to attach to the fresh server ring for this send instead of
+      // treating the prior ended ring's tombstone as current.
+      snapshotHandoffGen.current += 1;
+      pendingSnapshotTurn.current = null;
+      setHandoffPending(false);
+      directTurnStartedAt.current = undefined;
+      const directTurn: LiveTurnFingerprint | null = isNew
+        ? null
+        : {
+            startedAt: Date.now(),
+            userText: text,
+            userImages: sentImages.map((image) => ({ mimeType: image.mimeType, dataUrl: image.dataUrl })),
+            assistantText: '',
+            toolUseIds: [],
+            resolvedToolUseIds: [],
+            terminalSeen: false,
+          };
+      directSnapshotTurn.current = directTurn;
       // Persist to prompt history (manual and queued sends alike).
       const nextHistory = pushHistory(project, text);
       setHistory(nextHistory);
@@ -1987,7 +2107,16 @@ export function Session(props: SessionProps = {}) {
           images: sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })),
         },
         {
+          onMeta: (meta) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
+            if (typeof meta.startedAt === 'number') {
+              directTurnStartedAt.current = meta.startedAt;
+              directTurn.startedAt = meta.startedAt;
+            }
+          },
           onDelta: (t) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
+            directTurn.assistantText += t;
             setLiveTurn((cur) => {
               const last = cur[cur.length - 1];
               if (last?.kind === 'live-assistant') {
@@ -2003,6 +2132,8 @@ export function Session(props: SessionProps = {}) {
             });
           },
           onToolUse: ({ id, name, input: toolInput }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
+            directTurn.toolUseIds.push(id);
             setLiveTurn((cur) =>
               isRenderUITool(name)
                 ? [
@@ -2016,6 +2147,7 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolInputDelta: ({ id, name, accumulated }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             if (!isRenderUITool(name)) return;
             const partial = extractPartialCode(accumulated);
             if (!partial) return;
@@ -2028,6 +2160,7 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolInputDone: ({ id, name, final_json }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             try {
               const obj = JSON.parse(final_json);
               if (isRenderUITool(name) && typeof obj?.code === 'string') {
@@ -2046,6 +2179,7 @@ export function Session(props: SessionProps = {}) {
             } catch { /* tolerate parse fail; stream still delivers */ }
           },
           onPermissionRequest: ({ id, toolName, input, suggestion }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             // Nudge the user via native notification when a tool needs
             // approval — otherwise a session in a background tab can
             // silently stall. requireInteraction keeps it visible until
@@ -2078,6 +2212,7 @@ export function Session(props: SessionProps = {}) {
             ]);
           },
           onPermissionResolved: ({ id, decision }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             setLiveTurn((cur) =>
               cur.map((t) =>
                 t.kind === 'permission' && t.permissionId === id ? { ...t, status: decision } : t,
@@ -2085,6 +2220,10 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onToolResult: ({ tool_use_id, text: resultText, isError }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
+            if (!directTurn.resolvedToolUseIds.includes(tool_use_id)) {
+              directTurn.resolvedToolUseIds.push(tool_use_id);
+            }
             setLiveTurn((cur) =>
               cur.map((t) => {
                 if (t.kind === 'genui' && t.toolUseId === tool_use_id) {
@@ -2101,9 +2240,11 @@ export function Session(props: SessionProps = {}) {
             );
           },
           onUsage: ({ outputTokens: ot }) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             setOutputTokens((cur) => (ot > cur ? ot : cur));
           },
           onError: (err) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
             turnErroredRef.current = true;
             // A user Stop surfaces here as an error — suppress the error cue
             // in that case (turnErroredRef above already keeps the trailing
@@ -2121,7 +2262,18 @@ export function Session(props: SessionProps = {}) {
               ];
             });
           },
-          onDone: () => {
+          onDone: (terminalSeen) => {
+            if (!directTurn || directSnapshotTurn.current !== directTurn) return;
+            if (terminalSeen) {
+              directTurn.terminalSeen = true;
+            } else if (!terminalSeen && directTurnStartedAt.current !== undefined) {
+              // The server assigned this turn, so a bare EOF means only the
+              // browser transport died. Keep the rendered overlay, drop the
+              // incomplete disk fingerprint, and let Refresh reattach /live.
+              directSnapshotTurn.current = null;
+              liveDisconnected.current = true;
+              setError('Live stream disconnected before completion. Refresh to reconnect.');
+            }
             // Don't re-read the jsonl here — the CLI writes it asynchronously
             // and it's often still stale at this point, which made the
             // just-streamed reply flicker or vanish. Keep the live buffers
@@ -2434,10 +2586,13 @@ export function Session(props: SessionProps = {}) {
             )}
             <button
               className="icon-btn"
-              onClick={() => load()}
+              onClick={() => {
+                if (liveDisconnected.current) setReconnectKey((key) => key + 1);
+                else void refreshFromDisk();
+              }}
               title="Refresh"
               aria-label="Refresh"
-              disabled={isNew}
+              disabled={isNew || sending || polling || handoffPending}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />

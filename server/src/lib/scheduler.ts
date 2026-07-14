@@ -26,6 +26,10 @@ type FireResult = { ok: boolean; sessionId: string | null; error?: string };
 // whether the runner actually completed cleanly.
 async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): Promise<FireResult> {
   const isClaude = schedule.engine === 'claude';
+  // Capture before starting the async iterator. A cold runner can take long
+  // enough to emit its session id that Date.now() at liveStart would be newer
+  // than the JSONL user record and make snapshot reconciliation impossible.
+  const startedAt = Date.now();
   let sid = '';
   let ok = true;
   let sawDone = false;
@@ -34,7 +38,7 @@ async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): P
       if (ev.kind === 'session' && !sid) {
         sid = ev.sessionId;
         if (isClaude) {
-          liveStart(sid, { cwd: schedule.cwd });
+          liveStart(sid, { cwd: schedule.cwd, startedAt });
           livePush(sid, { type: 'user-text', text: schedule.prompt });
         }
       } else if (!isClaude) {

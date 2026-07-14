@@ -514,10 +514,12 @@ function SortableTile({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
+            if (isRunning) return;
             setRefreshKey((k) => k + 1);
           }}
           title="Refresh"
           aria-label="Refresh"
+          disabled={isRunning}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />
