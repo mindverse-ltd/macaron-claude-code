@@ -653,3 +653,70 @@ test('authHeaders reflects the active backend token', async () => {
   auth.setToken('h1');
   assert.deepEqual(auth.authHeaders(), { Authorization: 'Bearer h1' });
 });
+
+test('authedFetch pairs token and URL from ONE snapshot (no mid-flight switch mismatch)', async () => {
+  // Meeseeks: reading token via getToken() and URL via apiUrl() are two loadBackends() calls;
+  // a backend switch between them would send backend A's token to backend B's origin. authedFetch
+  // must take a single snapshot. We switch the active backend from inside the fetch stub — which
+  // runs AFTER the snapshot — and assert the request still used the ORIGINAL backend's pair.
+  installLocalStorage();
+  const { backends, auth } = await freshModules();
+  backends.saveBackends([
+    { id: backends.LOCAL_BACKEND_ID, label: 'Local', baseUrl: '' },
+    { id: 'a', label: 'A', baseUrl: 'https://a.test', token: 'tok-a' },
+    { id: 'b', label: 'B', baseUrl: 'https://b.test', token: 'tok-b' },
+  ]);
+  backends.setActiveBackendId('a');
+  const realFetch = globalThis.fetch;
+  let seenUrl = '', seenAuth: string | null = null;
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string, init: RequestInit) => {
+    seenUrl = url;
+    seenAuth = new Headers(init.headers).get('Authorization');
+    backends.setActiveBackendId('b'); // a concurrent switch, mid-flight
+    return { status: 200 } as Response;
+  }) as typeof fetch;
+  await auth.authedFetch('/api/x');
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = realFetch;
+  assert.equal(seenUrl, 'https://a.test/api/x');       // URL from the snapshot backend
+  assert.equal(seenAuth, 'Bearer tok-a');              // token from the SAME snapshot backend
+});
+
+test('legacy removal is a by-value CAS: a fresh token written by another tab survives', async () => {
+  // Meeseeks: tombstone/legacy removal must be a compare-and-swap by value. After we retire
+  // 'legacy-abc', another tab logs in and writes a NEW value to the legacy key. Our deferred
+  // removal must NOT delete that fresh token — it was never retired.
+  const ls = installLocalStorage({ macaron_auth_token: 'legacy-abc' });
+  ls.failWrites = true;                                // clear can't delete the key yet
+  const { backends, auth } = await freshModules();
+  auth.clearToken();                                   // retire 'legacy-abc', removal deferred
+  assert.equal(backends.getActiveBackend().token, undefined);
+  ls.failWrites = false;                               // storage recovers
+  localStorage.setItem('macaron_auth_token', 'fresh-xyz'); // another tab logs in with a NEW value
+  backends.loadBackends();                             // deferred removal runs — must CAS, not clobber
+  assert.equal(localStorage.getItem('macaron_auth_token'), 'fresh-xyz'); // CAS: fresh value NOT deleted
+});
+
+test('token write re-hydrates freshest raw: a concurrent cross-tab backend edit is not clobbered', async () => {
+  // Meeseeks: a reconciled token write must re-hydrate the latest raw and touch only the one
+  // backend it names — not blindly persist a stale whole-list that reverts another tab's edit
+  // to a DIFFERENT backend.
+  installLocalStorage();
+  const { backends, auth } = await freshModules();
+  backends.saveBackends([
+    { id: backends.LOCAL_BACKEND_ID, label: 'Local', baseUrl: '' },
+    { id: 'a', label: 'A', baseUrl: 'https://a.test', token: 'tok-a' },
+  ]);
+  backends.loadBackends();                             // warm, reconciled cache
+  // Another tab adds backend 'b' AND renames 'a' directly in storage.
+  localStorage.setItem('macaron_backends', JSON.stringify([
+    { id: 'a', label: 'A-renamed', baseUrl: 'https://a.test', token: 'tok-a' },
+    { id: 'b', label: 'B', baseUrl: 'https://b.test', token: 'tok-b' },
+  ]));
+  backends.setActiveBackendId('a');
+  auth.setToken('tok-a2');                             // we only change a's token
+  const stored = JSON.parse(localStorage.getItem('macaron_backends')!) as Backend[];
+  assert.equal(stored.find((b) => b.id === 'a')?.token, 'tok-a2');   // our change applied
+  assert.equal(stored.find((b) => b.id === 'a')?.label, 'A-renamed'); // cross-tab rename preserved
+  assert.ok(stored.find((b) => b.id === 'b'));                        // cross-tab new backend preserved
+  assert.equal(stored.find((b) => b.id === 'b')?.token, 'tok-b');
+});

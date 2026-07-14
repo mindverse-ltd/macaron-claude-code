@@ -143,11 +143,22 @@ function retireLegacy(value: string | undefined): void {
   pendingLegacyRemoval = true;
 }
 
-// Drop the legacy key AND its tombstone together. Only call once the key's removal
-// is safe (LOCAL no longer depends on it). The tombstone outlives the key by exactly
-// one step: if key removal succeeds, the tombstone's job is done, so clear it too.
-function removeLegacyKey(): boolean {
-  try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch { return false; }
+// Compare-and-swap removal of the legacy key, by value. Only delete when the key
+// STILL holds the value we retired — if another tab wrote a NEW token there, that
+// value was never retired and must survive (deleting it would drop a fresh login).
+// Returns true when the retirement is settled (key gone, or no longer our value),
+// so the caller can stop retrying. The tombstone outlives the key by one step: once
+// the retired value is gone from the key, the tombstone's job is done — clear it.
+function removeLegacyKey(expected: string | undefined): boolean {
+  const cur = readLegacyRaw();
+  if (!cur.ok) return false;                          // couldn't read → retry later
+  if (expected && cur.value && cur.value !== expected) {
+    // Another tab replaced the retired token with a live one. Our retirement no longer
+    // applies; leave the key and drop the stale tombstone so it can't block the new value.
+    try { localStorage.removeItem(LEGACY_TOMBSTONE_KEY); } catch { /* best-effort */ }
+    return true;
+  }
+  if (cur.value) { try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch { return false; } }
   try { localStorage.removeItem(LEGACY_TOMBSTONE_KEY); } catch { /* harmless leftover: an absent legacy key can't be re-absorbed */ }
   return true;
 }
@@ -193,7 +204,7 @@ function flush(): void {
     const localHasToken = !!cache?.find((b) => b.id === LOCAL_BACKEND_ID)?.token;
     const localBackedByLegacy = !!legacyBackedLocalToken && localHasToken;
     if (!localBackedByLegacy && (!dirty || !localHasToken || !!retiredLegacyToken)) {
-      if (removeLegacyKey()) { pendingLegacyRemoval = false; legacyBackedLocalToken = undefined; } /* else retry next time */
+      if (removeLegacyKey(retiredLegacyToken)) { pendingLegacyRemoval = false; legacyBackedLocalToken = undefined; } /* else retry next time */
     }
   }
 }
@@ -240,7 +251,7 @@ function hydrate(raw: string | null): Backend[] {
     legacyBackedLocalToken = undefined;
     const stale = readLegacyRaw();
     if (stale.ok && stale.value) retireLegacy(stale.value); // records tombstone + schedules removal
-    if (pendingLegacyRemoval && removeLegacyKey()) { pendingLegacyRemoval = false; }
+    if (pendingLegacyRemoval && removeLegacyKey(retiredLegacyToken)) { pendingLegacyRemoval = false; }
     return cache;
   }
   // No usable stored list, or one missing LOCAL: (re)build LOCAL. If a legacy token is
@@ -354,6 +365,21 @@ export function getActiveBackend(): Backend {
   return list.find((b) => b.id === id) || list.find((b) => b.id === LOCAL_BACKEND_ID) || localDefault();
 }
 
+// Persist a single-token intent by re-hydrating the FRESHEST registry raw first, then
+// applying just that one (id → token) change onto it. This is the unified recovery write:
+// a whole-list save would revert a concurrent cross-tab change to a DIFFERENT backend, but
+// re-reading raw here means we only ever touch the one backend the intent names. Returns the
+// resulting list (already cached + flushed).
+function persistTokenIntent(id: string, token: string | undefined): Backend[] {
+  const { ok, raw } = readRegistryRaw();
+  // Unreadable storage → keep the in-memory cache authoritative for this session; a whole-list
+  // save is the only option, and loadBackends already recorded the intent for later replay.
+  const base = ok ? hydrate(raw) : (cache ?? [localDefault()]);
+  const next = applyToken(base, id, token);
+  saveBackends(next);
+  return next;
+}
+
 // Persist a token against the active backend (used by the login flow). Writing
 // an empty string clears it. This replaces the old single-key token storage.
 export function setActiveBackendToken(token: string): void {
@@ -368,7 +394,6 @@ export function setActiveBackendToken(token: string): void {
   // readable (unreconciled), we instead defer via pendingMutations below, which re-resolves the
   // real target on replay, so a legitimate blind clear still survives.
   if (!token && reconciled && !active.ok) return;
-  const next = applyToken(list, id, token);
   // Explicitly clearing the LOCAL token must also invalidate the legacy source,
   // even if the registry write below fails (private mode / quota): otherwise the
   // next loadBackends() would re-migrate the stale legacy token and resurrect a
@@ -379,6 +404,8 @@ export function setActiveBackendToken(token: string): void {
   }
   // If storage was unreadable, this mutation was applied blind: record it so the next
   // successful read replays it onto the real registry rather than overwriting.
-  if (!reconciled) pendingMutations.push({ id, token: token || undefined });
-  saveBackends(next);
+  if (!reconciled) { pendingMutations.push({ id, token: token || undefined }); saveBackends(applyToken(list, id, token)); return; }
+  // Reconciled: persist by re-hydrating the freshest raw so a concurrent cross-tab change to a
+  // different backend survives — we only mutate the one backend this intent names.
+  persistTokenIntent(id, token);
 }

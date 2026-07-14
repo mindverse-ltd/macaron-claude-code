@@ -10,6 +10,19 @@
 // single global token.
 
 import { getActiveBackend, setActiveBackendToken } from './backends';
+import type { Backend } from './backends';
+
+// Derive the request URL / auth header from a SINGLE backend snapshot. authedFetch
+// takes one snapshot and uses these, so a mid-flight backend switch can never pair
+// one backend's baseUrl with another's token (a TOCTOU the two-call form allowed).
+function urlFor(backend: Backend, path: string): string {
+  if (!backend.baseUrl || /^https?:\/\//i.test(path)) return path;
+  return backend.baseUrl + path;
+}
+
+function headerFor(backend: Backend): Record<string, string> {
+  return backend.token ? { Authorization: `Bearer ${backend.token}` } : {};
+}
 
 export function getToken(): string {
   return getActiveBackend().token || '';
@@ -24,26 +37,27 @@ export function clearToken(): void {
 }
 
 export function authHeaders(): Record<string, string> {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+  return headerFor(getActiveBackend());
 }
 
 // Prefix a relative /api path with the active backend's base. Absolute URLs and
 // the local default (empty base) pass through unchanged, so same-origin
 // requests stay byte-for-byte identical to before.
 export function apiUrl(path: string): string {
-  const base = getActiveBackend().baseUrl;
-  if (!base || /^https?:\/\//i.test(path)) return path;
-  return base + path;
+  return urlFor(getActiveBackend(), path);
 }
 
 // fetch wrapper that injects the token and re-gates the UI on 401 (expired /
 // wrong token). Every call site that hits our own server uses this.
 export async function authedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  // ONE snapshot for both URL and token — see urlFor/headerFor. Reading them via
+  // separate getActiveBackend() calls would let a backend switch between the two
+  // send backend A's token to backend B's origin.
+  const backend = getActiveBackend();
   const headers = new Headers(init.headers);
-  const t = getToken();
-  if (t) headers.set('Authorization', `Bearer ${t}`);
-  const resp = await fetch(apiUrl(input), { ...init, headers });
+  const auth = headerFor(backend);
+  if (auth.Authorization) headers.set('Authorization', auth.Authorization);
+  const resp = await fetch(urlFor(backend, input), { ...init, headers });
   if (resp.status === 401) {
     clearToken();
     window.dispatchEvent(new Event('macaron:auth-required'));
