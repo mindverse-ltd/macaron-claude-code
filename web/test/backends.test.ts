@@ -434,6 +434,92 @@ test('marker lifecycle: a successful full write retires the legacy key and resis
   assert.equal(backends.getActiveBackend().token, 'legacy-abc');
 });
 
+test('cold-cache read failure + mutation: recovery merges, does not clobber unseen backends', async () => {
+  // Blocker 1: reads throw on the first load (no cache). A setToken/clearToken during that
+  // window is applied blind — it must NOT be dirty-flushed as a partial `[local]` that wipes
+  // the present-but-unread REMOTE config. On recovery it's REPLAYED onto the real registry.
+  const persisted = JSON.stringify([
+    { id: 'local', label: 'Local', baseUrl: '', token: 'local-tok' },
+    { id: 'remote', label: 'Box', baseUrl: 'https://box.example.com', token: 'remote-tok' },
+  ]);
+  const ls = installLocalStorage({ macaron_backends: persisted });
+  ls.failReads = true;                            // reads throw from the very first load
+  const { backends, auth } = await freshModules();
+  auth.clearToken();                              // blind clear (active defaults to local)
+  assert.equal(auth.getToken(), '');              // authoritative in-session
+  ls.failReads = false;                           // reads recover
+  const list = backends.loadBackends();           // replays the clear onto the real registry
+  assert.equal(list.find((b) => b.id === 'local')?.token, undefined);       // clear survived
+  assert.equal(list.find((b) => b.id === 'remote')?.baseUrl, 'https://box.example.com'); // NOT clobbered
+  assert.equal(list.find((b) => b.id === 'remote')?.token, 'remote-tok');   // REMOTE token intact
+  const stored = JSON.parse(localStorage.getItem('macaron_backends')!) as Backend[];
+  assert.equal(stored.find((b) => b.id === 'remote')?.token, 'remote-tok');
+});
+
+test('legacy-backed dirty cache: another tab deleting the legacy key still clears LOCAL on recovery', async () => {
+  // Blocker 2: after a quota fallback LOCAL's token lives only in the legacy key AND the cache
+  // is dirty. A dirty cache must still revalidate the legacy key — else another tab clearing
+  // LOCAL (removing the key) is ignored and the old token re-persists once quota recovers.
+  const stored = JSON.stringify([{ id: 'remote', label: 'Box', baseUrl: 'https://box.example.com', token: 'remote-tok' }]);
+  const ls = installLocalStorage({ macaron_backends: stored, macaron_auth_token: 'legacy-abc' });
+  ls.quotaFull = true;                            // force the shrunk fallback; cache stays dirty
+  const { backends } = await freshModules();
+  assert.equal(backends.loadBackends().find((b) => b.id === 'local')?.token, 'legacy-abc'); // absorbed
+  localStorage.removeItem('macaron_auth_token'); // another tab clears LOCAL via the legacy key
+  const list = backends.loadBackends();           // dirty-path revalidation notices it
+  assert.equal(list.find((b) => b.id === 'local')?.token, undefined);
+  ls.quotaFull = false;                           // storage recovers
+  backends.loadBackends();
+  // The cleared LOCAL token must NOT have been re-persisted.
+  const persistedNow = JSON.parse(localStorage.getItem('macaron_backends')!) as Backend[];
+  assert.equal(persistedNow.find((b) => b.id === 'local')?.token, undefined);
+});
+
+test('explicit clear during a transient write failure does not resurrect the legacy token', async () => {
+  // Blocker 3: clear writes a tokenless LOCAL, but the legacy removal / registry write fails.
+  // The retired value must stay dead: even if the registry is later wiped by another tab, a
+  // reload must not re-absorb the still-present legacy key. And the quota fallback must not
+  // cancel the pending removal once LOCAL no longer matches the marker.
+  const ls = installLocalStorage({ macaron_auth_token: 'legacy-abc' });
+  const { backends, auth } = await freshModules();
+  assert.equal(auth.getToken(), 'legacy-abc');    // migrated onto LOCAL, legacy-backed
+  ls.failWrites = true;                           // writes freeze
+  auth.clearToken();                              // explicit clear during the failure
+  assert.equal(auth.getToken(), '');
+  // Another tab wipes the registry while writes are still frozen.
+  localStorage.removeItem('macaron_backends');
+  const list = backends.loadBackends();           // hydrate(null) must NOT re-absorb the retired key
+  assert.equal(list.find((b) => b.id === 'local')?.token, undefined);
+  assert.equal(auth.getToken(), '');
+  ls.failWrites = false;                           // storage recovers
+  backends.loadBackends();
+  assert.equal(localStorage.getItem('macaron_auth_token'), null); // legacy key finally retired
+  backends.__resetForTests();
+  assert.equal(backends.getActiveBackend().token, undefined);      // stays cleared across reload
+});
+
+test('known-stale legacy removal failure: another tab wiping the registry does not re-migrate it', async () => {
+  // Blocker 4: the persisted registry already migrated the token (LOCAL carries it in the
+  // registry) but the legacy-key removal failed, leaving a known-stale key. If another tab
+  // then deletes the registry, hydrate(null) must NOT re-migrate that retired key.
+  const migrated = JSON.stringify([{ id: 'local', label: 'Local', baseUrl: '', token: 'migrated-tok' }]);
+  installLocalStorage({ macaron_backends: migrated, macaron_auth_token: 'legacy-abc' });
+  const { backends } = await freshModules();
+  // First load reconciles: LOCAL keeps its registry token; the stale legacy key is retired.
+  const realRemove = localStorage.removeItem.bind(localStorage);
+  (localStorage as unknown as { removeItem: (k: string) => void }).removeItem = (k: string) => {
+    if (k === 'macaron_auth_token') throw new Error('fail'); // legacy removal fails this load
+    realRemove(k);
+  };
+  assert.equal(backends.loadBackends().find((b) => b.id === 'local')?.token, 'migrated-tok');
+  assert.equal(localStorage.getItem('macaron_auth_token'), 'legacy-abc'); // removal failed → still there
+  // Another tab wipes the registry while the stale key lingers.
+  (localStorage as unknown as { removeItem: (k: string) => void }).removeItem = realRemove;
+  localStorage.removeItem('macaron_backends');
+  const list = backends.loadBackends();           // hydrate(null): must not re-absorb the retired key
+  assert.equal(list.find((b) => b.id === 'local')?.token, undefined);
+});
+
 test('no legacy token → LOCAL backend has no token', async () => {
   installLocalStorage();
   const { auth } = await freshModules();
