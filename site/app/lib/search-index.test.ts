@@ -152,6 +152,35 @@ test('real structure() split chunks: escaped quotes, generic defaults, OOB entit
   assert.deepEqual(clean('type Producer\\<out T = "OUTDEFAULTNEEDLE"> keeps OUTPROSEKEEP'), ['type Producer<out T = "OUTDEFAULTNEEDLE"> keeps OUTPROSEKEEP']);
   assert.deepEqual(clean('type Consumer\\<in T = "INDEFAULTNEEDLE"> keeps INPROSEKEEP'), ['type Consumer<in T = "INDEFAULTNEEDLE"> keeps INPROSEKEEP']);
 
+  // Whitespace between tag tokens includes NEWLINES, not just space/tab: a spread or an
+  // attribute broken across lines is still a component opener and must be stripped.
+  const nlSpread = clean('<Panel {\n  ...NLSPREADNEEDLE\n}>\n\n## H\n\nnlbody\n\n</Panel>');
+  assert.ok(!nlSpread.some((t) => /NLSPREADNEEDLE|<Panel/.test(t)), `newline-spread residue leaked: ${JSON.stringify(nlSpread)}`);
+  assert.ok(nlSpread.includes('nlbody'), 'newline-spread body must survive');
+  const nlAttr = clean('<Panel\n  title={"EXTNLNEEDLE"}>\n\n## H\n\nattrnlbody\n\n</Panel>');
+  assert.ok(!nlAttr.some((t) => /EXTNLNEEDLE|<Panel/.test(t)), `newline-attr residue leaked: ${JSON.stringify(nlAttr)}`);
+  assert.ok(nlAttr.includes('attrnlbody'), 'newline-attr body must survive');
+
+  // Boolean `extends` prop (no `=`) is still a JSX attribute, so the opener is a
+  // component — not a generic constraint. The whole opener must be stripped.
+  const boolExt = clean('<Panel extends config={{ key: "BOOLEXTNEEDLE" }}>\n\n## H\n\nboolbody\n\n</Panel>');
+  assert.ok(!boolExt.some((t) => /BOOLEXTNEEDLE|<Panel|extends/.test(t)), `boolean-extends opener leaked: ${JSON.stringify(boolExt)}`);
+  assert.ok(boolExt.includes('boolbody'), 'boolean-extends body must survive');
+
+  // A lowercase JSX element whose NAME happens to be `out`/`in`/`const` (a real DOM-ish
+  // tag) with an attribute is a component — the tag name is glued to `<` but the `<` is
+  // NOT preceded by an identifier, so it strips. The needle must not enter the index.
+  for (const [tag, needle] of [['out', 'OUTTAGNEEDLE'], ['in', 'INTAGNEEDLE'], ['const', 'CONSTTAGNEEDLE']]) {
+    const lc = clean(`<${tag} T={["${needle}"]}>\n\n## H\n\n${tag}body\n\n</${tag}>`);
+    assert.ok(!lc.some((t) => new RegExp(`${needle}|<${tag}`).test(t)), `lowercase <${tag}> opener leaked: ${JSON.stringify(lc)}`);
+    assert.ok(lc.includes(`${tag}body`), `lowercase <${tag}> body must survive`);
+  }
+
+  // A namespaced JSX attribute (`ns:prop={…}`) is a real attribute — the opener strips.
+  const nsAttr = clean('<Panel ns:prop={["NSNEEDLE"]}>\n\n## H\n\nnsbody\n\n</Panel>');
+  assert.ok(!nsAttr.some((t) => /NSNEEDLE|<Panel|ns:prop/.test(t)), `namespaced-attr opener leaked: ${JSON.stringify(nsAttr)}`);
+  assert.ok(nsAttr.includes('nsbody'), 'namespaced-attr body must survive');
+
   // An out-of-range numeric entity is not a real code point: String.fromCodePoint
   // would throw and abort the index build, so it must be kept as literal text.
   assert.deepEqual(clean('literal \\&#9999999999; KEEP'), ['literal &#9999999999; KEEP']);

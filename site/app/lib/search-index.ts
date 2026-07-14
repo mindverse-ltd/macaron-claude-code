@@ -97,25 +97,23 @@ function stripComponentResidue(text: string): string {
     let j = lt + 1;
     if (closing) j++;
     while (isNameChar(text[j])) j++;
-    // Scan to the terminating `>` at brace depth 0. structure() markdown-escapes the
-    // JSX punctuation (`\{`, `\[`, `\<`), so a `\{` counts as a brace; inside a quote
-    // / template a `\`-escape hides the next char, so a `\"` or an escaped backtick
-    // can't close the attribute string early. hasAttr is decided SOLELY by finding a
-    // real JSX attribute — a `name=` where `name` is a separate identifier after the
-    // tag name (preceded by whitespace). A quote / brace / template alone does NOT
-    // imply an attribute: a TS generic default `<T = "x">` / `<T = { … }>` / `` <T = `x`> ``
-    // carries the same characters as prose, and its `=` sits right after the type
-    // param name (no separating whitespace), so it stays searchable.
-    let quote = '', brace = 0, closed = false, hasAttr = closing, selfClose = false;
-    // A top-level `,` or an `extends` CONSTRAINT marks a TS generic PARAMETER LIST
-    // (`<T = A, U = B>`, `<T extends C = D>`) whose `=` are default-type assignments,
-    // not JSX attributes; a top-level `{ ... }` is a spread attribute — unmistakably
-    // JSX even without a `name=`. `extends` FOLLOWED BY `=` is instead a JSX prop named
-    // `extends`, so it must NOT set the constraint flag.
-    let sawTopComma = false, sawConstraint = false, sawSpread = false;
-    // A `{` (optionally structure()-escaped `\{`) that opens a spread: skip any
-    // whitespace after the brace before checking for `...`, so `{ ...x }` counts too.
-    const opensSpread = (p: number) => { while (text[p] === ' ' || text[p] === '\t') p++; return text.startsWith('...', p); };
+    // Decide JSX element (strip) vs TS-generic / comparison prose (keep) from the char
+    // immediately before the logical `<` (before the backslash for an escaped `\<`). A
+    // TS generic or an `a<b` comparison is GLUED to a preceding identifier (`Box<T…>`,
+    // `f<const T…>`, `Producer<out T…>`, `alpha<beta`); a JSX element's `<` always follows
+    // whitespace, a `>`, or the chunk start. A glued opener is therefore never a component
+    // — keep it verbatim, with no per-syntax special-casing of modifiers / `extends` /
+    // defaults. Only a NON-glued opener can be a component, and it is one iff it carries
+    // ANY non-whitespace content after the tag name (anything but `>` / `/>`): that single
+    // rule covers spreads, namespaced props, boolean props and newline-broken attributes.
+    const glued = isNameChar(text[i - 1]) || (text[i - 1] === '\\' && isNameChar(text[i - 2]));
+    // Scan to the terminating `>` at brace depth 0. structure() markdown-escapes the JSX
+    // punctuation (`\{`, `\[`, `\<`), so a `\{` counts as a brace; inside a quote / template
+    // a `\`-escape hides the next char, so a `\"` / escaped backtick / a `>` hidden in an
+    // attribute string / `{…}` expression / `` `…` `` template can't end the tag early.
+    // sawContent flags any non-whitespace tag body (an attribute of any shape) — the only
+    // thing that turns a non-glued opener into a component.
+    let quote = '', brace = 0, closed = false, selfClose = false, sawContent = false;
     let k = j;
     while (k < text.length) {
       const ch = text[k];
@@ -126,44 +124,19 @@ function stripComponentResidue(text: string): string {
       }
       if (ch === '\\' && /[<>{}[\]]/.test(text[k + 1] ?? '')) { // structure()'s markdown-escaped punctuation
         const p = text[k + 1];
-        if (p === '{') { if (brace === 0 && opensSpread(k + 2)) sawSpread = true; brace++; }
-        else if (p === '}' && brace > 0) brace--;
-        k += 2; continue;
+        if (p === '{') brace++; else if (p === '}' && brace > 0) brace--;
+        sawContent = true; k += 2; continue;
       }
-      if (ch === '"' || ch === "'" || ch === '`') quote = ch;
-      else if (ch === '{') { if (brace === 0 && opensSpread(k + 1)) sawSpread = true; brace++; }
+      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; sawContent = true; }
+      else if (ch === '{') { brace++; sawContent = true; }
       else if (ch === '}' && brace > 0) brace--;
-      else if (ch === ',' && !brace) sawTopComma = true;
-      else if (ch === 'e' && !brace && text.startsWith('extends', k) && !isNameChar(text[k - 1]) && !isNameChar(text[k + 7])) {
-        // `<T extends C>` is a constraint; `<Panel extends={…}>` is a JSX prop — tell
-        // them apart by the next non-space char: `=` means prop, anything else means
-        // constraint.
-        let p = k + 7; while (text[p] === ' ' || text[p] === '\t') p++;
-        if (text[p] !== '=') sawConstraint = true;
-      }
-      else if (ch === '=' && !brace) {
-        // JSX attribute assignment, or a TS generic default (`<T = …>`, `<const T = …>`)?
-        // Walk back from `=` over the name and any whitespace-separated variance/const
-        // modifiers (`const`/`in`/`out`): if we reach the `<` opener with only modifiers
-        // between it and the name, the name IS the type-param → generic default. A
-        // non-modifier token (the tag name) in between means it's a real attribute.
-        let b = k - 1; while (text[b] === ' ' || text[b] === '\t') b--;
-        let sawName = false;
-        while (b > lt) {
-          const e = b; while (b >= 0 && isNameChar(text[b])) b--;
-          if (e === b) break; // hit a non-identifier char (`,`, `>` …) — not an attribute
-          if (!sawName) sawName = true; // the param/attr name itself
-          else { const tok = text.slice(b + 1, e + 1); if (tok !== 'const' && tok !== 'in' && tok !== 'out') { hasAttr = true; break; } }
-          while (text[b] === ' ' || text[b] === '\t') b--;
-        }
-      }
       else if (ch === '/' && !brace && text[k + 1] === '>') selfClose = true;
       else if (ch === '>' && !brace) { k++; closed = true; break; }
+      else if (!/\s/.test(ch)) sawContent = true;
       k++;
     }
-    // A generic parameter list keeps its `=` defaults as prose, so a `name=` there is
-    // NOT a JSX attribute; a spread attribute forces a component even with no `name=`.
-    const attributed = sawSpread || (hasAttr && !(sawTopComma || sawConstraint));
+    // A non-glued opener carrying any attribute is a component; a glued opener is prose.
+    const attributed = !glued && sawContent;
     // structure()'s residue serialization is LOSSY inside an attribute string: a JS
     // `\"` loses its backslash while a template's closing backtick gains one (`\``),
     // so quote tracking cannot always find the closing `>`. But an ESCAPED opener
