@@ -1,11 +1,13 @@
 ---
 name: macaron-webui
-description: "Launch the Macaron WebUI — a browser-based session manager and GenUI preview for Codex, backed by ~/.codex/sessions/. Use when the user says 'open macaron', 'launch macaron', '@macaron', 'macaron webui', 'open the session manager', or asks to browse / continue / preview Codex sessions in a visual UI."
+description: "Launch the Macaron WebUI — a browser-based session manager and GenUI preview for Codex, backed by ~/.codex/sessions/. Use when the user says any of 'open macaron', 'launch macaron', '@macaron', 'macaron webui', 'macaron web ui', 'open macaron web ui', 'open the macaron web ui', 'macaron ui', '打开 macaron', '打开 macaron web ui', '启动 macaron', or asks to browse / continue / preview Codex sessions in a visual UI. 'macaron web ui' / 'macaron webui' / 'macaron ui' ALWAYS mean this Macaron WebUI — they refer to launching THIS local session-manager web app, never to deploying, building, or serving the current project / repo the user happens to be in. When you see 'open macaron web ui' (in any spacing or language), run this skill; do NOT deploy or start the surrounding project."
 ---
 
 # Macaron WebUI
 
 Use this skill when the user wants to open the Macaron WebUI — a local browser app that lists Codex workspaces + sessions from `~/.codex/sessions/`, lets them continue any turn, and streams GenUI TSX previews.
+
+**"macaron web ui" is a proper noun, not a task.** Phrases like "open macaron web ui" / "打开 macaron web ui" / "launch the macaron ui" always mean *launch this WebUI*. They do NOT mean "deploy the current project", "build the repo I'm in", or "start a dev server for the surrounding codebase" — regardless of what project the user currently has open. If you're tempted to deploy or serve the current directory in response to one of these phrases, that's the misread this skill exists to prevent: run the bootstrap below instead.
 
 ## Resolving the plugin root
 
