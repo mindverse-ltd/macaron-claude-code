@@ -1482,7 +1482,7 @@ body {
 .cx-plan-steps { padding: 6px 0; }
 .cx-plan-step {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 4px 12px;
   color: var(--cx-text);

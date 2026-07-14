@@ -727,6 +727,9 @@ textarea:focus, select:focus, input:focus {
 
 /* thinking */
 .ti-thinking {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--muted);
   font-style: italic;
   font-size: 12.5px;
@@ -747,7 +750,7 @@ textarea:focus, select:focus, input:focus {
 .ti-tool-head {
   display: flex;
   gap: 6px;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   word-break: break-word;
 }
@@ -841,7 +844,7 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-diff-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   padding: 6px 10px;
   font-size: 12.5px;
@@ -922,7 +925,7 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-todo-li {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-size: 13px;
   line-height: 1.5;
@@ -955,6 +958,8 @@ textarea:focus, select:focus, input:focus {
   padding: 4px 2px;
 }
 .ti-sysevent-mark {
+  display: inline-flex;
+  vertical-align: middle;
   color: var(--muted-2);
   font-style: normal;
   margin-right: 6px;
@@ -2453,7 +2458,7 @@ textarea:focus, select:focus, input:focus {
 }
 .ti-plan-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -4918,7 +4923,7 @@ textarea:focus, select:focus, input:focus {
 .ti-collapsed { margin: 4px 0 6px; }
 .ti-collapsed-head {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   width: 100%;
   padding: 4px 0;
