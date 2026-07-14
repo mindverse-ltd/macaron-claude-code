@@ -1,0 +1,31 @@
+name: docs site
+
+on:
+  pull_request:
+    paths: ['site/**']
+  push:
+    branches: [main]
+    paths: ['site/**']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      # `verify` builds the site (emitting build/client/api/search) then runs the
+      # search-index tests with REQUIRE_BUILT_INDEX=1 — so the real Orama route-
+      # wiring test fails hard if the `/api/search` artifact ever stops emitting,
+      # instead of silently skipping.
+      - run: pnpm verify
