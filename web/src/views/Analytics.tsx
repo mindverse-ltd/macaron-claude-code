@@ -49,7 +49,13 @@ const DAY = 86400000;
 // (columns = weeks, rows = weekday), shaded by that day's message count.
 function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
   const gridRef = useRef<HTMLDivElement>(null);
+  // `active` drives the caption (hover OR focus). `rovingKey` is the single
+  // tabbable cell — updated only by keyboard focus, never hover, so the mouse
+  // can't steal the roving tab stop. `focusedRef` remembers the focused cell so
+  // a mouseleave restores its caption instead of blanking it.
   const [active, setActive] = useState<{ key: string; count: number } | null>(null);
+  const [rovingKey, setRovingKey] = useState<string | null>(null);
+  const focusedRef = useRef<{ key: string; count: number } | null>(null);
 
   const grid = useMemo(() => {
     const byDay = new Map(daily.map((d) => [d.date, d.messageCount]));
@@ -93,59 +99,83 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
     return Math.min(4, Math.ceil((count / grid.max) * 4));
   };
 
-  // Roving tabindex: one Tab entry, arrow keys move focus between day cells.
+  // Roving tabindex over a row-major (weekday × week) cell space. Arrows move by
+  // one cell; Home/End jump to the ends of the current weekday row; Ctrl+Home/End
+  // jump to the first/last day overall. Focus (not hover) owns the roving stop.
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const delta = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
-    if (!delta) return;
-    e.preventDefault();
     const cells = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('.heatmap-cell[data-key]') ?? []);
+    if (!cells.length) return;
     const current = document.activeElement as HTMLElement;
-    const wi = Number(current?.dataset.week), di = Number(current?.dataset.day);
-    if (Number.isNaN(wi) || Number.isNaN(di)) { cells[0]?.focus(); return; }
-    const target = cells.find((c) => Number(c.dataset.week) === wi + delta[0]! && Number(c.dataset.day) === di + delta[1]!);
-    target?.focus();
+    const row = Number(current?.dataset.row), col = Number(current?.dataset.col);
+    const at = (r: number, c: number) => cells.find((x) => Number(x.dataset.row) === r && Number(x.dataset.col) === c);
+    const colsFor = (r: number) => cells.filter((x) => Number(x.dataset.row) === r).map((x) => Number(x.dataset.col));
+    let target: HTMLElement | undefined;
+    if (e.key === 'ArrowRight') target = at(row, col + 1);
+    else if (e.key === 'ArrowLeft') target = at(row, col - 1);
+    else if (e.key === 'ArrowDown') target = at(row + 1, col);
+    else if (e.key === 'ArrowUp') target = at(row - 1, col);
+    else if (e.key === 'Home' && !e.ctrlKey && !e.metaKey) { const cs = colsFor(row); target = at(row, Math.min(...cs)); }
+    else if (e.key === 'End' && !e.ctrlKey && !e.metaKey) { const cs = colsFor(row); target = at(row, Math.max(...cs)); }
+    else if (e.key === 'Home') target = cells[0];
+    else if (e.key === 'End') target = cells[cells.length - 1];
+    else return;
+    e.preventDefault();
+    (target ?? cells[0])?.focus();
   };
 
   const captionText = active ? `${active.key} · ${active.count} message${active.count === 1 ? '' : 's'}` : 'Hover or focus a day for details';
 
+  // The tabbable cell: the keyboard-visited one, else the first in-range day.
+  const firstKey = grid.weeks.flat().find((c) => c)?.key ?? null;
+  const tabKey = rovingKey ?? firstKey;
+
   return (
     <div className="heatmap" style={{ '--weeks': grid.weeks.length } as React.CSSProperties}>
-      <div className="heatmap-months">
-        {grid.months.map((m, i) => (
-          <span key={i} style={{ gridColumnStart: m.col + 1 }}>{m.label}</span>
-        ))}
-      </div>
-      <div
-        className="heatmap-grid"
-        role="grid"
-        aria-label="Daily message activity"
-        ref={gridRef}
-        onKeyDown={onKeyDown}
-        onMouseLeave={() => setActive(null)}
-      >
-        {grid.weeks.map((week, wi) => (
-          <div key={wi} className="heatmap-week" role="row">
-            {week.map((cell, di) =>
-              cell ? (
-                <div
-                  key={di}
-                  className="heatmap-cell"
-                  data-level={level(cell.count)}
-                  data-key={cell.key}
-                  data-week={wi}
-                  data-day={di}
-                  role="gridcell"
-                  tabIndex={active?.key === cell.key || (!active && wi === 0 && di === firstFocusable(week)) ? 0 : -1}
-                  aria-label={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
-                  onMouseEnter={() => setActive({ key: cell.key, count: cell.count })}
-                  onFocus={() => setActive({ key: cell.key, count: cell.count })}
-                />
-              ) : (
-                <div key={di} className="heatmap-cell heatmap-cell--empty" role="presentation" aria-hidden="true" />
-              ),
-            )}
-          </div>
-        ))}
+      <div className="heatmap-scroll">
+        <div className="heatmap-months" aria-hidden="true">
+          {grid.months.map((m, i) => (
+            <span key={i} style={{ gridColumnStart: m.col + 1 }}>{m.label}</span>
+          ))}
+        </div>
+        <div
+          className="heatmap-grid"
+          role="grid"
+          aria-label="Daily message activity"
+          aria-rowcount={7}
+          aria-colcount={grid.weeks.length}
+          ref={gridRef}
+          onKeyDown={onKeyDown}
+          onMouseLeave={() => setActive(focusedRef.current)}
+        >
+          {/* Row-major for ARIA: one role=row per weekday, cells placed into the
+              shared column track by grid-column-start so they still read as weeks. */}
+          {[0, 1, 2, 3, 4, 5, 6].map((r) => (
+            <div key={r} className="heatmap-row" role="row">
+              {grid.weeks.map((week, wi) => {
+                const cell = week[r];
+                return cell ? (
+                  <div
+                    key={wi}
+                    className="heatmap-cell"
+                    style={{ gridColumnStart: wi + 1 }}
+                    data-level={level(cell.count)}
+                    data-key={cell.key}
+                    data-row={r}
+                    data-col={wi}
+                    role="gridcell"
+                    tabIndex={cell.key === tabKey ? 0 : -1}
+                    aria-label={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
+                    onMouseEnter={() => setActive({ key: cell.key, count: cell.count })}
+                    onFocus={() => { const a = { key: cell.key, count: cell.count }; focusedRef.current = a; setActive(a); setRovingKey(cell.key); }}
+                    onBlur={() => { focusedRef.current = null; }}
+                  />
+                ) : (
+                  <div key={wi} className="heatmap-cell heatmap-cell--empty" style={{ gridColumnStart: wi + 1 }} role="presentation" aria-hidden="true" />
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="heatmap-footer">
         <div className="heatmap-detail" aria-live="polite">{captionText}</div>
@@ -158,9 +188,6 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
     </div>
   );
 }
-
-// The first non-empty cell in a week — the single roving-focus entry point.
-const firstFocusable = (week: Array<{ key: string } | null>) => week.findIndex((c) => c !== null);
 
 export function Analytics() {
   const [window, setWindow] = useState('30d');
