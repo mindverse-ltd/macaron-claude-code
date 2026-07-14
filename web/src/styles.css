@@ -4178,20 +4178,35 @@ textarea:focus, select:focus, input:focus {
   height: 10px;
   border-radius: 2px;
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06); /* crisp edge so level-0 cells stay visible */
+  /* A theme-adaptive inset ring gives every cell — including the lowest shades —
+     a ≥3:1 boundary against the panel, so activity is legible by edge even where
+     the fill contrast is subtle. --text is near-black in light, near-white in dark. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 32%, transparent);
 }
 .heatmap-cell[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .heatmap-cell--empty { visibility: hidden; }
 .heatmap-cell[data-level='0'] { background: var(--surface-2); }
-.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 42%, var(--surface-2)); }
-.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 65%, var(--surface-2)); }
-.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 85%, var(--surface-2)); }
+.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 55%, var(--surface-2)); }
+.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 72%, var(--surface-2)); }
+.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 88%, var(--surface-2)); }
 .heatmap-cell[data-level='4'] { background: var(--accent); }
+.heatmap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.heatmap-detail {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
 .heatmap-legend {
   display: flex;
   align-items: center;
   gap: 3px;
-  margin-top: 10px;
   font-size: 11px;
   color: var(--text-2);
 }

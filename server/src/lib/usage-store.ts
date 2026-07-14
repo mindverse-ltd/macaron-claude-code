@@ -128,7 +128,7 @@ export async function collectUsage(sinceMs: number, untilMs: number): Promise<An
   try {
     projects = await fs.readdir(CLAUDE_PROJECTS, { withFileTypes: true });
   } catch {
-    return { window: '', since: sinceMs, until: untilMs, totals: emptyTotals(), daily: [], byModel: [], bySession: [] };
+    return { window: '', since: sinceMs, until: untilMs, sinceDate: localDateKey(sinceMs), untilDate: localDateKey(untilMs), totals: emptyTotals(), daily: [], byModel: [], bySession: [] };
   }
 
   // Enumerate every transcript, but prune files whose mtime predates the
@@ -230,5 +230,5 @@ export async function collectUsage(sinceMs: number, untilMs: number): Promise<An
   const byModelArr = Array.from(byModel.values()).sort((a, b) => b.costUsd - a.costUsd);
   sessionArr.sort((a, b) => b.costUsd - a.costUsd);
 
-  return { window: '', since: sinceMs, until: untilMs, totals, daily: dailyArr, byModel: byModelArr, bySession: sessionArr };
+  return { window: '', since: sinceMs, until: untilMs, sinceDate: localDateKey(sinceMs), untilDate: localDateKey(untilMs), totals, daily: dailyArr, byModel: byModelArr, bySession: sessionArr };
 }

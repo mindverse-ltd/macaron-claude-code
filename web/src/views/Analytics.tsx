@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -34,55 +34,79 @@ type SortKey = keyof Pick<
 
 const SESSION_CAP = 100;
 
-const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const localMidnight = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d; };
+
+// A calendar day is a plain YYYY-MM-DD string. We iterate days via UTC-noon
+// millis so DST shifts never skip or double a day, and never convert to the
+// browser's local timezone — the server already keyed `daily` and the window
+// bounds (sinceDate/untilDate) in its own timezone, so days line up regardless
+// of where the browser runs.
+const dayToUTC = (key: string) => { const [y, m, d] = key.split('-').map(Number); return Date.UTC(y!, m! - 1, d!, 12); };
+const utcToDay = (ms: number) => { const d = new Date(ms); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const DAY = 86400000;
 
 // GitHub-style contribution grid over the active window, one cell per day
 // (columns = weeks, rows = weekday), shaded by that day's message count.
-function UsageHeatmap({ daily, since, until, window }: { daily: AnalyticsResponse['daily']; since: number; until: number; window: string }) {
+function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState<{ key: string; count: number } | null>(null);
+
   const grid = useMemo(() => {
     const byDay = new Map(daily.map((d) => [d.date, d.messageCount]));
-    // Window bounds are calendar days, not timestamps — the API's `since`/`until`
-    // carry a time-of-day, so comparing raw ms would drop the partial first day.
-    const end = localMidnight(until);
-    // Fixed windows (7d/30d/90d) start at the day of `since` so leading zero-days
-    // still render; 'all' (since=0) would span back to 1970, so clamp to the first
-    // active day instead.
-    const start =
-      window === 'all'
-        ? daily.length ? new Date(daily[0]!.date + 'T00:00:00') : new Date(end)
-        : localMidnight(since);
+    const endMs = dayToUTC(untilDate);
+    // Fixed windows (7d/30d/90d) start at sinceDate so leading zero-days still
+    // render; 'all' (sinceDate = epoch) would span back to 1970, so clamp to
+    // the first active day instead.
+    const startMs = window === 'all' ? dayToUTC(daily.length ? daily[0]!.date : untilDate) : dayToUTC(sinceDate);
 
-    const gridStart = new Date(start);
-    gridStart.setDate(gridStart.getDate() - gridStart.getDay()); // back up to Sunday
+    // Back up to the Sunday of the start week (getUTCDay: 0 = Sunday).
+    const gridStartMs = startMs - new Date(startMs).getUTCDay() * DAY;
 
-    const weeks: Array<Array<{ key: string; count: number; inRange: boolean }>> = [];
+    const weeks: Array<Array<{ key: string; count: number; inRange: boolean } | null>> = [];
     const months: Array<{ col: number; label: string }> = [];
     let max = 0;
-    for (let cursor = new Date(gridStart), col = 0; cursor <= end; col++) {
-      const week: Array<{ key: string; count: number; inRange: boolean }> = [];
+    let firstLabelledMonth = -1;
+    for (let ms = gridStartMs, col = 0; ms <= endMs; col++) {
+      const week: Array<{ key: string; count: number; inRange: boolean } | null> = [];
       let monthForCol = -1;
-      for (let row = 0; row < 7; row++) {
-        const inRange = cursor >= start && cursor <= end;
-        const key = dateKey(cursor);
-        const count = inRange ? byDay.get(key) ?? 0 : 0;
+      for (let row = 0; row < 7; row++, ms += DAY) {
+        const inRange = ms >= startMs && ms <= endMs;
+        const key = utcToDay(ms);
+        if (!inRange) { week.push(null); continue; }
+        const count = byDay.get(key) ?? 0;
         if (count > max) max = count;
-        // A month label anchors to the week column that contains that month's 1st.
-        if (inRange && cursor.getDate() === 1) monthForCol = cursor.getMonth();
+        const dom = new Date(ms).getUTCDate();
+        // Anchor a label to the week holding a month's 1st, and also to the very
+        // first in-range column so the leading partial month isn't left unlabeled.
+        if (dom === 1 || firstLabelledMonth < 0) monthForCol = new Date(ms).getUTCMonth();
+        if (firstLabelledMonth < 0) firstLabelledMonth = monthForCol;
         week.push({ key, count, inRange });
-        cursor.setDate(cursor.getDate() + 1);
       }
       if (monthForCol >= 0) months.push({ col, label: MONTHS[monthForCol]! });
       weeks.push(week);
     }
     return { weeks, months, max };
-  }, [daily, since, until, window]);
+  }, [daily, sinceDate, untilDate, window]);
 
   const level = (count: number) => {
     if (count <= 0 || grid.max <= 0) return 0;
     return Math.min(4, Math.ceil((count / grid.max) * 4));
   };
+
+  // Roving tabindex: one Tab entry, arrow keys move focus between day cells.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const delta = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const cells = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('.heatmap-cell[data-key]') ?? []);
+    const current = document.activeElement as HTMLElement;
+    const wi = Number(current?.dataset.week), di = Number(current?.dataset.day);
+    if (Number.isNaN(wi) || Number.isNaN(di)) { cells[0]?.focus(); return; }
+    const target = cells.find((c) => Number(c.dataset.week) === wi + delta[0]! && Number(c.dataset.day) === di + delta[1]!);
+    target?.focus();
+  };
+
+  const captionText = active ? `${active.key} · ${active.count} message${active.count === 1 ? '' : 's'}` : 'Hover or focus a day for details';
 
   return (
     <div className="heatmap">
@@ -91,19 +115,30 @@ function UsageHeatmap({ daily, since, until, window }: { daily: AnalyticsRespons
           <span key={i} style={{ gridColumnStart: m.col + 1 }}>{m.label}</span>
         ))}
       </div>
-      <div className="heatmap-grid" role="grid" aria-label="Daily message activity">
+      <div
+        className="heatmap-grid"
+        role="grid"
+        aria-label="Daily message activity"
+        ref={gridRef}
+        onKeyDown={onKeyDown}
+        onMouseLeave={() => setActive(null)}
+      >
         {grid.weeks.map((week, wi) => (
           <div key={wi} className="heatmap-week" role="row">
             {week.map((cell, di) =>
-              cell.inRange ? (
+              cell ? (
                 <div
                   key={di}
                   className="heatmap-cell"
                   data-level={level(cell.count)}
+                  data-key={cell.key}
+                  data-week={wi}
+                  data-day={di}
                   role="gridcell"
-                  tabIndex={0}
-                  title={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
+                  tabIndex={active?.key === cell.key || (!active && wi === 0 && di === firstFocusable(week)) ? 0 : -1}
                   aria-label={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
+                  onMouseEnter={() => setActive({ key: cell.key, count: cell.count })}
+                  onFocus={() => setActive({ key: cell.key, count: cell.count })}
                 />
               ) : (
                 <div key={di} className="heatmap-cell heatmap-cell--empty" role="presentation" aria-hidden="true" />
@@ -112,14 +147,20 @@ function UsageHeatmap({ daily, since, until, window }: { daily: AnalyticsRespons
           </div>
         ))}
       </div>
-      <div className="heatmap-legend">
-        <span>Less</span>
-        {[0, 1, 2, 3, 4].map((l) => <div key={l} className="heatmap-cell" data-level={l} aria-hidden="true" />)}
-        <span>More</span>
+      <div className="heatmap-footer">
+        <div className="heatmap-detail" aria-live="polite">{captionText}</div>
+        <div className="heatmap-legend">
+          <span>Less</span>
+          {[0, 1, 2, 3, 4].map((l) => <div key={l} className="heatmap-cell" data-level={l} aria-hidden="true" />)}
+          <span>More</span>
+        </div>
       </div>
     </div>
   );
 }
+
+// The first non-empty cell in a week — the single roving-focus entry point.
+const firstFocusable = (week: Array<{ key: string } | null>) => week.findIndex((c) => c !== null);
 
 export function Analytics() {
   const [window, setWindow] = useState('30d');
@@ -223,7 +264,7 @@ export function Analytics() {
             {dailyChart.length === 0 ? (
               <p className="muted">No activity in this window.</p>
             ) : (
-              <UsageHeatmap daily={data.daily} since={data.since} until={data.until} window={window} />
+              <UsageHeatmap daily={data.daily} sinceDate={data.sinceDate} untilDate={data.untilDate} window={window} />
             )}
           </div>
 
