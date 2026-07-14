@@ -744,6 +744,45 @@ test('real structure() round-22: outer/generic/inline hierarchy, cross-chunk flo
   assert.ok((await hits(lucky, 'LUCKYBODY22')) > 0 && (await hits(lucky, 'LUCKYSUF22')) > 0, 'balanced-lossy body/suffix lost');
 });
 
+// EVE round 23 — the flow-vs-generic decision no longer keys on "opener ends the chunk", and lossy
+// `>`-recovery no longer scans the visible body or relies on a double-close signature. Each case drives
+// the real structure() → buildIndex() → Orama chain with EVE's exact reals from the round-22 review.
+test('real structure() round-23: whole-chunk/compact generics, intro/nested flow, single-close recovery', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r23', data: { title: '/r23', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+
+  // P1 #1 — a whole-chunk in-body generic (`factory()\<$Panel extends ENDCONSTR22>`) that ALSO ends its
+  // chunk, and a compact one (`when alpha\<$Panel remains COMPACTKEEP22`), inside a real same-name outer
+  // flow component. The outer closer must NOT pair off the mid-body generic; the generic needle stays.
+  const endconstr = '<$Panel attr="OUTER23">\n\n## H\n\nfactory()<$Panel extends ENDCONSTR22>\n\n</$Panel>';
+  assert.ok((await hits(endconstr, 'ENDCONSTR22')) > 0, 'whole-chunk generic wrongly deleted by outer closer');
+  assert.equal(await hits(endconstr, 'OUTER23'), 0, 'endconstr outer opener attribute leaked');
+  const compact = '<$Panel attr="OUTER23">\n\n## H\n\nwhen alpha<$Panel remains COMPACTKEEP22\n\n</$Panel>';
+  assert.ok((await hits(compact, 'COMPACTKEEP22')) > 0, 'compact generic wrongly deleted by outer closer');
+
+  // P1 #2 — a real flow component with INTRO text before its heading (`prefix<$Panel>FLOWINTRO22`) and a
+  // CONTINUOUSLY NESTED flow-opener chunk (`<$Outer><$Inner>`): both openers must pair by their real
+  // later-chunk closers (not misjudged as generics), so no markup indexes but the intro/body survive.
+  const intro = 'prefix<$Panel>FLOWINTRO22\n\n## H\n\nbody23\n\n</$Panel>';
+  assert.ok((await hits(intro, 'FLOWINTRO22')) > 0 && (await hits(intro, 'prefix')) > 0, 'flow intro text lost');
+  assert.equal(await hits(intro, 'Panel'), 0, 'flow-intro opener markup leaked');
+  const nested = '<$Outer>\n\n<$Inner>\n\n## H\n\nnestbody23\n\n</$Inner>\n\n</$Outer>';
+  assert.ok((await hits(nested, 'nestbody23')) > 0, 'nested-flow body lost');
+  assert.equal(await hits(nested, 'Outer'), 0, 'continuous nested flow opener markup leaked');
+
+  // P1 #3 — recovery must not scan the visible body: an honest code span `` `arr[i]}>0` `` keeps its text
+  // (no fake double-close trigger), and a SINGLE-close lossy JSX expression opener (`… } > SINGLELEAK22`,
+  // not just array `]}`) still strips, needle out, body/suffix preserved.
+  const codespan = 'LEFTCODE22 `arr[i]}>0` more23';
+  assert.ok((await hits(codespan, 'LEFTCODE22')) > 0 && (await hits(codespan, 'more23')) > 0, 'code-span honest body lost to recovery');
+  const single = 'prefix<$Panel value={fn("a \\" } > SINGLELEAK22", x)}>\n\n## H\n\nsinglebody23\n\n</$Panel>';
+  assert.equal(await hits(single, 'SINGLELEAK22'), 0, 'single-close lossy attribute leaked into Orama');
+  assert.ok((await hits(single, 'singlebody23')) > 0 && (await hits(single, 'prefix')) > 0, 'single-close body/prefix lost');
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
