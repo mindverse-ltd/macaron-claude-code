@@ -12,7 +12,7 @@
 //   Row 6: [Permission chip] shift+tab to cycle    (permission)
 
 import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronsRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ProviderPicker } from './ProviderPicker';
 import { api, type PublicSettings } from '../lib/api';
@@ -53,13 +53,7 @@ function PermissionChip({
   return (
     <div className={`provider-chip${disabled ? ' disabled' : ''}`} title={`Permission · ${active?.label ?? value}`}>
       <span className="provider-chip-label">{active?.label ?? value}</span>
-      <svg
-        className="provider-chip-caret"
-        width="8" height="8" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
+      <ChevronDown className="provider-chip-caret" size={8} strokeWidth={2.5} aria-hidden="true" />
       <select
         className="provider-chip-select"
         value={value}

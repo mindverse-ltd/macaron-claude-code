@@ -52,7 +52,7 @@ function TreeNode({
         onClick={toggle}
         title={entry.path}
       >
-        <span className="fx-caret">{isDir ? (open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />) : ''}</span>
+        <span className="fx-caret">{isDir ? (open ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />) : ''}</span>
         <span className="fx-icon">{isDir ? <Folder size={14} aria-hidden="true" /> : <File size={14} aria-hidden="true" />}</span>
         <span className="fx-name">{entry.name}</span>
       </button>

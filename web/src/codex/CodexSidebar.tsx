@@ -143,7 +143,7 @@ export function CodexSidebar() {
       </Link>
 
       <button className="cx-sb-new" onClick={() => navigate('/')}>
-        <span>＋</span>
+        <Plus size={14} aria-hidden="true" />
         <span>New thread</span>
       </button>
 

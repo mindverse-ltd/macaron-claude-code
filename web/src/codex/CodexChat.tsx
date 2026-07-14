@@ -260,6 +260,7 @@ function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 
 function PlanCard({ it }: { it: Extract<Item, { kind: 'plan' }> }) {
   const glyph = (s: CodexPlanStatus): ReactNode => (s === 'completed' ? <CheckSquare size={14} aria-hidden="true" /> : s === 'inProgress' ? <CircleDot size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />);
+  const statusLabel = (s: CodexPlanStatus): string => (s === 'completed' ? 'completed' : s === 'inProgress' ? 'in progress' : 'pending');
   return (
     <div className="cx-plan">
       <div className="cx-plan-head">
@@ -270,7 +271,7 @@ function PlanCard({ it }: { it: Extract<Item, { kind: 'plan' }> }) {
       <div className="cx-plan-steps">
         {it.steps.map((s, i) => (
           <div key={i} className={'cx-plan-step ' + s.status}>
-            <span className="cx-plan-step-glyph">{glyph(s.status)}</span>
+            <span className="cx-plan-step-glyph" role="img" aria-label={statusLabel(s.status)}>{glyph(s.status)}</span>
             <span className="cx-plan-step-text">{s.step}</span>
           </div>
         ))}

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type GitFileStatus } from '../lib/api';
 
@@ -133,8 +133,8 @@ export function GitPanel({ project, onClose }: { project: string; onClose: () =>
                   {status.behind > 0 && <><ArrowDown size={12} aria-hidden="true" />{status.behind}</>}
                 </span>
               )}
-              <button className="git-icon-btn" title="Refresh" onClick={() => { loadStatus(); loadBranches(); }}>⟳</button>
-              <button className="git-icon-btn" title="New branch" onClick={() => setCreating((v) => !v)}>＋</button>
+              <button className="git-icon-btn" title="Refresh" onClick={() => { loadStatus(); loadBranches(); }}><RefreshCw size={14} aria-hidden="true" /></button>
+              <button className="git-icon-btn" title="New branch" onClick={() => setCreating((v) => !v)}><Plus size={14} aria-hidden="true" /></button>
             </div>
 
             {creating && (

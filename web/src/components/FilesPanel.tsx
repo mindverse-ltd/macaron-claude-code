@@ -57,7 +57,7 @@ function TreeRow({
         onClick={toggle}
         title={entry.path}
       >
-        <span className="fp-caret">{isDir ? (open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />) : ' '}</span>
+        <span className="fp-caret">{isDir ? (open ? <ChevronDown size={10} aria-hidden="true" /> : <ChevronRight size={10} aria-hidden="true" />) : ' '}</span>
         <span className="fp-name">{entry.name}</span>
       </button>
       {isDir && open && (

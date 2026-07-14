@@ -6,6 +6,7 @@
 // default, plus any custom provider whose key is configured. If the user
 // wants to add/edit/delete providers they still go to the Settings page.
 
+import { ChevronDown, Monitor } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api, type PublicSettings } from '../lib/api';
 import { useToast } from './Toast';
@@ -47,34 +48,9 @@ export function ProviderPicker() {
 
   return (
     <div className="provider-chip" title={`Provider · ${activeLabel}`}>
-      <svg
-        className="provider-chip-icon"
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M8 20h8M12 16v4" />
-      </svg>
+      <Monitor className="provider-chip-icon" size={14} strokeWidth={2} aria-hidden="true" />
       <span className="provider-chip-label">{activeLabel}</span>
-      <svg
-        className="provider-chip-caret"
-        width="10"
-        height="10"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
+      <ChevronDown className="provider-chip-caret" size={10} strokeWidth={2.5} aria-hidden="true" />
       <select
         className="provider-chip-select"
         value={activeId}
