@@ -38,6 +38,35 @@ test('quantileThresholds handles degenerate distributions without throwing', () 
   assert.ok(new Set([5, 5, 5, 5, 5].map((c) => levelFor(c, allEqual))).size === 1);
 });
 
+test('the busiest day always reaches L4 at small sample sizes (4 and 8 distinct values)', () => {
+  // With a top cut EQUAL to the max, levelFor's strict `>` would strand the
+  // busiest day in L3. The cut must sit strictly below the max so the peak is L4.
+  for (const active of [[1, 2, 3, 4], [1, 2, 3, 4, 5, 6, 7, 8]]) {
+    const th = quantileThresholds(active);
+    const max = active[active.length - 1]!;
+    assert.equal(levelFor(max, th), 4, `n=${active.length}: max ${max} must be L4, cuts=${th}`);
+    assert.equal(levelFor(active[0]!, th), 1, `n=${active.length}: min stays L1`);
+    // Every band populated across the distinct values → visible light→dark ramp.
+    const bands = new Set(active.map((c) => levelFor(c, th)));
+    for (let L = 1; L <= 4; L++) assert.ok(bands.has(L), `n=${active.length}: L${L} present`);
+  }
+});
+
+test('thresholds are a property of the whole window — cropping columns never re-shades', () => {
+  // Same daily payload, same window, different rendered width. buildHeatmap must
+  // return identical thresholds regardless of how many columns fit, so a resize
+  // only crops the grid — it never recolors the days that stay visible.
+  const daily = fill('2026-01-01', '2026-07-14').map((d, i) => ({ ...d, messageCount: (i % 40) + 1 }));
+  const wide = buildHeatmap(daily, '2026-01-01', '2026-07-14', 40);
+  const narrow = buildHeatmap(daily, '2026-01-01', '2026-07-14', 6);
+  assert.deepEqual(narrow.thresholds, wide.thresholds, 'thresholds identical across widths');
+  // And a day visible in BOTH widths keeps the same shade level.
+  const sharedKey = narrow.weeks.flat().filter(isDay).at(-1)!.key;
+  const inWide = wide.weeks.flat().filter(isDay).find((c) => c.key === sharedKey)!;
+  const inNarrow = narrow.weeks.flat().filter(isDay).find((c) => c.key === sharedKey)!;
+  assert.equal(levelFor(inWide.count, wide.thresholds), levelFor(inNarrow.count, narrow.thresholds), 'shared day keeps its level');
+});
+
 test('buildHeatmap renders exactly the requested whole columns, no stretch', () => {
   const daily = fill('2024-01-01', '2026-07-14');
   const grid = buildHeatmap(daily, '2024-01-01', '2026-07-14', 20);

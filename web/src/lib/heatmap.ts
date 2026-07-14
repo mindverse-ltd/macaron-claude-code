@@ -61,32 +61,37 @@ export function buildHeatmap(daily: Array<{ date: string; messageCount: number }
   const gridStart = lastSunday - (n - 1) * 7 * DAY;
 
   const out: HeatCell[][] = [];
-  const active: number[] = [];
   for (let ms = gridStart, c = 0; c < n; c++) {
     const week: HeatCell[] = [];
     for (let row = 0; row < 7; row++, ms += DAY) {
       if (ms > endMs) { week.push(null); continue; } // future day → hidden slot
       if (ms < startMs) { week.push({ pad: true }); continue; } // before window → inert fill square
       const key = utcToDay(ms);
-      const count = byDay.get(key) ?? 0;
-      if (count > 0) active.push(count);
-      week.push({ key, count });
+      week.push({ key, count: byDay.get(key) ?? 0 });
     }
     out.push(week);
   }
+  // Thresholds come from the ENTIRE selected window, not just the rendered
+  // columns — otherwise narrowing the container (fewer weeks) would drop early
+  // days out of the sample and recolor the survivors. Resize must only crop
+  // columns, never re-shade them, so the ramp is a stable property of the window.
+  const active: number[] = [];
+  for (const d of daily) if (d.messageCount > 0 && d.date >= sinceDate && d.date <= untilDate) active.push(d.messageCount);
   return { weeks: out, thresholds: quantileThresholds(active) };
 }
 
 // The 3 count cut-points splitting active days into 4 equal-population bands
 // (quartiles). Sorting the active-day counts and cutting at the 25/50/75%
 // positions makes each band hold ~a quarter of the days regardless of scale, so
-// a single spiky day can't collapse the ramp. Empty input → all-zero cuts (the
-// caller renders everything as L0 anyway).
+// a single spiky day can't collapse the ramp. Indices ride on (n-1) so the top
+// cut sits strictly below the max — since levelFor compares with `>`, a top cut
+// equal to the max would strand the busiest day in L3; this keeps it in L4.
+// Empty input → all-zero cuts (the caller renders everything as L0 anyway).
 export function quantileThresholds(activeCounts: number[]): [number, number, number] {
   const s = [...activeCounts].sort((a, b) => a - b);
   const n = s.length;
   if (n === 0) return [0, 0, 0];
-  const at = (k: number) => s[Math.min(n - 1, Math.floor((n * k) / 4))]!;
+  const at = (k: number) => s[Math.floor(((n - 1) * k) / 4)]!;
   return [at(1), at(2), at(3)];
 }
 
