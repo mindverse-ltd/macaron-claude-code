@@ -92,6 +92,38 @@ test('real structure() split chunks: residue never leaks, prose survives', () =>
   assert.deepEqual(clean('literal \\{name\\}'), ['literal {name}']);
 });
 
+// EVE round 6 — escaped-quote / template edge cases via real structure() split
+// chunks, plus boundary fidelity the earlier rounds missed.
+test('real structure() split chunks: escaped quotes, generic defaults, OOB entities', () => {
+  const clean = (raw: string) => structure(raw).contents.map((c) => sanitizeSearchText(c.content));
+
+  // A backslash-escaped backtick inside the template, and a backslash-escaped quote
+  // inside the JS expression string: the quote/template state machine must treat `\`
+  // as an escape and not end the string early, so the whole `<Tabs …>` opener
+  // residue (lossily serialized by structure()) is removed, needle and all.
+  const esc1 = clean('<Tabs items={[`a \\` } > ESCAPEDLEAK`, `c`]}>\n\n## H\n\nbody\n\n</Tabs>');
+  assert.ok(!esc1.some((t) => /ESCAPEDLEAK|]}>|<Tabs/.test(t)), `escaped-backtick residue leaked: ${JSON.stringify(esc1)}`);
+  assert.ok(esc1.includes('body'), 'escaped-backtick body must survive');
+  const esc2 = clean('<Tabs items={["a \\" > ESCAPEQUOTE", "c"]}>\n\n## H\n\nbody\n\n</Tabs>');
+  assert.ok(!esc2.some((t) => /ESCAPEQUOTE|]}>|<Tabs/.test(t)), `escaped-quote residue leaked: ${JSON.stringify(esc2)}`);
+  assert.ok(esc2.includes('body'), 'escaped-quote body must survive');
+
+  // A TypeScript generic with a DEFAULT (`<T = string>`): the `=` is NOT a JSX
+  // attribute (its value is a bare word, not a quote/brace), so the whole thing is
+  // prose and must survive verbatim — the old `=`-means-attribute rule deleted it.
+  assert.deepEqual(clean('type Box\\<T = string> keeps VALUE'), ['type Box<T = string> keeps VALUE']);
+
+  // An out-of-range numeric entity is not a real code point: String.fromCodePoint
+  // would throw and abort the index build, so it must be kept as literal text.
+  assert.deepEqual(clean('literal \\&#9999999999; KEEP'), ['literal &#9999999999; KEEP']);
+
+  // An HTML-comment LITERAL inside a code span is visible content, not markup — the
+  // comment strip must be code-span aware and leave it intact.
+  assert.deepEqual(clean('show `<!-- KEEPNEEDLE -->` tail'), ['show <!-- KEEPNEEDLE --> tail']);
+  // A real HTML comment OUTSIDE code is still dropped.
+  assert.deepEqual(clean('before <!-- secret --> visible'), ['before visible']);
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {

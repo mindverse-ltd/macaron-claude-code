@@ -22,12 +22,16 @@ function decodeMarkdownPunctEntities(input: string): string {
 
 // Decode the entities that are just content once tags are gone: named ones plus
 // any leftover numeric. Runs AFTER the tag scanner and parse, so a decoded `<`/`>`
-// is a searchable character, never re-interpreted as markup.
+// is a searchable character, never re-interpreted as markup. An out-of-range or
+// otherwise invalid numeric entity (`&#9999999999;`) is NOT a real code point —
+// String.fromCodePoint would throw and abort the whole index build, so keep such a
+// malformed entity as its literal source text instead.
 function decodeContentEntities(input: string): string {
+  const fromCode = (n: number, raw: string) => (Number.isFinite(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : raw);
   return input
     .replace(/&(amp|lt|gt|quot|apos);/g, (_, name: string) => NAMED_ENTITIES[name] ?? name)
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)));
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, hex) => fromCode(parseInt(hex, 16), m))
+    .replace(/&#(\d+);/g, (m, dec) => fromCode(parseInt(dec, 10), m));
 }
 
 // Node types whose *own value* is markup, never searchable prose: raw HTML, MDX
@@ -80,6 +84,10 @@ function stripComponentResidue(text: string): string {
     // Fragment boundaries `<>` / `</>` (possibly escaped `\<>`): pure markup, drop.
     const frag = /^\\?<\/?>/.exec(text.slice(i));
     if (frag) { out += ' '; i += frag[0].length; continue; }
+    // An HTML comment (`<!-- … -->`) reached HERE is outside any code span (a code
+    // span was copied verbatim by the branch above), so it is real markup — drop it.
+    // A `<!-- … -->` INSIDE a code span never gets here, so its literal text stays.
+    if (text.startsWith('<!--', i)) { const e = text.indexOf('-->', i + 4); out += ' '; i = e === -1 ? text.length : e + 3; continue; }
     // A tag opener: `<` or escaped `\<`, then optional `/`, then a JSX name start.
     const esc = c === '\\' && text[i + 1] === '<';
     const lt = esc ? i + 1 : i;
@@ -89,24 +97,44 @@ function stripComponentResidue(text: string): string {
     let j = lt + 1;
     if (closing) j++;
     while (isNameChar(text[j])) j++;
-    // Scan to the terminating `>` at brace depth 0, tracking whether we ever saw an
-    // attribute (`name=` or a `{…}` expression) or a self-closing `/`. A `>` inside
-    // a quote / template / brace does not close the tag. An entity-encoded quote
-    // (`&#34;`) inside a literal-quoted attribute stays encoded (we never decode it
-    // pre-scan), so it is opaque content the literal-quote state machine skips over.
+    // Scan to the terminating `>` at brace depth 0, tracking whether we ever saw a
+    // real JSX attribute (`name="…"` / `name={…}`) or a self-closing `/`. structure()
+    // markdown-escapes the JSX punctuation (`\{`, `\[`, `\<`), so a `\{` counts as a
+    // brace; inside a quote / template a `\`-escape hides the next char, so a `\"` or
+    // an escaped backtick can't close the attribute string early. Crucially `=` marks
+    // an attribute ONLY when its value is a quote/brace — a bare `<T = string>`
+    // generic default has `= string` and is therefore prose, not a component.
     let quote = '', brace = 0, closed = false, hasAttr = closing, selfClose = false;
     let k = j;
     while (k < text.length) {
       const ch = text[k];
-      if (quote) { if (ch === quote) quote = ''; k++; continue; }
+      if (quote) {
+        if (ch === '\\') { k += 2; continue; } // escaped char inside a string/template
+        if (ch === quote) quote = '';
+        k++; continue;
+      }
+      if (ch === '\\' && /[<>{}[\]]/.test(text[k + 1] ?? '')) { // structure()'s markdown-escaped punctuation
+        const p = text[k + 1];
+        if (p === '{') { brace++; hasAttr = true; } else if (p === '}' && brace > 0) brace--;
+        k += 2; continue;
+      }
       if (ch === '"' || ch === "'" || ch === '`') { quote = ch; hasAttr = true; }
       else if (ch === '{') { brace++; hasAttr = true; }
       else if (ch === '}' && brace > 0) brace--;
-      else if (ch === '=' && !brace) hasAttr = true;
+      else if (ch === '=' && !brace) { let m = k + 1; while (text[m] === ' ') m++; if (text[m] === '\\') m++; if (/["'`{]/.test(text[m] ?? '')) hasAttr = true; }
       else if (ch === '/' && !brace && text[k + 1] === '>') selfClose = true;
       else if (ch === '>' && !brace) { k++; closed = true; break; }
       k++;
     }
+    // structure()'s residue serialization is LOSSY inside an attribute string: a JS
+    // `\"` loses its backslash while a template's closing backtick gains one (`\``),
+    // so quote tracking cannot always find the closing `>`. But an ESCAPED opener
+    // (`\<Name …`) is only ever emitted for a split component residue whose body is
+    // in OTHER chunks — the whole chunk is markup. So when such an attributed opener
+    // fails to close cleanly, fall back to its last `>`. A NON-escaped inline
+    // `<Callout title="A > B">inner</Callout>` is kept whole by structure(), tracks
+    // cleanly, and keeps its body — it never takes this branch.
+    if (!closed && esc && hasAttr) { const last = text.lastIndexOf('>'); if (last > lt) { k = last + 1; closed = true; } }
     // Delete only a COMPLETE residue that is unambiguously a component: closed, and
     // either a closing tag, self-closing, or an opener that carried attributes. A
     // bare `<Name>` / `<version>` opener with no attributes is a prose placeholder —
@@ -140,9 +168,11 @@ function stripComponentResidue(text: string): string {
 //     a CommonMark parse; step 2 already removed the component markup, so nothing
 //     tag-shaped remains to mis-handle.
 export function sanitizeSearchText(input: string): string {
-  // HTML comments aren't valid MDX (MDX uses `{/* */}`) and a CommonMark html block
-  // swallows the rest of the line — strip them up front so trailing prose survives.
-  const cleaned = stripComponentResidue(decodeMarkdownPunctEntities(input).replace(/<!--[\s\S]*?-->/g, ' '));
+  // stripComponentResidue removes component markup — including HTML comments — with
+  // code-span awareness, so a `<!-- … -->` literal inside `` `…` `` survives while a
+  // real comment outside code is dropped. It runs on the raw (still entity-encoded)
+  // chunk so a `>` hidden in an attribute entity can't end a tag early.
+  const cleaned = stripComponentResidue(decodeMarkdownPunctEntities(input));
   let text: string;
   try {
     text = nodeText(fromMarkdown(cleaned, { extensions: [mdxjs()], mdastExtensions: [mdxFromMarkdown()] }));
