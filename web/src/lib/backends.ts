@@ -97,5 +97,12 @@ export function setActiveBackendToken(token: string): void {
     const i = next.findIndex((b) => b.id === LOCAL_BACKEND_ID);
     if (i >= 0) next[i] = { ...next[i], token: token || undefined };
   }
+  // Explicitly clearing the LOCAL token must also invalidate the legacy source,
+  // even if the registry write below fails (private mode / quota): otherwise the
+  // next loadBackends() would re-migrate the stale legacy token and resurrect a
+  // token the user just cleared.
+  if (!token && (id === LOCAL_BACKEND_ID || !list.some((b) => b.id === id))) {
+    try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch { /* ignore */ }
+  }
   saveBackends(next);
 }

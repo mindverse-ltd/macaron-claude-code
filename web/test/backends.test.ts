@@ -77,6 +77,22 @@ test('failed persistence keeps the legacy key so the next load retries migration
   assert.equal(localStorage.getItem('macaron_auth_token'), null);
 });
 
+test('explicit clear during a write failure still invalidates the legacy source', async () => {
+  // Regression (fail → clear → recover): if the registry write fails but the
+  // user explicitly clears the token, the legacy key must be dropped anyway, so
+  // a later successful load can't re-migrate and resurrect the cleared token.
+  const ls = installLocalStorage({ macaron_auth_token: 'legacy-abc' });
+  const { backends, auth } = await freshModules();
+  ls.failWrites = true;           // registry can't persist...
+  auth.clearToken();              // ...but the user explicitly clears
+  assert.equal(localStorage.getItem('macaron_auth_token'), null);
+  // Storage recovers and the backend list is re-seeded: token stays cleared.
+  ls.failWrites = false;
+  localStorage.removeItem('macaron_backends');
+  assert.equal(backends.getActiveBackend().token, undefined);
+  assert.equal(auth.getToken(), '');
+});
+
 test('no legacy token → LOCAL backend has no token', async () => {
   installLocalStorage();
   const { auth } = await freshModules();
