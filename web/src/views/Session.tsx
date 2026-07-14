@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import { sessionToMarkdown } from '@macaron/shared';
 import {
   api,
@@ -477,18 +478,24 @@ function UserItem({
   );
 }
 
+const CHAT_MARKDOWN_COMPONENTS = { code: MarkdownCode, pre: MarkdownPre } as const;
+
 function AssistantItem({ text }: { text: string }) {
   return (
     <div className="ti-text md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <MarkdownCodeStreamingProvider content={text} streaming={false}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{text}</ReactMarkdown>
+      </MarkdownCodeStreamingProvider>
     </div>
   );
 }
 
-function LiveAssistantItem({ text }: { text: string }) {
+function LiveAssistantItem({ text, streaming }: { text: string; streaming: boolean }) {
   return (
     <div className="ti-text md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <MarkdownCodeStreamingProvider content={text} streaming={streaming}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{text}</ReactMarkdown>
+      </MarkdownCodeStreamingProvider>
     </div>
   );
 }
@@ -830,6 +837,7 @@ export function ItemView({
   onRewind,
   onFork,
   onPermissionDecide,
+  streaming,
   project,
   sid,
 }: {
@@ -840,6 +848,9 @@ export function ItemView({
   // ('acceptEdits'/'default') from PlanApprovalItem — disjoint value sets, so a single
   // handler serves both. This wider param is assignable to both child onDecide props.
   onPermissionDecide?: (permissionId: string, decision: 'allow' | 'deny', arg?: PermissionMode | 'once' | 'session' | 'always') => void;
+  // True only while the turn is still live; a bare EOF/stop/error flips it off so a
+  // trailing unclosed fence stops streaming and releases its reader/observer.
+  streaming?: boolean;
   project?: string;
   sid?: string;
 }) {
@@ -859,7 +870,7 @@ export function ItemView({
     case 'assistant':
       return <AssistantItem text={it.text} />;
     case 'live-assistant':
-      return <LiveAssistantItem text={it.text} />;
+      return <LiveAssistantItem text={it.text} streaming={streaming ?? true} />;
     case 'thinking':
       return <ThinkingItem text={it.text} />;
     case 'tool': {
@@ -2639,7 +2650,7 @@ export function Session(props: SessionProps = {}) {
             (thread is column-reverse) puts the newest at the visual bottom
             while preserving relative text/tool interleaving. */}
         {[...liveTurn].reverse().map((t) => (
-          <ItemView key={t.id} it={t} onPermissionDecide={handlePermissionDecide} />
+          <ItemView key={t.id} it={t} onPermissionDecide={handlePermissionDecide} streaming={sending} />
         ))}
         {/* Current-turn user message = one card. Images stack ABOVE the
             text (Claude-web ordering: attachments before prose). */}

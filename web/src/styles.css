@@ -629,7 +629,7 @@ textarea:focus, select:focus, input:focus {
   background: var(--surface-2);
   border-radius: 8px;
   padding: 10px 14px;
-  border: 1px solid var(--border);
+  border: 0;
 }
 .ti-user-rewind {
   position: absolute;
@@ -1778,7 +1778,7 @@ textarea:focus, select:focus, input:focus {
   margin: 0 0 10px;
   padding: 12px 14px;
   background: var(--code-bg);
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
   overflow-x: auto;
   font-size: 12.5px;
