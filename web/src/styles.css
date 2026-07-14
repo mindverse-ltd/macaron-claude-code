@@ -4874,29 +4874,39 @@ textarea:focus, select:focus, input:focus {
 .ti-collapsed-caret { color: var(--muted-2); margin-left: auto; padding-left: 8px; flex-shrink: 0; }
 .ti-collapsed-body { margin-left: 12px; padding-left: 10px; border-left: 1px solid var(--border); margin-top: 4px; }
 
-/* ---------- files panel (side drawer) ---------- */
-.fp-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(40, 36, 28, 0.28);
-  z-index: var(--z-side-panel);
+/* ---------- files panel (secondary sidebar column) ---------- */
+/* Sits inside .ws-canvas-body as a second sidebar column between the
+   main workspaces sidebar and the tile grid. No overlay — it's a real
+   layout column that resizes the canvas to fit. Negative horizontal
+   margin escapes the ws-canvas-v2's 20px padding so the panel sits
+   flush against the main sidebar's right edge (same visual as the
+   sidebar itself). */
+.ws-canvas-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  justify-content: flex-end;
-  backdrop-filter: blur(2px);
+  overflow: hidden;
+  margin: 0 -20px;
 }
-.fp-panel {
-  width: min(420px, 92vw);
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  height: 100vh;
+.ws-canvas-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
-  animation: fp-slide-in 0.18s ease-out;
+  overflow: hidden;
+  padding: 0 20px;
 }
-@keyframes fp-slide-in {
-  from { transform: translateX(20px); opacity: 0.4; }
-  to   { transform: translateX(0);    opacity: 1; }
+.ws-canvas-body.with-files .ws-canvas-main { border-left: 1px solid var(--border); }
+.fp-panel {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
 }
 .fp-head {
   display: flex;

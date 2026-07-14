@@ -148,8 +148,7 @@ export function FilesPanel({
   }, [project, query]);
 
   return (
-    <div className="fp-backdrop" onClick={onClose}>
-      <aside className="fp-panel" onClick={(e) => e.stopPropagation()} aria-label="Files panel">
+    <aside className="fp-panel" aria-label="Files panel">
         <div className="fp-head">
           <div className="fp-title">Files</div>
           <button className="fp-close" onClick={onClose} title="Close" aria-label="Close">×</button>
@@ -242,7 +241,6 @@ export function FilesPanel({
             Tip: type <code>&gt;</code> to search file contents (git grep).
           </span>
         </div>
-      </aside>
-    </div>
+    </aside>
   );
 }

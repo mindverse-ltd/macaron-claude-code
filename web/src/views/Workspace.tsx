@@ -276,18 +276,20 @@ export function Workspace() {
       </header>
 
       {gitOpen && <GitPanel project={project} onClose={() => setGitOpen(false)} />}
-      {filesOpen && (
-        <FilesPanel
-          project={project}
-          onClose={() => setFilesOpen(false)}
-          focusedPath={canvas.focusedSid && isFileSid(canvas.focusedSid) ? filePath(canvas.focusedSid) : ''}
-          onOpen={(p) => {
-            canvas.addFile(p);
-            // Keep the panel open so the user can browse more files.
-          }}
-        />
-      )}
 
+      <div className={'ws-canvas-body' + (filesOpen ? ' with-files' : '')}>
+        {filesOpen && (
+          <FilesPanel
+            project={project}
+            onClose={() => setFilesOpen(false)}
+            focusedPath={canvas.focusedSid && isFileSid(canvas.focusedSid) ? filePath(canvas.focusedSid) : ''}
+            onOpen={(p) => {
+              canvas.addFile(p);
+              // Keep the panel open so the user can browse more files.
+            }}
+          />
+        )}
+        <div className="ws-canvas-main">
       {canvas.tiles.length === 0 ? (
         <div className="ws-canvas-empty">
           <p>Canvas is empty.</p>
@@ -366,6 +368,8 @@ export function Workspace() {
           </SortableContext>
         </DndContext>
       )}
+        </div>
+      </div>
     </section>
   );
 }
