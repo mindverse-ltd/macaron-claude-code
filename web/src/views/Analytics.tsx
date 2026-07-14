@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { api, fmtAgo, type AnalyticsResponse, type UsageBySession } from '../lib/api';
+import { buildHeatmap, levelFor, navCells, navTarget } from '../lib/heatmap';
 
 const WINDOWS: Array<{ id: string; label: string }> = [
   { id: '7d', label: '7d' },
@@ -34,19 +35,10 @@ type SortKey = keyof Pick<
 
 const SESSION_CAP = 100;
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-// A calendar day is a plain YYYY-MM-DD string. We iterate days via UTC-noon
-// millis so DST shifts never skip or double a day, and never convert to the
-// browser's local timezone — the server already keyed `daily` and the window
-// bounds (sinceDate/untilDate) in its own timezone, so days line up regardless
-// of where the browser runs.
-const dayToUTC = (key: string) => { const [y, m, d] = key.split('-').map(Number); return Date.UTC(y!, m! - 1, d!, 12); };
-const utcToDay = (ms: number) => { const d = new Date(ms); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
-const DAY = 86400000;
-
 // GitHub-style contribution grid over the active window, one cell per day
-// (columns = weeks, rows = weekday), shaded by that day's message count.
+// (columns = weeks, rows = weekday), shaded by that day's message count. The
+// grid geometry, month labels, and keyboard-nav math live in ../lib/heatmap
+// (pure + unit-tested); this component only wires them to DOM + state.
 function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
   const gridRef = useRef<HTMLDivElement>(null);
   // `active` drives the caption (hover OR focus). `rovingKey` is the single
@@ -57,70 +49,21 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
   const [rovingKey, setRovingKey] = useState<string | null>(null);
   const focusedRef = useRef<{ key: string; count: number } | null>(null);
 
-  const grid = useMemo(() => {
-    const byDay = new Map(daily.map((d) => [d.date, d.messageCount]));
-    const endMs = dayToUTC(untilDate);
-    // Fixed windows (7d/30d/90d) start at sinceDate so leading zero-days still
-    // render; 'all' (sinceDate = epoch) would span back to 1970, so clamp to
-    // the first active day instead.
-    const startMs = window === 'all' ? dayToUTC(daily.length ? daily[0]!.date : untilDate) : dayToUTC(sinceDate);
+  const grid = useMemo(() => buildHeatmap(daily, sinceDate, untilDate, window), [daily, sinceDate, untilDate, window]);
 
-    // Back up to the Sunday of the start week (getUTCDay: 0 = Sunday).
-    const gridStartMs = startMs - new Date(startMs).getUTCDay() * DAY;
+  const level = (count: number) => levelFor(count, grid.max);
 
-    const weeks: Array<Array<{ key: string; count: number; inRange: boolean } | null>> = [];
-    const months: Array<{ col: number; label: string }> = [];
-    let max = 0;
-    let firstLabelledMonth = -1;
-    for (let ms = gridStartMs, col = 0; ms <= endMs; col++) {
-      const week: Array<{ key: string; count: number; inRange: boolean } | null> = [];
-      let monthForCol = -1;
-      for (let row = 0; row < 7; row++, ms += DAY) {
-        const inRange = ms >= startMs && ms <= endMs;
-        const key = utcToDay(ms);
-        if (!inRange) { week.push(null); continue; }
-        const count = byDay.get(key) ?? 0;
-        if (count > max) max = count;
-        const dom = new Date(ms).getUTCDate();
-        // Anchor a label to the week holding a month's 1st, and also to the very
-        // first in-range column so the leading partial month isn't left unlabeled.
-        if (dom === 1 || firstLabelledMonth < 0) monthForCol = new Date(ms).getUTCMonth();
-        if (firstLabelledMonth < 0) firstLabelledMonth = monthForCol;
-        week.push({ key, count, inRange });
-      }
-      if (monthForCol >= 0) months.push({ col, label: MONTHS[monthForCol]! });
-      weeks.push(week);
-    }
-    return { weeks, months, max };
-  }, [daily, sinceDate, untilDate, window]);
-
-  const level = (count: number) => {
-    if (count <= 0 || grid.max <= 0) return 0;
-    return Math.min(4, Math.ceil((count / grid.max) * 4));
-  };
-
-  // Roving tabindex over a row-major (weekday × week) cell space. Arrows move by
-  // one cell; Home/End jump to the ends of the current weekday row; Ctrl+Home/End
-  // jump to the first/last day overall. Focus (not hover) owns the roving stop.
+  // Roving tabindex over a row-major (weekday × week) cell space. All target
+  // resolution (arrows stay put at an edge; Home/End walk the weekday row;
+  // Ctrl/⌘+Home/End pick the earliest/latest day by date key, not DOM order)
+  // lives in navTarget; here we only translate the resolved key back to focus.
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const cells = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('.heatmap-cell[data-key]') ?? []);
-    if (!cells.length) return;
-    const current = document.activeElement as HTMLElement;
-    const row = Number(current?.dataset.row), col = Number(current?.dataset.col);
-    const at = (r: number, c: number) => cells.find((x) => Number(x.dataset.row) === r && Number(x.dataset.col) === c);
-    const colsFor = (r: number) => cells.filter((x) => Number(x.dataset.row) === r).map((x) => Number(x.dataset.col));
-    let target: HTMLElement | undefined;
-    if (e.key === 'ArrowRight') target = at(row, col + 1);
-    else if (e.key === 'ArrowLeft') target = at(row, col - 1);
-    else if (e.key === 'ArrowDown') target = at(row + 1, col);
-    else if (e.key === 'ArrowUp') target = at(row - 1, col);
-    else if (e.key === 'Home' && !e.ctrlKey && !e.metaKey) { const cs = colsFor(row); target = at(row, Math.min(...cs)); }
-    else if (e.key === 'End' && !e.ctrlKey && !e.metaKey) { const cs = colsFor(row); target = at(row, Math.max(...cs)); }
-    else if (e.key === 'Home') target = cells[0];
-    else if (e.key === 'End') target = cells[cells.length - 1];
-    else return;
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
     e.preventDefault();
-    (target ?? cells[0])?.focus();
+    const cells = navCells(grid);
+    const fromKey = (document.activeElement as HTMLElement)?.dataset.key ?? '';
+    const targetKey = navTarget(cells, fromKey, e.key, e.ctrlKey || e.metaKey);
+    if (targetKey) gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${targetKey}"]`)?.focus();
   };
 
   const captionText = active ? `${active.key} · ${active.count} message${active.count === 1 ? '' : 's'}` : 'Hover or focus a day for details';
@@ -150,7 +93,7 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
           {/* Row-major for ARIA: one role=row per weekday, cells placed into the
               shared column track by grid-column-start so they still read as weeks. */}
           {[0, 1, 2, 3, 4, 5, 6].map((r) => (
-            <div key={r} className="heatmap-row" role="row">
+            <div key={r} className="heatmap-row" role="row" aria-rowindex={r + 1}>
               {grid.weeks.map((week, wi) => {
                 const cell = week[r];
                 return cell ? (
@@ -163,6 +106,7 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
                     data-row={r}
                     data-col={wi}
                     role="gridcell"
+                    aria-colindex={wi + 1}
                     tabIndex={cell.key === tabKey ? 0 : -1}
                     aria-label={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
                     onMouseEnter={() => setActive({ key: cell.key, count: cell.count })}
