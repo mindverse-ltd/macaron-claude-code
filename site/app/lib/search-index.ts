@@ -68,7 +68,15 @@ function nodeText(node: Nodes): string {
 // hiding inside an attribute string / `{…}` expression / `` `…` `` template can't
 // end a tag early, and an encoded quote (`&#34;`) inside an attribute is opaque.
 function stripComponentResidue(text: string): string {
-  const isNameChar = (c: string | undefined) => !!c && /[A-Za-z0-9._-]/.test(c);
+  // A JSX/TS name may start with a letter, `_`, `$` or a non-ASCII letter, and continue
+  // with those plus digits / `.` / `-`. structure() markdown-escapes a leading/embedded
+  // `_` as `\_`, so a name char can arrive as a two-char `\x` — the *Len helpers report
+  // how many source chars one logical name char spans (0 when it isn't one) so the tag
+  // scanner sees through the escape instead of ending the name early.
+  const NAME_START = /[A-Za-z_$À-￿]/;
+  const isNameChar = (c: string | undefined) => !!c && /[A-Za-z0-9._$\-À-￿]/.test(c);
+  const nameStartLen = (p: number) => (text[p] === '\\' && NAME_START.test(text[p + 1] ?? '') ? 2 : NAME_START.test(text[p] ?? '') ? 1 : 0);
+  const nameCharLen = (p: number) => (text[p] === '\\' && isNameChar(text[p + 1]) ? 2 : isNameChar(text[p]) ? 1 : 0);
   let out = '';
   let i = 0;
   while (i < text.length) {
@@ -89,15 +97,17 @@ function stripComponentResidue(text: string): string {
     // span was copied verbatim by the branch above), so it is real markup — drop it.
     // A `<!-- … -->` INSIDE a code span never gets here, so its literal text stays.
     if (text.startsWith('<!--', i)) { const e = text.indexOf('-->', i + 4); out += ' '; i = e === -1 ? text.length : e + 3; continue; }
-    // A tag opener: `<` or escaped `\<`, then optional `/`, then a JSX name start.
+    // A tag opener: `<` or escaped `\<`, then optional `/`, then a JSX name start
+    // (letter / `_` / `$` / non-ASCII, possibly markdown-escaped as `\_`).
     const esc = c === '\\' && text[i + 1] === '<';
     const lt = esc ? i + 1 : i;
-    const opensTag = text[lt] === '<' && (text[lt + 1] === '/' ? /[A-Za-z]/.test(text[lt + 2] ?? '') : /[A-Za-z]/.test(text[lt + 1] ?? ''));
-    if (!opensTag) { out += c; i++; continue; }
     const closing = text[lt + 1] === '/';
-    let j = lt + 1;
-    if (closing) j++;
-    while (isNameChar(text[j])) j++;
+    const nameAt = lt + 1 + (closing ? 1 : 0);
+    const opensTag = text[lt] === '<' && nameStartLen(nameAt) > 0;
+    if (!opensTag) { out += c; i++; continue; }
+    let j = nameAt;
+    let nl: number;
+    while ((nl = nameCharLen(j)) > 0) j += nl;
     // Scan to the terminating `>` at brace depth 0 so a `>` hidden in an attribute
     // string / `{…}` expression / `` `…` `` template can't end the tag early. structure()
     // markdown-escapes the JSX punctuation (`\{`, `\[`, `\<`), so a `\{` counts as a brace;
@@ -135,19 +145,20 @@ function stripComponentResidue(text: string): string {
     // structure()'s residue serialization is LOSSY inside an attribute string (a JS `\"`
     // loses its backslash; a template's closing backtick gains one), and Fumadocs splits a
     // multiline opener whose terminating `>` sits on its own line into a SEPARATE chunk —
-    // so an escaped opener residue often never finds a clean `>` in this chunk. An escaped
-    // `\<` is only emitted for a `<` with markdown-significant tail; a genuine prose generic
-    // (`type Box\<T = `x`>`) still closes cleanly here, so a `\<` that FAILS to close is a
-    // split flow-component residue — the whole chunk is markup: strip to end.
-    if (!closed && esc) { i = text.length; out = out.trimEnd(); continue; }
-    // A lowercase name like `<out …>` / `<in …>` is BOTH a legal TS type-param list and a
-    // legal JSX element, so the grammars tie. Fumadocs breaks the tie: it emits an ESCAPED
-    // opener as a STANDALONE chunk only when it split a flow component around a nested
-    // heading (the body lives in other chunks) — so an escaped opener that fills the whole
-    // chunk (only whitespace before `<` and after `>`) is component residue, strip it. A
-    // real prose generic always carries its surrounding sentence in the same chunk.
-    const openerOnly = esc && out.trim() === '' && text.slice(k).trim() === '';
-    if (closed && (closing || selfClose || attributed || openerOnly)) { out += ' '; i = k; continue; }
+    // so an escaped opener residue often never finds a clean `>` in this chunk. Only treat
+    // an UNCLOSED escaped opener as split-flow residue (strip to end) when its body actually
+    // looks like a JSX opening tag — it carries an `attr={…}` or a `{...spread}`. A standalone
+    // prose generic (`\<T, U = "x">`) or a compact `alpha\<needle remains body` comparison has
+    // neither, so it is kept verbatim instead of swallowing the visible tail.
+    if (!closed && esc && looksLikeOpener(body)) { i = text.length; out = out.trimEnd(); continue; }
+    if (closed && (closing || selfClose || attributed)) { out += ' '; i = k; continue; }
+    // KEEP: this `<…>` is prose (a TS generic / type-argument / comparison / placeholder).
+    // A multi-token body (`keyof X`, `T, U = …`, `a instanceof B`) or a qualified name
+    // (`ns.Member`) parses as a JSX element downstream and would be silently dropped, so
+    // emit its `<` as `&lt;` (decodeContentEntities restores a searchable `<`). A bare
+    // single-name opener (`<T>`, `<version>`, and residual `<Step>` component markup) keeps
+    // the old literal path — the parser drops the stray tag, matching prior behavior.
+    if (closed && /[\s,=]|\.[A-Za-z_$]/.test(deEscape(body).trim())) { out += '&lt;'; i = lt + 1; continue; }
     out += c; i++;
   }
   return out;
@@ -156,31 +167,48 @@ function stripComponentResidue(text: string): string {
 // Classify a `<…>` opener body (everything after `<` up to but excluding the closing
 // `>`, tag name included) as a JSX ELEMENT (strip as markup) or as TypeScript / prose
 // (keep as searchable text), using the REAL grammars instead of a hand-rolled heuristic:
-//   - The TypeScript parser decides whether the body is a valid TYPE-PARAMETER LIST
-//     (`T, U = "x"`, `const T = …`, `out T`, `in T`, `T extends Foo = …`, `T$` …). Every
-//     legal generic — with any modifier, constraint, default, multiple params, or `$` /
-//     Unicode identifier — parses with zero diagnostics, so it is KEPT.
-//   - Otherwise the MDX grammar decides whether the body is a valid JSX opening element
-//     (`Panel items={…}`, `Panel extends x={…}`, `ns:prop x={…}`, `Panel {...x}` …). Only
-//     then is it STRIPped.
-//   - Anything neither (a bare `<T>` placeholder, an `a<b && c>` comparison) defaults to
-//     KEEP — prose never silently loses a `<`.
-// structure() markdown-escapes the JSX punctuation (`\<`, `\{`, `\[`); undo those escapes
-// for the grammar probes only (the caller still deletes from the original text).
+//   - The TypeScript parser decides whether the body is legal TS. Round 11 only wrapped it
+//     as a type-PARAMETER list (`type _<B> = 0;`), which wrongly rejected type-ARGUMENTS and
+//     comparisons; we now also try it as a call's type args (`f<B>();`, covering `keyof X`,
+//     `ns.Qualified`) and as a relational expression (`x = a<B>b;`, covering `a instanceof B`).
+//     Any of the three parsing clean means the body is valid TS → prose → KEEP.
+//   - Otherwise the MDX grammar decides whether the body is a valid JSX opening element.
+//   - A lowercase modifier tag (`<out T={…}>` / `<in …>` / `<const …>`) is BOTH a legal TS
+//     type-param list AND a legal JSX element, so the TS oracle alone can't break the tie.
+//     A real generic never carries a `name={…}` JSX-expression attribute, so when the body
+//     both parses as TS and has an `attr={…}`, it is JSX residue → STRIP.
+// structure() markdown-escapes JSX punctuation (`\<`, `\{`, `\_`, …); undo every such escape
+// for the grammar probes (the caller still deletes from the original text).
 function opensJsxElement(body: string): boolean {
-  const inner = body.replace(/\\([<>{}[\]])/g, '$1').replace(/\s+/g, ' ').trim();
+  const inner = deEscape(body).replace(/\s+/g, ' ').trim();
   // `parseDiagnostics` is TS-internal (not on the public SourceFile type) but is the
   // cheapest syntactic-error signal without a full Program — cast to reach it.
-  const typeParams = ts.createSourceFile('t.ts', `type _<${inner}> = 0;`, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS) as ts.SourceFile & { parseDiagnostics?: unknown[] };
-  if ((typeParams.parseDiagnostics ?? []).length === 0) return false; // a legal TS generic list → prose
+  const clean = (src: string) => ((ts.createSourceFile('t.ts', src, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS) as ts.SourceFile & { parseDiagnostics?: unknown[] }).parseDiagnostics ?? []).length === 0;
+  const tsValid = clean(`type _<${inner}> = 0;`) || clean(`f<${inner}>();`) || clean(`x = a<${inner}>b;`);
   try {
     let jsx = false;
     const walk = (n: { type: string; children?: unknown[] }) => { if (n.type.startsWith('mdxJsx')) jsx = true; for (const ch of (n.children ?? []) as typeof n[]) walk(ch); };
     walk(fromMarkdown(`<${inner} />`, { extensions: [mdxjs()], mdastExtensions: [mdxFromMarkdown()] }) as never);
-    return jsx;
+    return jsx && (!tsValid || /[\w$]+=\{/.test(inner)); // JSX-shaped, and either not-TS or carrying a JSX attr
   } catch {
     return false;
   }
+}
+
+// Undo structure()'s markdown escaping of ANY punctuation (`\<`, `\{`, `\_`, `\-`, …) —
+// a `\` before a non-alphanumeric, non-space char — so the grammar probes and opener
+// sniff see the real tag text.
+function deEscape(s: string): string {
+  return s.replace(/\\([^0-9A-Za-z\s])/g, '$1');
+}
+
+// An UNCLOSED escaped opener is split-flow component residue only if its body actually
+// looks like a JSX opening tag: it has an `attr={…}` JSX expression or a `{...spread}`.
+// A standalone prose generic (`\<T, U = "x">`) or an `alpha\<needle …` comparison has
+// neither, so we must NOT strip to end-of-chunk for those.
+function looksLikeOpener(body: string): boolean {
+  const inner = deEscape(body);
+  return /[\w$]+=\{/.test(inner) || /\{\s*\.\.\./.test(inner);
 }
 
 // structuredData chunks carry raw markdown (inline-code backticks, **bold**,

@@ -207,6 +207,42 @@ test('real structure() split chunks: escaped quotes, generic defaults, OOB entit
   assert.ok(!mlGt.some((t) => /MLGTNEEDLE|<Panel|items=/.test(t)), `multiline gt-own-line opener leaked: ${JSON.stringify(mlGt)}`);
   assert.ok(mlGt.includes('mlgtbody'), 'multiline gt-own-line body must survive');
 
+  // Round 12 — the TS oracle must accept type-ARGUMENTS and comparison expressions, not
+  // just type-PARAMETER lists: `keyof` / qualified names in call type args, an `instanceof`
+  // relational compare, and a standalone whole-chunk generic. None may lose its needle.
+  assert.deepEqual(clean('factory()<keyof KEYOFARGNEEDLE>() keeps KEYOFKEEP'), ['factory()<keyof KEYOFARGNEEDLE>() keeps KEYOFKEEP']);
+  assert.deepEqual(clean('factory()<ns.QUALIFIEDARGNEEDLE>() keeps QUALKEEP'), ['factory()<ns.QUALIFIEDARGNEEDLE>() keeps QUALKEEP']);
+  assert.deepEqual(clean('alpha<beta instanceof COMPARISONNEEDLE>delta keeps CMPNEEDLE'), ['alpha<beta instanceof COMPARISONNEEDLE>delta keeps CMPNEEDLE']);
+  assert.deepEqual(clean('<T, U = "STANDALONEGENERICNEEDLE">'), ['<T, U = "STANDALONEGENERICNEEDLE">']);
+  // A compact `alpha<needle remains body` — the old unclosed-esc fallback swallowed the tail.
+  assert.deepEqual(clean('when alpha<COMPACTLESSNEEDLE remains COMPACTBODY'), ['when alpha<COMPACTLESSNEEDLE remains COMPACTBODY']);
+
+  // A lowercase modifier tag (`out` / `in` / `const`) is BOTH a valid TS type-param list and
+  // a valid JSX element; the `attr={…}` disambiguator must strip it as component residue.
+  for (const tag of ['out', 'in', 'const']) {
+    const needle = `${tag.toUpperCase()}TAGNEEDLE`;
+    const lc = clean(`<${tag} T={["${needle}"]}>\n\n## H\n\n${tag}body\n\n</${tag}>`);
+    assert.ok(!lc.some((t) => new RegExp(`${needle}|<${tag}`).test(t)), `lowercase <${tag}> opener leaked: ${JSON.stringify(lc)}`);
+    assert.ok(lc.includes(`${tag}body`), `<${tag}> body must survive: ${JSON.stringify(lc)}`);
+  }
+
+  // JSX names / attributes with `_`, `$` or a non-ASCII letter (structure() escapes a
+  // leading `_` as `\_`): the opener + attr must be stripped, the component body survives.
+  for (const [tag, needle] of [['$Panel', 'DOLLARTAGLEAK'], ['_Panel', 'USTAGLEAK'], ['ÉPanel', 'UNITAGLEAK']]) {
+    const t = clean(`<${tag} x={["${needle}"]}>\n\n## H\n\n${needle}body\n\n</${tag}>`);
+    assert.ok(!t.some((s) => new RegExp(`${needle}"|<.?${tag.replace('$', '\\$')}`).test(s)), `unicode/underscore tag leaked: ${JSON.stringify(t)}`);
+    assert.ok(t.some((s) => s.includes(`${needle}body`)), `body must survive: ${JSON.stringify(t)}`);
+  }
+  // A glued JSX opener with an underscored attribute name — the attr must not leak, prose survives.
+  const usAttr = clean('pre<Panel _private={["USATTRLEAK"]}>gbody</Panel>suf');
+  assert.ok(!usAttr.some((t) => /USATTRLEAK|_private=/.test(t)), `underscore-attr opener leaked: ${JSON.stringify(usAttr)}`);
+  assert.ok(usAttr.some((t) => /pre/.test(t) && /gbody/.test(t) && /suf/.test(t)), `underscore-attr prose/body must survive: ${JSON.stringify(usAttr)}`);
+  // A lossy template/quote attribute opener with a VISIBLE body+suffix: the body and suffix
+  // must survive (the old `!closed && esc` rule swallowed everything to end-of-chunk).
+  const lossy = clean('prefix<Panel title={`a "b" c`}>visiblebody</Panel>suffix');
+  assert.ok(!lossy.some((t) => /<Panel|title=/.test(t)), `lossy opener leaked: ${JSON.stringify(lossy)}`);
+  assert.ok(lossy.some((t) => /prefix/.test(t) && /visiblebody/.test(t) && /suffix/.test(t)), `lossy body/suffix must survive: ${JSON.stringify(lossy)}`);
+
   // An out-of-range numeric entity is not a real code point: String.fromCodePoint
   // would throw and abort the index build, so it must be kept as literal text.
   assert.deepEqual(clean('literal \\&#9999999999; KEEP'), ['literal &#9999999999; KEEP']);
