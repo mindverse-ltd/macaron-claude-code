@@ -4160,17 +4160,15 @@ textarea:focus, select:focus, input:focus {
 
 /* GitHub-style contribution heatmap. Columns are weeks, rows are weekdays;
    cell shade steps through 5 accent tints keyed by that day's message count. */
-/* Only the calendar scrolls horizontally on narrow screens; the footer detail
-   caption lives outside this wrapper so it stays fully visible, never clipped. */
-.heatmap-scroll { overflow-x: auto; }
 /* Both the month-label track and each weekday row share one column template
-   driven by --weeks (set inline from JS). minmax(11px, 1fr) makes short windows
-   stretch the columns to fill the panel, while long windows clamp to 11px and let
-   the .heatmap wrapper scroll — labels stay pitch-aligned since the track is shared. */
+   driven by --weeks (set inline from JS). Columns are pure 1fr, so every week
+   column shrinks/grows to exactly fill the container — the grid always shows all
+   weeks as whole columns at any viewport width, never a truncated or scrolled
+   half-column on phone or desktop. */
 .heatmap-months,
 .heatmap-row {
   display: grid;
-  grid-template-columns: repeat(var(--weeks, 1), minmax(11px, 1fr));
+  grid-template-columns: repeat(var(--weeks, 1), 1fr);
   gap: 3px;
 }
 .heatmap-months {
@@ -4180,23 +4178,22 @@ textarea:focus, select:focus, input:focus {
 }
 .heatmap-months span { white-space: nowrap; } /* labels overflow their column onto the grid */
 .heatmap-grid { display: flex; flex-direction: column; gap: 3px; }
+/* Contrast without a fill+border combo: empty days (L0) are outline-only with a
+   transparent interior; active days (L1–L4) are fill-only with no border. Every
+   cell therefore carries exactly one visual expression, and each is ≥3:1 against
+   the panel (L0 outline / L4 fill measured; intermediate levels interpolate). */
 .heatmap-cell {
   width: 100%;
   height: 11px;
   border-radius: 2px;
-  background: var(--surface-2);
-  /* A theme-adaptive inset ring gives every cell — including the lowest shades —
-     a ≥3:1 boundary against its neighbours and the panel, so activity is legible
-     by edge even where the fill contrast is subtle. 55% of --text (near-black in
-     light, near-white in dark) over the lightest fill measures ≥3:1 (verified). */
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 55%, transparent);
+  background: transparent;
 }
 .heatmap-cell[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .heatmap-cell--empty { visibility: hidden; }
-.heatmap-cell[data-level='0'] { background: var(--surface-2); }
-.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 55%, var(--surface-2)); }
-.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 72%, var(--surface-2)); }
-.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 88%, var(--surface-2)); }
+.heatmap-cell[data-level='0'] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 55%, transparent); }
+.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 62%, var(--surface-2)); }
+.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 74%, var(--surface-2)); }
+.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 87%, var(--surface-2)); }
 .heatmap-cell[data-level='4'] { background: var(--accent); }
 .heatmap-footer {
   display: flex;
