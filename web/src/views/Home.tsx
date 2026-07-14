@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type SlashCommand } from '../lib/api';
 import type { Workspace } from '@macaron/shared';
 import { setPendingPrompt, type PendingImage } from '../lib/newSession';
+import { startNewSession } from '../lib/liveStore';
 import { SlashPalette } from '../components/SlashPalette';
 import { useFileMention } from '../components/MentionPopup';
 import { useToast } from '../components/Toast';
@@ -134,7 +135,7 @@ export function Home() {
     setHistoryIdx(null);
   }, []);
 
-  const submit = () => {
+  const submit = async () => {
     const t = input.trim();
     if ((!t && images.length === 0) || sending) return;
     if (!project) {
@@ -142,18 +143,39 @@ export function Home() {
       return;
     }
     setSending(true);
+    setError('');
     const seedImages: PendingImage[] = images.map((img) => ({
       id: img.id,
       name: img.name,
       mimeType: img.mimeType,
       dataUrl: img.dataUrl,
     }));
-    setPendingPrompt(project, t, {
-      auto: true,
-      images: seedImages.length ? seedImages : undefined,
-      permissionMode,
-    });
-    navigate(`/w/${encodeURIComponent(project)}`);
+    // Start the session directly from Home so we can navigate straight to
+    // the real sid — no draft-tile promote → remount flash. The POST
+    // populates the live module store; Session mounts once against the
+    // real sid and subscribeLive picks up the buffered stream.
+    try {
+      const newSid = await startNewSession(project, {
+        text: t,
+        permissionMode,
+        images: seedImages.length ? seedImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })) : undefined,
+      });
+      navigate(
+        `/w/${encodeURIComponent(project)}/s/${encodeURIComponent(newSid)}`,
+        { state: { pending: true } },
+      );
+    } catch (e) {
+      // Fall back to the seed-prompt path so the user's typing isn't lost:
+      // stash the prompt + attachments, jump to the workspace, and let the
+      // draft tile retry from scratch.
+      setPendingPrompt(project, t, {
+        auto: true,
+        images: seedImages.length ? seedImages : undefined,
+        permissionMode,
+      });
+      navigate(`/w/${encodeURIComponent(project)}`);
+      setError((e as Error).message);
+    }
   };
 
   const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {

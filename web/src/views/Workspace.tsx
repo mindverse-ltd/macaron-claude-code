@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, useLocation, Link } from 'react-router-dom';
 import {
   DndContext,
   PointerSensor,
@@ -93,12 +93,26 @@ export function Workspace() {
   }, [project, load]);
 
   // Back-compat: URLs like /w/:project/s/:sid pin + focus + rewrite.
+  // If the caller passed `state: { pending: true }` (Home landing dispatched
+  // a fresh startNewSession + navigated straight to the real sid), mark the
+  // sid as pending BEFORE the URL rewrite so Session's tile picks up
+  // initialPending=true and hooks into the already-buffered live stream.
+  const location = useLocation();
   useEffect(() => {
     if (!sidFromUrl) return;
     if (!canvas.isOnCanvas(sidFromUrl)) canvas.add(sidFromUrl);
     canvas.focus(sidFromUrl);
+    const pending = Boolean((location.state as { pending?: boolean } | null)?.pending);
+    if (pending) {
+      setPendingSids((cur) => {
+        if (cur.has(sidFromUrl)) return cur;
+        const next = new Set(cur);
+        next.add(sidFromUrl);
+        return next;
+      });
+    }
     navigate(`/w/${encodeURIComponent(project)}`, { replace: true });
-  }, [sidFromUrl, project, canvas, navigate]);
+  }, [sidFromUrl, project, canvas, navigate, location.state]);
 
   // Landed here from the directory picker OR the Demos gallery: a cwd or
   // seed prompt is staged for this project but no session exists yet.
