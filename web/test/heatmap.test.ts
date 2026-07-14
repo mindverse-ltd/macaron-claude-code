@@ -111,4 +111,3 @@ test('active levels L1–L4 clear WCAG 3:1 against the panel in both themes', ()
     }
   }
 });
-

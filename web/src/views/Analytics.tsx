@@ -44,7 +44,7 @@ const SESSION_CAP = 100;
 const CELL = 13; // px — square side; matches the reference figure's dense grid
 const GAP = 4;
 
-function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
+export function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: AnalyticsResponse['daily']; sinceDate: string; untilDate: string; window: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   // `active` drives the caption (hover OR focus). `rovingKey` is the single
@@ -82,25 +82,28 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
 
   const level = (count: number) => levelFor(count, grid.max);
 
-  // When a resize changes which columns are visible, a previously-focused or
-  // roving day may fall off the left edge. Reconcile roving key + real DOM focus
-  // + the caption to a still-visible day so keyboard state never points at a cell
-  // that no longer exists.
+  // Keep keyboard state coherent across any resize (both directions). When the
+  // visible columns change, the roving key, the real DOM focus, and the caption
+  // must all still point at the SAME visible day. Because cells are keyed by
+  // date, a focused day that scrolls out of range unmounts and the browser drops
+  // focus to <body> — so we drive re-focus from focusedRef (remembered on focus),
+  // not from document.activeElement, which is already gone by the time this runs.
   useLayoutEffect(() => {
-    const visible = new Set(grid.weeks.flat().filter(Boolean).map((c) => c!.key));
-    if (rovingKey && !visible.has(rovingKey)) {
-      const firstVisible = grid.weeks.flat().find((c) => c)?.key ?? null;
-      setRovingKey(firstVisible);
-      // If focus was on the dropped cell, move real focus (and its caption) too.
-      const activeKey = (document.activeElement as HTMLElement)?.dataset?.key;
-      if (activeKey === rovingKey && firstVisible) {
-        const el = gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${firstVisible}"]`);
-        el?.focus();
-      }
+    const visibleKeys = grid.weeks.flat().filter(Boolean).map((c) => c!.key);
+    const visible = new Set(visibleKeys);
+    const firstVisible = visibleKeys[0] ?? null;
+    const wasFocused = focusedRef.current;
+    // The focused day fell off the visible set → move real focus to the nearest
+    // still-visible day, and let its onFocus resync rovingKey + caption.
+    if (wasFocused && !visible.has(wasFocused.key) && firstVisible) {
+      gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${firstVisible}"]`)?.focus();
+      return; // onFocus handles rovingKey/active; nothing left to reconcile
     }
-    if (focusedRef.current && !visible.has(focusedRef.current.key)) {
-      focusedRef.current = null;
-      setActive(null);
+    // No live focus, but the roving tab stop pointed at a now-hidden day → retarget
+    // it (and clear a stale caption) so Tab still lands on a visible cell.
+    if (rovingKey && !visible.has(rovingKey)) {
+      setRovingKey(firstVisible);
+      if (focusedRef.current && !visible.has(focusedRef.current.key)) { focusedRef.current = null; setActive(null); }
     }
   }, [grid]);
 
@@ -136,14 +139,19 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
         onMouseLeave={() => setActive(focusedRef.current)}
       >
         {/* Row-major for ARIA: one role=row per weekday, cells placed into the
-            shared column track by grid-column-start so they still read as weeks. */}
+            shared column track by grid-column-start so they still read as weeks.
+            Real cells are keyed by their stable date, NOT column index: on a
+            resize the visible columns shift, and a positional key would let React
+            reuse the focused DOM node for a different date (activeElement's
+            data-key would silently change). A date key ties each node to one day,
+            so the reconcile effect below can move real focus deterministically. */}
         {[0, 1, 2, 3, 4, 5, 6].map((r) => (
           <div key={r} className="heatmap-row" role="row" aria-rowindex={r + 1}>
             {grid.weeks.map((week, wi) => {
               const cell = week[r];
               return cell ? (
                 <div
-                  key={wi}
+                  key={cell.key}
                   className="heatmap-cell"
                   style={{ gridColumnStart: wi + 1 }}
                   data-level={level(cell.count)}
@@ -159,7 +167,7 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
                   onBlur={() => { focusedRef.current = null; }}
                 />
               ) : (
-                <div key={wi} className="heatmap-cell heatmap-cell--empty" style={{ gridColumnStart: wi + 1 }} role="presentation" aria-hidden="true" />
+                <div key={`empty-${r}-${wi}`} className="heatmap-cell heatmap-cell--empty" style={{ gridColumnStart: wi + 1 }} role="presentation" aria-hidden="true" />
               );
             })}
           </div>
