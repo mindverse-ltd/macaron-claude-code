@@ -9,6 +9,7 @@ import {
   resolveChatCodeLanguage,
   type ChatCodeTokenStream,
 } from '../lib/chatCodeHighlighter';
+import { nextScrollStickiness } from '../lib/chatCodeScroll';
 
 type CodeTokenSegment = { key: string; content: string; style?: CSSProperties; animate: boolean };
 type CodeTokenItem = { key: string; segments: CodeTokenSegment[] };
@@ -186,7 +187,7 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
-  const programmaticScrollRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
 
   useEffect(() => { setCopyState('idle'); }, [code]);
 
@@ -196,13 +197,11 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
     return () => window.clearTimeout(timeoutId);
   }, [copyState]);
 
-  // Auto-follow the tail. Mark the scroll as programmatic so the `scroll` listener below
-  // doesn't misread our own smooth-scroll as the user scrolling and drop stickiness.
+  // Auto-follow the tail. Only ever scrolls downward, so the `scroll` handler can treat any
+  // upward delta as the user taking ownership — no timed suppression window needed.
   const stickToBottom = (viewport: HTMLDivElement) => {
     if (typeof viewport.scrollTo !== 'function') return;
-    programmaticScrollRef.current = true;
     viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-    window.setTimeout(() => { programmaticScrollRef.current = false; }, 120);
   };
 
   useEffect(() => {
@@ -230,22 +229,22 @@ const ShikiStreamCodeBlock = memo(function ShikiStreamCodeBlock({ code, language
     }
   };
 
-  const updateStickToBottom = () => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    shouldStickToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 72;
-  };
-
-  // Sample stickiness from the actual `scroll` event, not just wheel/touch: this also
-  // catches scrollbar drags and keyboard scrolling, so reading upward mid-stream isn't
-  // yanked back to the bottom by the next token. `programmaticScrollRef` suppresses the
-  // scroll events our own auto-follow scrollTo emits, which would otherwise re-stick.
+  // Sample stickiness on every `scroll` (covers wheel, touch, scrollbar drag, keyboard).
+  // Direction-based ownership: an upward scroll — impossible from our downward-only
+  // auto-follow — immediately hands control to the user; scrolling back to the bottom
+  // re-arms follow. No timer window, so a real scroll is never swallowed.
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!streaming || !viewport) return;
+    lastScrollTopRef.current = viewport.scrollTop;
     const onScroll = () => {
-      if (programmaticScrollRef.current) return;
-      updateStickToBottom();
+      shouldStickToBottomRef.current = nextScrollStickiness(shouldStickToBottomRef.current, {
+        scrollTop: viewport.scrollTop,
+        lastScrollTop: lastScrollTopRef.current,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+      });
+      lastScrollTopRef.current = viewport.scrollTop;
     };
     viewport.addEventListener('scroll', onScroll, { passive: true });
     return () => viewport.removeEventListener('scroll', onScroll);
