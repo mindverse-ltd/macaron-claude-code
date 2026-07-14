@@ -141,13 +141,18 @@ export function pairResidues(chunks: string[]): Set<string> {
       if (text[i] === '`') { let f = 0; while (text[i + f] === '`') f++; const e = text.indexOf(text.slice(i, i + f), i + f); i = e === -1 ? text.length : e + f; continue; }
       const tag = scanTag(text, i);
       if (!tag) { i++; continue; }
-      // A tag whose name is immediately followed by a top-level `,` (`<Name, U>` — a type-argument
-      // list like `factory()<𐐀Panel, INNER>()`) is a TS generic, NEVER a JSX opener, so it must not
-      // enter the pairing stack: otherwise a same-named inner generic inside a component's body would
-      // be popped by the outer `</Name>` instead of the real opener. Skip it (advance past it).
-      const afterName = text.slice(tag.nameEnd, tag.closed ? tag.end - 1 : tag.end).trimStart();
-      const isGenericArgList = afterName.startsWith(',');
-      if (!tag.selfClose && !isGenericArgList) {
+      // Only a STANDALONE residue opener enters the pairing stack. structure() emits a flow
+      // component's opener/closer residue as its own chunk (leading `\` aside), whereas a `\<Name …>`
+      // GLUED to preceding code in the same text run is a TS construct structure() escaped as prose —
+      // a type-argument (`factory()\<Name>()`), a constrained generic (`\<Name extends …>`), a
+      // comparison (`a\<Name`) or a nested first-param (`\<Name\<U>>`). Pushing such a same-named
+      // in-body generic lets the outer `</Name>` pop IT instead of the real opener, deleting the
+      // generic and leaking the outer markup. Skip a glued ESCAPED tag UNLESS its own matching
+      // closer sits later in THIS chunk — a real inline component (`prefix\<Panel …>b</Panel>suffix`)
+      // carries its closer in-chunk, but an in-body generic never does (its `</Name>` is elsewhere).
+      const glued = text.slice(0, tag.esc ? tag.lt - 1 : tag.lt).trim() !== '';
+      const inBodyGeneric = glued && tag.esc && !new RegExp(`</${tag.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*>`).test(text.slice(tag.closed ? tag.end : tag.nameEnd));
+      if (!tag.selfClose && !inBodyGeneric) {
         if (tag.closing) { for (let s = stack.length - 1; s >= 0; s--) if (stack[s].name === tag.name) { paired.add(stack[s].key); paired.add(`${ci}:${tag.lt}`); stack.length = s; break; } }
         else stack.push({ name: tag.name, key: `${ci}:${tag.lt}` });
       }
@@ -184,15 +189,26 @@ function stripComponentResidue(text: string, chunkIndex: number, paired: Set<str
     const { lt, closing, selfClose } = tag;
     const isPaired = paired.has(`${chunkIndex}:${lt}`); // positionally matched with a closer → component
     const glued = out.trim() !== ''; // real prose precedes this `<` in the same chunk
+    // A positionally-paired opener whose closer lives in ANOTHER chunk is a genuine cross-chunk
+    // flow residue — structure() emitted the whole opener (name + attributes) as its own standalone
+    // chunk. Its corrupted attribute can hide a `}]` that drops scanTag's brace depth to 0 at a `>`
+    // still inside the attribute string, so scanTag's `>` position is untrustworthy: the whole chunk
+    // is markup, strip it to end. (When the closer is in THIS chunk the tag is a self-contained
+    // inline element — `\<Tabs …> body </Tabs>` — so fall through to keep its body.)
+    const closerInChunk = new RegExp(`</${tag.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*>`).test(text.slice(k));
+    if (isPaired && !glued && !closing && !selfClose && !closerInChunk) { i = text.length; out = out.trimEnd(); continue; }
     // Lossy `>`-recovery: structure() can drop the escaping backslash of a quote/template
     // inside an opener's attribute, so scanTag's quote tracking desyncs and never sees the
     // real closing `>` (closed=false, body swallows the element's own text + suffix). Recover
     // by cutting at the first `>` OUTSIDE any `{…}`/`[…]` expression past the tag name — the
     // brace/bracket escapes survive the lossy collapse even when the quotes do not, so a `>`
-    // hiding inside `items={["a > b"]}` is skipped and the real tag end is found. For an escaped
-    // opener only when GLUED (real prose/body shares the chunk) or positionally paired; a
-    // standalone escaped UNCLOSED opener is whole-element residue, stripped to end below.
-    if (!closed && (isPaired || !esc || glued)) {
+    // hiding inside `items={["a > b"]}` is skipped and the real tag end is found. Run recovery
+    // ONLY for a GLUED or non-escaped opener — there recovery preserves genuine in-chunk suffix.
+    // A STANDALONE escaped lossy opener has no real suffix in its own chunk: the desynced quotes
+    // mean the hunt can stop at a `>` still inside the corrupted attribute string and expose fake
+    // suffix (`items={["a }] > LEAK"]}>` → `LEAK"]}>`), so leave it unclosed and let the escaped
+    // strip-to-end branch below drop the whole residue.
+    if (!closed && (!esc || glued)) {
       let depth = 0;
       for (let m = tag.nameEnd; m < text.length; m++) {
         const ch = text[m];

@@ -429,6 +429,59 @@ test('real structure() round-15: lossy-expression recovery, same-name inner gene
   assert.ok(clean('lead\n\n## H\n\n\\<out T="WHOLEOUTNOSPACE">').some((t) => t.includes('WHOLEOUTNOSPACE')), 'whole-chunk bare out-generic wrongly deleted');
 });
 
+// EVE round 16 — the pairing exemption and the lossy `>`-recovery must key on SYNTACTIC ROLE, not
+// on a name-comma special case. Two real-chain P1s:
+//  G1 — any same-name TS construct GLUED inside a component's body (a bare type argument
+//       `seed()\<Name>()`, a constrained generic `\<Name extends …>`, a comparison `a\<Name`, a
+//       nested first-param `\<Name\<U>>`) must NOT enter the pairing stack, or the outer `</Name>`
+//       pops the in-body generic instead of the real opener → the generic is deleted and the outer
+//       markup leaks. The round-15 fix only exempted a name-followed-by-comma (`<Name, U>`).
+//  G2 — the lossy `>`-recovery brace/bracket depth must ignore brackets inside the corrupted
+//       attribute string: a string-internal `}]` must not drop depth to 0 at a `>` still inside the
+//       attribute (attribute residue would leak as fake suffix). A cross-chunk paired opener whose
+//       corrupted attribute hides such a `}]` is stripped whole, not cut at scanTag's false `>`.
+test('real structure() round-16: syntactic-role pairing exemption, string-aware lossy recovery', () => {
+  const clean = (raw: string) => {
+    const chunks = structure(raw).contents.map((c) => c.content);
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
+  };
+
+  // G1 — every same-name in-body generic role, across the names structure() can't consume so it
+  // emits opener/closer residue (`$Panel`, `_Panel`, astral `𐐀Panel`). The inner needle stays
+  // searchable, the outer opener attribute (`OUT`) never leaks, and the body prose survives.
+  for (const name of ['$Panel', '_Panel', '𐐀Panel'] as const) {
+    const forms = [
+      { role: 'bare', body: `seed${name}NEEDLE()\\<${name}>()`, needle: `seed${name}NEEDLE` },
+      { role: 'constrained', body: `seed()\\<${name} extends ${name}CONSTR>()`, needle: `${name}CONSTR` },
+      { role: 'comparison', body: `if (${name}COMP\\<${name}) run()`, needle: `${name}COMP` },
+      { role: 'nested-first-param', body: `seed()\\<${name}\\<${name}NEST>>()`, needle: `${name}NEST` },
+    ];
+    for (const { role, body, needle } of forms) {
+      const r = clean(`<${name} x={["OUT${name}"]}>\n\n## H\n\n${body}\n\n</${name}>`);
+      assert.ok(r.some((t) => t.includes(needle)), `${role} ${name}: in-body generic wrongly deleted: ${JSON.stringify(r)}`);
+      assert.ok(!r.some((t) => t.includes(`OUT${name}`)), `${role} ${name}: outer opener attribute leaked: ${JSON.stringify(r)}`);
+    }
+  }
+
+  // A real inline component GLUED to prose in ONE chunk (`prefix<Panel …>body</Panel>suffix`) still
+  // pairs and strips — its own closer sits in the same chunk, so it is not mistaken for an in-body
+  // generic. Its lossy attribute (dropped `\` on the escaped quote) must not leak.
+  const inline = clean('prefix<Panel title="a \\" INLINELEAK">inlinebody</Panel>suffix');
+  assert.ok(!inline.some((t) => /INLINELEAK|title=|<Panel/.test(t)), `inline component leaked: ${JSON.stringify(inline)}`);
+  assert.ok(inline.some((t) => /prefix/.test(t) && /inlinebody/.test(t) && /suffix/.test(t)), `inline component body/suffix lost: ${JSON.stringify(inline)}`);
+
+  // G2 — a cross-chunk paired opener whose corrupted `items={[…]}` attribute hides a string-internal
+  // `}]` (which naively drops scanTag's depth to 0 at a `>` still inside the string). The whole
+  // opener chunk is stripped, so no attribute residue (`STRLEAK`) leaks as fake suffix; body survives.
+  const g2q = clean('<$Panel items={["a \\" }] > STRLEAK"]}>\n\n## H\n\nbodyG2q\n\n</$Panel>');
+  assert.ok(!g2q.some((t) => /STRLEAK|items=|<\$Panel/.test(t)), `G2 quote residue leaked: ${JSON.stringify(g2q)}`);
+  assert.ok(g2q.includes('bodyG2q'), `G2 quote body lost: ${JSON.stringify(g2q)}`);
+  const g2t = clean('<$Panel a={`x \\` }] > TPLLEAK`}>\n\n## H\n\nbodyG2t\n\n</$Panel>');
+  assert.ok(!g2t.some((t) => /TPLLEAK|a={|<\$Panel/.test(t)), `G2 template residue leaked: ${JSON.stringify(g2t)}`);
+  assert.ok(g2t.includes('bodyG2t'), `G2 template body lost: ${JSON.stringify(g2t)}`);
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
