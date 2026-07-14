@@ -3,35 +3,13 @@ import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { baseOptions } from '@/lib/layout.shared';
+import { buildTarget } from '@/lib/connect-target';
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: 'Connect · Macaron' },
     { name: 'description', content: 'Open a Macaron WebUI running behind a public tunnel.' },
   ];
-}
-
-// Pure jump gate: takes a tunnel URL (optionally already carrying ?token=) plus
-// an optional token, normalizes them into `<origin>/?token=<t>`, and hands off
-// via a full navigation. artifacts NEVER stores the token, calls the API, or
-// touches the data plane — the destination SPA is same-origin with the tunnel
-// and owns all of that. This page only redirects.
-function buildTarget(rawUrl: string, rawToken: string): { href: string } | { error: string } {
-  const url = rawUrl.trim();
-  if (!url) return { error: 'Paste the tunnel URL first.' };
-  let parsed: URL;
-  try {
-    parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
-  } catch {
-    return { error: 'That does not look like a valid URL.' };
-  }
-  if (parsed.protocol !== 'https:') return { error: 'Use the https:// tunnel URL — an access token over http is unsafe.' };
-  // A token typed into the field wins; otherwise keep one already in the URL.
-  const token = rawToken.trim() || parsed.searchParams.get('token') || '';
-  parsed.search = '';
-  parsed.hash = '';
-  const base = parsed.toString().replace(/\/$/, '');
-  return { href: token ? `${base}/?token=${encodeURIComponent(token)}` : `${base}/` };
 }
 
 export default function Connect() {

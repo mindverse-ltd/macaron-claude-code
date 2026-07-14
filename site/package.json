@@ -8,6 +8,7 @@
     "dev": "react-router dev",
     "start": "serve ./build/client --config ../../serve.json",
     "typecheck": "react-router typegen && fumadocs-mdx && tsc --noEmit",
+    "test": "node --test 'app/**/*.test.ts'",
     "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
