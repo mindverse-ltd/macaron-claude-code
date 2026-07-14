@@ -540,6 +540,58 @@ test('real structure() round-17: glued custom-name pairing, glued inline bracket
   assert.ok(tsw.some((t) => /visbody/.test(t) && /suf/.test(t)), `template-swallow body/suffix swallowed: ${JSON.stringify(tsw)}`);
 });
 
+// EVE round 18 — three residual P1s the round-17 closer-anchor recovery introduced or missed:
+//  P1 — the round-17 anchor (last `>` before the in-chunk closer) ran UNCONDITIONALLY on every glued
+//       opener, on the false premise that a component's visible body carries no tag punctuation. A
+//       legal `<Panel>LEFT > RIGHT</Panel>` (comparison, code span, entity, or a nested inline tag)
+//       lost everything before the last body `>`. The anchor must fire ONLY on a CONFIRMED-DESYNC
+//       opener: scanTag never closed, or the region between its `>` and the closer is unbalanced.
+//  P1 — the anchor's closer search ran on RAW text with a plain `</Name>`, so a custom name structure()
+//       escapes per-char (`</\_Panel>`) was never found and the lossy `_`/`$`/astral/namespaced ×
+//       bracket-pollution cross matrix leaked/​swallowed. The closer regex must tolerate the escaping.
+//  P1 — `inBodyGeneric`'s own-closer probe matched a `</Name>` INSIDE a `` `…` `` code span, so a glued
+//       in-body generic (`factory()<$Panel<INNER594>>()` next to `` `</$Panel>` ``) looked like a real
+//       inline component, entered the stack, and stole the outer real closer. The probe must skip code.
+test('real structure() round-18: desync-gated anchor, custom-name × bracket matrix, code-span fake closer', () => {
+  const clean = (raw: string) => {
+    const chunks = structure(raw).contents.map((c) => c.content);
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
+  };
+
+  // P1 #1 — a glued component whose visible body legitimately contains tag punctuation keeps ALL of it.
+  const gt = clean('prefix<Panel>LEFT594 > RIGHT594</Panel>SUF594');
+  assert.ok(gt.some((t) => /LEFT594/.test(t) && /RIGHT594/.test(t) && /SUF594/.test(t)), `body-gt lost: ${JSON.stringify(gt)}`);
+  const nested = clean('prefix<Panel><Inner>INNER594</Inner>OUTER594</Panel>SUF594');
+  assert.ok(nested.some((t) => /INNER594/.test(t) && /OUTER594/.test(t) && /SUF594/.test(t)), `nested lost: ${JSON.stringify(nested)}`);
+  assert.ok(!nested.some((t) => /<\/?(Panel|Inner)/.test(t)), `nested markup leaked: ${JSON.stringify(nested)}`);
+  const cs = clean('prefix<Panel>`x > y`594 KEEP594</Panel>SUF594');
+  assert.ok(cs.some((t) => /KEEP594/.test(t) && /SUF594/.test(t)) && !cs.some((t) => /<Panel>/.test(t)), `codespan-body lost: ${JSON.stringify(cs)}`);
+
+  // P1 #2 — custom name × bracket pollution, both directions, must not leak (closes-heavy) or swallow
+  // (opens-heavy). Exercises the escape-tolerant closer search that plain `</Name>` missed.
+  for (const name of ['$Panel', '_Panel', '𐐀Panel', 'ns.Qualified'] as const) {
+    const tag = name.replace('.', '');
+    const opener = `<${name}`;
+    for (const b of ['}]', ']}']) {
+      const r = clean(`prefix<${name} items={["a \\" ${b} > L${tag}ATTR", "c"]}>B${tag}VIS</${name}>S${tag}SUF`).join(' ');
+      assert.ok(!r.includes(`L${tag}ATTR`) && !r.includes('items=') && !r.includes(opener), `${name} ${b} leaked: ${JSON.stringify(r)}`);
+      assert.ok(r.includes(`B${tag}VIS`) && r.includes(`S${tag}SUF`), `${name} ${b} body/suffix lost: ${JSON.stringify(r)}`);
+    }
+    for (const b of ['{ [', '[[']) {
+      const r = clean(`prefix<${name} items={["a \\" ${b} x", "c"]}>B${tag}SW</${name}>S${tag}SW`).join(' ');
+      assert.ok(!r.includes('items=') && !r.includes(opener), `${name} ${b} residue leaked: ${JSON.stringify(r)}`);
+      assert.ok(r.includes(`B${tag}SW`) && r.includes(`S${tag}SW`), `${name} ${b} body/suffix swallowed: ${JSON.stringify(r)}`);
+    }
+  }
+
+  // P1 #3 — a same-name generic glued in the body, with a code-span fake closer `` `</$Panel>` `` in
+  // the SAME chunk, must not disturb pairing: the outer real closer pairs with the outer opener, and
+  // the in-body nested generic's text survives.
+  const p3 = clean('<$Panel x={["OUT594"]}>\n\n## H\n\nfactory()<$Panel<INNER594>>() and `</$Panel>`\n\n</$Panel>');
+  assert.ok(p3.some((t) => /INNER594/.test(t)), `p3 nested generic text lost: ${JSON.stringify(p3)}`);
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
