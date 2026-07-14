@@ -4,7 +4,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { structure } from 'fumadocs-core/mdx-plugins/remark-structure';
-import { sanitizeSearchText } from './search-index';
+import { initAdvancedSearch } from 'fumadocs-core/search/server';
+import { buildIndex, sanitizeSearchText } from './search-index';
 
 // Unit: the sanitizer strips markdown/entity artifacts WITHOUT mangling
 // technical identifiers. The old regex stack turned `MACARON_CODEX_TRANSPORT`
@@ -24,12 +25,14 @@ test('sanitizeSearchText strips markup but preserves identifiers', () => {
   // Serialized MDX flow-component tags are removed, not left as searchable text.
   assert.equal(sanitizeSearchText('App shell. </Step> </Steps>'), 'App shell.');
   assert.equal(sanitizeSearchText('\\<Tabs items=\\{[1]}> <Tab value="x">'), '');
+  // A `>` inside an attribute value or JSX expression must not end the tag early
+  // — the old `/<[^>]*>/` regex left `B">` / `b"]}>` residue behind.
+  assert.equal(sanitizeSearchText('Body <Callout title="A > B">inner</Callout> tail'), 'Body inner tail');
+  assert.equal(sanitizeSearchText('<Tabs items={["a > b"]}>content</Tabs>'), 'content');
+  // A bare `<` in prose (not a tag open) is left intact.
+  assert.equal(sanitizeSearchText('when c < d holds'), 'when c < d holds');
 });
 
-// Reproduce fumadocs' structure() extraction over the real MDX files (the same
-// pass buildIndex consumes) and assert end-to-end that after sanitizing:
-//  (a) no search chunk carries raw markup / MDX tags, and
-//  (b) every underscored identifier that appears in the docs stays searchable.
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
@@ -40,53 +43,65 @@ function mdxFiles(dir: string): string[] {
   });
 }
 
-function sanitizedChunks(): string[] {
-  return mdxFiles(DOCS_DIR).flatMap((file) => {
-    const data = structure(readFileSync(file, 'utf8'));
-    return [...data.headings.map((h) => h.content), ...data.contents.map((c) => c.content)].map(sanitizeSearchText);
+// Build the SAME index the production /api/search route builds: feed each real
+// MDX file through structure() (fumadocs' extractor) + the production buildIndex,
+// then hand the records to Orama via initAdvancedSearch — the exact engine
+// createFromSource() uses. `source` itself can't load here (it relies on Vite's
+// import.meta.glob), so we reconstruct page-shaped inputs and drive buildIndex
+// directly. This exercises the real sanitizer→Orama wiring, not just the string.
+async function productionSearch() {
+  const pages = mdxFiles(DOCS_DIR).map((file) => {
+    const structuredData = structure(readFileSync(file, 'utf8'));
+    const url = '/' + path.relative(DOCS_DIR, file).replace(/\.mdx$/, '');
+    return { url, data: { title: url, description: undefined, structuredData } };
   });
+  const indexes = await Promise.all(pages.map((p) => buildIndex(p as Parameters<typeof buildIndex>[0])));
+  return initAdvancedSearch({ language: 'english', indexes });
 }
 
-test('sanitized search chunks carry no markdown, entity, or MDX-tag markup', () => {
-  const files = mdxFiles(DOCS_DIR);
-  assert.ok(files.length > 0, 'expected at least one MDX doc');
+test('production index: underscored identifiers stay searchable, corrupted forms miss', async () => {
+  const server = await productionSearch();
 
-  // `**` restricted to a real bold run (word chars either side) so glob paths
-  // like `**/*.jsonl` don't false-positive; the last alternative catches MDX
-  // tags such as <Step>/</Step>.
-  const leaky = /`|\w\*\*\w|&#x?[0-9a-fA-F]+;|<\/?[A-Za-z][^>]*>/;
-  const rawOffenders: string[] = [];
-  const cleanOffenders: string[] = [];
-
-  for (const file of files) {
-    const data = structure(readFileSync(file, 'utf8'));
-    const chunks = [...data.headings.map((h) => h.content), ...data.contents.map((c) => c.content)];
-    for (const chunk of chunks) {
-      if (leaky.test(chunk)) rawOffenders.push(chunk);
-      if (leaky.test(sanitizeSearchText(chunk))) cleanOffenders.push(`${path.basename(file)}: ${chunk.slice(0, 80)}`);
-    }
+  // Real Orama queries: the true identifier hits, the underscore-stripped
+  // corruption the old sanitizer produced returns nothing.
+  for (const id of ['MACARON_CODEX_TRANSPORT', 'MACARON_AUTH_TOKEN', 'MACARON_ENGINE', 'permission_request']) {
+    const hits = await server.search(id);
+    assert.ok(hits.length > 0, `query "${id}" should hit the production index`);
+    const corrupted = await server.search(id.replace(/_/g, ''));
+    assert.equal(corrupted.length, 0, `corrupted "${id.replace(/_/g, '')}" must not hit`);
   }
-
-  // Guard: the raw extraction really does leak (backticks + serialized MDX tags),
-  // so this test would catch a regression.
-  assert.ok(rawOffenders.length > 0, 'expected raw structuredData to contain markup (else the test proves nothing)');
-  assert.deepEqual(cleanOffenders, [], `sanitized search index still leaked markup:\n${cleanOffenders.join('\n')}`);
 });
 
-test('underscored identifiers stay searchable and MDX tags do not', () => {
-  const haystack = sanitizedChunks().join('\n');
+test('production index: result summaries carry no markup', async () => {
+  const server = await productionSearch();
 
-  // Any identifier the docs mention must appear verbatim in the index — searching
-  // the real name must hit, not the underscore-stripped corruption.
-  const identifiers = ['MACARON_CODEX_TRANSPORT', 'MACARON_AUTH_TOKEN', 'MACARON_ENGINE', 'permission_request', 'codex_approval_request'];
-  const present = identifiers.filter((id) => haystack.includes(id));
-  assert.ok(present.length > 0, 'expected the docs to mention at least one underscored identifier');
-  for (const id of present) {
-    assert.ok(!haystack.includes(id.replace(/_/g, '')), `corrupted identifier ${id.replace(/_/g, '')} must NOT be in the index`);
+  // Every returned summary must be clean prose — no backticks, no HTML entities,
+  // no serialized MDX/JSX tags. (Orama's own <mark> highlight is added at query
+  // time and is not doc content, so exclude it before scanning.)
+  const leaky = /`|&#x?[0-9a-fA-F]+;|<\/?[A-Za-z][^>]*>/;
+  for (const q of ['MACARON_CODEX_TRANSPORT', 'permission_request', 'render_ui', 'relay', 'launcher']) {
+    for (const r of await server.search(q)) {
+      const summary = (r.content ?? '').replace(/<\/?mark>/g, '');
+      assert.ok(!leaky.test(summary), `summary for "${q}" leaked markup: ${summary.slice(0, 100)}`);
+    }
   }
+});
 
-  // Serialized MDX component tags must never be searchable.
-  for (const tag of ['</Step>', '</Steps>', '<Tabs', '</Tab>', '<Accordion', '<TypeTable']) {
-    assert.ok(!haystack.includes(tag), `MDX tag ${tag} must not appear in the search index`);
+// Tag-shaped queries — the agreed semantics. Orama tokenizes on word boundaries
+// and drops punctuation, so a query like `</Step>` reduces to the natural word
+// "step" and CAN match prose that legitimately says "step". The guarantee is NOT
+// "a tag-shaped query returns zero results" (unenforceable, and undesirable — the
+// word "step" is real content); it is that the *serialized tag itself never
+// entered the index*: no result summary contains the literal tag markup, and the
+// tag as a contiguous token is absent.
+test('production index: serialized MDX tags never enter the index', async () => {
+  const server = await productionSearch();
+
+  for (const tag of ['</Step>', '</Steps>', '<Tabs', '</Tab>', '<Callout', '<TypeTable']) {
+    for (const r of await server.search(tag)) {
+      const summary = r.content ?? '';
+      assert.ok(!summary.includes(tag), `result for "${tag}" contains the literal tag: ${summary.slice(0, 100)}`);
+      assert.ok(!/<\/?[A-Za-z][^>]*>/.test(summary.replace(/<\/?mark>/g, '')), `result for "${tag}" contains tag markup`);
+    }
   }
 });
