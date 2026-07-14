@@ -6,11 +6,14 @@ import type { Backend } from '../src/lib/backends.ts';
 // `failWrites` = private mode (every setItem throws). `quotaFull` = a full quota
 // where only writes that GROW a key throw — shrinking/clearing still persists,
 // which is exactly what a per-backend token clear does.
-function installLocalStorage(seed: Record<string, string> = {}): { failWrites: boolean; quotaFull: boolean } {
+function installLocalStorage(seed: Record<string, string> = {}): { failWrites: boolean; quotaFull: boolean; failReads: boolean } {
   const store = new Map<string, string>(Object.entries(seed));
-  const ctl = { failWrites: false, quotaFull: false };
+  const ctl = { failWrites: false, quotaFull: false, failReads: false };
   (globalThis as unknown as { localStorage: Storage }).localStorage = {
-    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+    getItem: (k: string) => {
+      if (ctl.failReads) throw new Error('SecurityError');
+      return store.has(k) ? store.get(k)! : null;
+    },
     setItem: (k: string, v: string) => {
       if (ctl.failWrites) throw new Error('SecurityError');
       if (ctl.quotaFull && String(v).length > (store.get(k)?.length ?? 0)) throw new Error('QuotaExceeded');
@@ -329,6 +332,54 @@ test('another tab clearing a REMOTE-only token is adopted on the next load', asy
   localStorage.setItem('macaron_backends', JSON.stringify([{ id: 'remote', label: 'Box', baseUrl: 'https://box.example.com' }]));
   const list = backends.loadBackends();
   assert.equal(list.find((b) => b.id === 'remote')?.token, undefined);
+  assert.equal(auth.getToken(), '');
+});
+
+test('REMOTE-only + legacy LOCAL token, quota full BEFORE first hydrate: clearing REMOTE persists', async () => {
+  // Blocker 1: stored [remote] + a still-present legacy key, quota already full at the
+  // very first load. hydrate rebuilds [local(legacy), remote]; the full write grows past
+  // quota, so flush falls back to a SHRUNK shape that drops the legacy-backed LOCAL and
+  // keeps the legacy key as its backing. Clearing REMOTE then only shrinks the stored
+  // value -> persists; a reload does NOT resurrect the REMOTE token.
+  const stored = JSON.stringify([{ id: 'remote', label: 'Box', baseUrl: 'https://box.example.com', token: 'remote-tok' }]);
+  const ls = installLocalStorage({ macaron_backends: stored, macaron_active_backend: 'remote', macaron_auth_token: 'legacy-abc' });
+  ls.quotaFull = true;                            // full BEFORE the first hydrate
+  const { backends, auth } = await freshModules();
+  assert.equal(auth.getToken(), 'remote-tok');    // active = remote
+  auth.clearToken();                              // clear the REMOTE token
+  assert.equal(auth.getToken(), '');
+  const persistedNow = JSON.parse(localStorage.getItem('macaron_backends')!) as Backend[];
+  assert.equal(persistedNow.find((b) => b.id === 'remote')?.token, undefined);
+  assert.equal(persistedNow.find((b) => b.id === 'remote')?.baseUrl, 'https://box.example.com');
+  // Reload (still quota-full): REMOTE stays cleared; LOCAL re-absorbs the legacy token.
+  backends.__resetForTests();
+  backends.setActiveBackendId('remote');
+  assert.equal(auth.getToken(), '');
+});
+
+test('storage SecurityError on read is not a delete: cache survives, no [] written', async () => {
+  // Blocker 2: getItem throwing (private-mode SecurityError) must NOT be treated as an
+  // external delete. The good in-memory cache stays authoritative; once reads recover the
+  // module must not have reset LOCAL to tokenless and written an empty registry.
+  const persisted = JSON.stringify([{ id: 'local', label: 'Local', baseUrl: '', token: 'tok-1' }]);
+  const ls = installLocalStorage({ macaron_backends: persisted });
+  const { backends, auth } = await freshModules();
+  assert.equal(auth.getToken(), 'tok-1');
+  ls.failReads = true;                            // getItem now throws SecurityError
+  assert.equal(auth.getToken(), 'tok-1');         // cache is still authoritative, not reset
+  const list = backends.loadBackends();
+  assert.equal(list.find((b) => b.id === 'local')?.token, 'tok-1');
+  ls.failReads = false;                           // reads recover
+  // The registry was never overwritten with [] — the token is intact on reload.
+  assert.equal(JSON.parse(localStorage.getItem('macaron_backends')!)[0].token, 'tok-1');
+});
+
+test('a corrupt [null] stored registry hydrates to a clean LOCAL instead of crashing', async () => {
+  installLocalStorage({ macaron_backends: '[null]' });
+  const { backends, auth } = await freshModules();
+  const list = backends.loadBackends();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, backends.LOCAL_BACKEND_ID);
   assert.equal(auth.getToken(), '');
 });
 
