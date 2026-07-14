@@ -16,9 +16,9 @@ export type CodexApprovalKind = 'command' | 'file' | 'network';
 export type CodexDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
 export type SessionStreamEvent =
-  | { type: 'meta'; cwd: string; sessionId: string }
+  | { type: 'meta'; cwd: string; sessionId: string; startedAt?: number }
   | { type: 'starting'; cwd: string }
-  | { type: 'user-text'; text: string }
+  | { type: 'user-text'; text: string; images?: Array<{ mimeType: string; dataUrl: string }> }
   | { type: 'delta'; text: string }
   // Reasoning/thinking stream, distinct from assistant `delta` so the client
   // can style/collapse it as its own block rather than inline prose.

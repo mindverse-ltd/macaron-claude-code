@@ -408,14 +408,15 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         // failure still takes the corresponding terminal cleanup path.
         sseStarted = true;
         startSSE(reply);
-        safeSend({ type: 'meta', cwd, sessionId: sid });
+        const startedAt = Date.now();
+        safeSend({ type: 'meta', cwd, sessionId: sid, startedAt });
 
         // Keep a server-authoritative copy of this turn independent of the
         // original response. A browser refresh closes that response, but the SDK
         // keeps running; /live replays this ring and then follows new events.
         liveStarted = true;
-        liveStart(sid, { cwd });
-        livePush(sid, { type: 'user-text', text });
+        liveStart(sid, { cwd, startedAt });
+        livePush(sid, { type: 'user-text', text, images });
 
         // The Settings-selected active provider determines which
         // Anthropic-compatible endpoint the SDK talks to (default = ambient
