@@ -18,7 +18,11 @@ export const DAY = 86400000;
 // range, and never counts as a data value. `null` is a hidden slot for days
 // AFTER untilDate (future) in the trailing week.
 export type HeatCell = { key: string; count: number } | { pad: true } | null;
-export type HeatGrid = { weeks: HeatCell[][]; max: number };
+// `thresholds` are the 3 count cut-points (25/50/75th percentile of the active
+// days' counts) that split L1–L4. Ranking by quantile — not a linear fraction of
+// the single busiest day — keeps one outlier day from crushing every other day
+// into L1, so the ramp actually expresses each day's relative workload.
+export type HeatGrid = { weeks: HeatCell[][]; thresholds: [number, number, number] };
 
 // How many week-columns the active window spans (a leading partial week counts
 // as one), so the layout never asks for more columns of data than exist.
@@ -57,7 +61,7 @@ export function buildHeatmap(daily: Array<{ date: string; messageCount: number }
   const gridStart = lastSunday - (n - 1) * 7 * DAY;
 
   const out: HeatCell[][] = [];
-  let max = 0;
+  const active: number[] = [];
   for (let ms = gridStart, c = 0; c < n; c++) {
     const week: HeatCell[] = [];
     for (let row = 0; row < 7; row++, ms += DAY) {
@@ -65,18 +69,33 @@ export function buildHeatmap(daily: Array<{ date: string; messageCount: number }
       if (ms < startMs) { week.push({ pad: true }); continue; } // before window → inert fill square
       const key = utcToDay(ms);
       const count = byDay.get(key) ?? 0;
-      if (count > max) max = count;
+      if (count > 0) active.push(count);
       week.push({ key, count });
     }
     out.push(week);
   }
-  return { weeks: out, max };
+  return { weeks: out, thresholds: quantileThresholds(active) };
 }
 
-// The 5-level shade bucket for a day's count, given the window's busiest day.
-export function levelFor(count: number, max: number): number {
-  if (count <= 0 || max <= 0) return 0;
-  return Math.min(4, Math.ceil((count / max) * 4));
+// The 3 count cut-points splitting active days into 4 equal-population bands
+// (quartiles). Sorting the active-day counts and cutting at the 25/50/75%
+// positions makes each band hold ~a quarter of the days regardless of scale, so
+// a single spiky day can't collapse the ramp. Empty input → all-zero cuts (the
+// caller renders everything as L0 anyway).
+export function quantileThresholds(activeCounts: number[]): [number, number, number] {
+  const s = [...activeCounts].sort((a, b) => a - b);
+  const n = s.length;
+  if (n === 0) return [0, 0, 0];
+  const at = (k: number) => s[Math.min(n - 1, Math.floor((n * k) / 4))]!;
+  return [at(1), at(2), at(3)];
+}
+
+// The 5-level shade bucket for a day's count against the window's quantile cuts.
+// 0 for no activity; otherwise L1 + how many cut-points the count strictly
+// exceeds (capped at 4). Stable: equal counts always map to the same level.
+export function levelFor(count: number, thresholds: [number, number, number]): number {
+  if (count <= 0) return 0;
+  return Math.min(4, 1 + thresholds.reduce((acc, t) => acc + (count > t ? 1 : 0), 0));
 }
 
 // Flattened, date-sorted list of the in-range cells with their (row, col)

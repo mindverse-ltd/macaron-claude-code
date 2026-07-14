@@ -84,7 +84,7 @@ export function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: A
   const effectiveSince = window === 'all' ? (daily.length ? daily[0]!.date : untilDate) : sinceDate;
   const grid = useMemo(() => buildHeatmap(daily, effectiveSince, untilDate, weeks), [daily, effectiveSince, untilDate, weeks]);
 
-  const level = (count: number) => levelFor(count, grid.max);
+  const level = (count: number) => levelFor(count, grid.thresholds);
 
   // Keep keyboard state coherent across any resize (both directions). When the
   // visible columns change, the roving key, the real DOM focus, and the caption

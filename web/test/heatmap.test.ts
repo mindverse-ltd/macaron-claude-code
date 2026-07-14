@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { availableWeeks, buildHeatmap, isDay, levelFor, navCells, navTarget, utcToDay, dayToUTC, DAY } from '../src/lib/heatmap';
+import { availableWeeks, buildHeatmap, isDay, levelFor, navCells, navTarget, quantileThresholds, utcToDay, dayToUTC, DAY } from '../src/lib/heatmap';
 
 // Helper: synthesize a `daily` payload spanning [since, until] with 1 msg/day.
 function fill(since: string, until: string) {
@@ -9,11 +9,33 @@ function fill(since: string, until: string) {
   return out;
 }
 
-test('levelFor buckets by busiest day', () => {
-  assert.equal(levelFor(0, 10), 0);
-  assert.equal(levelFor(1, 10), 1);
-  assert.equal(levelFor(10, 10), 4);
-  assert.equal(levelFor(5, 0), 0); // no activity → level 0 even if count > 0
+test('levelFor maps a count against quantile cut-points (0 → L0, strictly-greater climbs)', () => {
+  const th: [number, number, number] = [10, 20, 30];
+  assert.equal(levelFor(0, th), 0); // no activity → L0 regardless of cuts
+  assert.equal(levelFor(5, th), 1); // below first cut
+  assert.equal(levelFor(10, th), 1); // equal to a cut stays in the lower band
+  assert.equal(levelFor(11, th), 2);
+  assert.equal(levelFor(25, th), 3);
+  assert.equal(levelFor(999, th), 4); // capped at L4
+});
+
+test('quantileThresholds splits active days into 4 near-equal bands, immune to an outlier', () => {
+  // 29 modest days + 1 huge spike: a linear-by-max scale would crush all 29 into
+  // L1, but quantile cuts keep every band populated.
+  const active = [...Array(29)].map((_, i) => (i + 1) * 10).concat([100000]);
+  const th = quantileThresholds(active);
+  const buckets = [0, 0, 0, 0, 0];
+  for (const c of active) buckets[levelFor(c, th)]!++;
+  assert.equal(buckets[0], 0, 'no zero-count days here');
+  for (let L = 1; L <= 4; L++) assert.ok(buckets[L]! >= 6, `L${L} has ${buckets[L]} days — every band populated`);
+});
+
+test('quantileThresholds handles degenerate distributions without throwing', () => {
+  assert.deepEqual(quantileThresholds([]), [0, 0, 0]); // empty → all-zero cuts
+  assert.deepEqual(quantileThresholds([7]), [7, 7, 7]); // single day
+  const allEqual = quantileThresholds([5, 5, 5, 5, 5]);
+  // Every day identical → all land in one band, none crash; ramp just isn't used.
+  assert.ok(new Set([5, 5, 5, 5, 5].map((c) => levelFor(c, allEqual))).size === 1);
 });
 
 test('buildHeatmap renders exactly the requested whole columns, no stretch', () => {
