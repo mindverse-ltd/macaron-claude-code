@@ -328,8 +328,8 @@ export function Sidebar() {
       <Link className="sb-brand" to="/">
         <img className="sb-logo" src="/mindlab-symbol.svg" alt="" />
         <div>
-          <div className="sb-brand-name">Macaron</div>
-          <div className="sb-brand-sub">Claude Code plugin</div>
+          <div className="sb-brand-name">Macaron Artifacts</div>
+          <div className="sb-brand-sub">Presented by Mind Lab</div>
         </div>
       </Link>
 

@@ -39,6 +39,18 @@ export function Home() {
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // Seed the landing's permission chip from the global default so a fresh
+  // visit reflects whatever the user set in Settings > Permissions. Guarded
+  // by a "touched" ref so an async settings load can't stomp a manual pick.
+  const permissionModeTouchedRef = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    api.settings().then((s) => {
+      if (!alive || permissionModeTouchedRef.current) return;
+      setPermissionMode(s.defaultPermissionMode);
+    }).catch(() => {/* keep 'default' */});
+    return () => { alive = false; };
+  }, []);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIdx, setSlashIdx] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
@@ -373,7 +385,7 @@ export function Home() {
         <StatusBar
           projectName={projectName}
           permissionMode={permissionMode}
-          onPermissionChange={setPermissionMode}
+          onPermissionChange={(v) => { permissionModeTouchedRef.current = true; setPermissionMode(v); }}
           sending={sending}
           currentTodo={null}
         />

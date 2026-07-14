@@ -25,19 +25,36 @@ export const macaronMcpServer = createSdkMcpServer({
       'render_ui',
       RENDER_UI_TOOL_DESCRIPTION,
       {
+        // Canonical field is `code`. `prompt` is a back-compat alias the model
+        // sometimes hallucinates (probably from render-ui-as-a-prompt phrasing
+        // in older schemas / other tools). Both accepted; handler picks
+        // whichever is present so a mis-named call still renders.
         code: z
           .string()
           .min(20)
-          .describe('A complete TSX module — imports + `export default function App()` — that the host mounts inline.'),
+          .describe('A complete TSX module — imports + `export default function App()` — that the host mounts inline.')
+          .optional(),
+        prompt: z
+          .string()
+          .min(20)
+          .describe('DEPRECATED alias for `code` — send TSX under `code` instead. Kept working for legacy calls.')
+          .optional(),
       },
-      async ({ code }) => {
+      async ({ code, prompt }) => {
+        const src = (code ?? prompt ?? '').trim();
+        if (!src) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: 'render_ui failed: `code` is required (TSX module string).' }],
+          };
+        }
         // The route layer streams partial code to the client from Claude's
         // input_json_delta events, so the user already sees the rendered UI by
         // the time this handler runs. What we add here is diagnostics: run TS
         // shared lint + semantic checks and feed { ok, diagnostics? } back to
         // Claude as the tool_result, so a bad render
         // (wrong props, missing exports, type errors) can self-correct in-turn.
-        const { text, ok } = await handleRenderUI(code);
+        const { text, ok } = await handleRenderUI(src);
         return { isError: !ok, content: [{ type: 'text' as const, text }] };
       },
       // Keep render_ui visible in the first prompt even when Claude defers MCP

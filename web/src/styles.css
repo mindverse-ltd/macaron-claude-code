@@ -1087,7 +1087,8 @@ textarea:focus, select:focus, input:focus {
 }
 .prov-card input[type='radio'] { margin-top: 5px; flex: 0 0 auto; }
 .prov-card input[type='checkbox'] { margin-top: 5px; flex: 0 0 auto; }
-.yolo-card kbd {
+.yolo-card kbd,
+.perm-mode-card kbd {
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 1px 5px;
@@ -1095,6 +1096,18 @@ textarea:focus, select:focus, input:focus {
   border-radius: 4px;
   background: var(--bg);
 }
+/* Global-default permission mode card: the chip picker sits next to the
+   title so the picker is the primary control, not the card's checkbox. */
+.perm-mode-card { padding: 12px 14px; }
+.perm-mode-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.perm-mode-head .provider-chip { margin-left: auto; }
+.perm-mode-head .prov-tag { flex: 0 0 auto; }
 .prov-card-body { flex: 1; min-width: 0; }
 .prov-card-head {
   display: flex;
@@ -2631,7 +2644,7 @@ textarea:focus, select:focus, input:focus {
 .status-seg-pop-title span { color: var(--muted); font-weight: 400; }
 .status-seg-pop-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; line-height: 1.7; }
 .status-seg-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-.status-seg-pop-label { color: var(--text-2); flex: 1 1 auto; }
+.status-seg-pop-label { color: var(--text-2); flex: 1 1 auto; white-space: nowrap; }
 .status-seg-pop-tok { color: var(--muted); font-variant-numeric: tabular-nums; }
 .status-seg-pop-pct { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
 .status-bar-track {
@@ -4830,3 +4843,42 @@ textarea:focus, select:focus, input:focus {
   .home-title { font-size: 26px; }
   .home-target select { min-width: 120px; }
 }
+
+/* ---------- collapsed read/search group ---------- */
+.ti-collapsed { margin: 4px 0 6px; }
+.ti-collapsed-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+}
+.ti-collapsed-head:hover { color: var(--text); }
+.ti-collapsed-head.err { color: var(--bad, #c5392f); }
+.ti-collapsed-dot { color: var(--good, #4d8f5b); font-size: 11px; flex-shrink: 0; }
+.ti-collapsed-head.err .ti-collapsed-dot { color: var(--bad, #c5392f); }
+.ti-collapsed-summary { font-weight: 500; }
+.ti-collapsed-hint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.ti-collapsed-hint code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.ti-collapsed-caret { color: var(--muted-2); margin-left: auto; padding-left: 8px; flex-shrink: 0; }
+.ti-collapsed-body { margin-left: 12px; padding-left: 10px; border-left: 1px solid var(--border); margin-top: 4px; }

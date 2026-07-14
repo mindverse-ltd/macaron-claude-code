@@ -1,7 +1,7 @@
 {
-  "name": "Macaron",
+  "name": "Macaron Artifacts",
   "short_name": "Macaron",
-  "description": "Macaron Artifacts — WebUI for GenUI, workspace, and session management.",
+  "description": "Macaron Artifacts — GenUI-powered artifacts, workspace, and session management. Presented by Mind Lab.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

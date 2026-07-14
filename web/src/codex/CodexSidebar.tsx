@@ -121,8 +121,8 @@ export function CodexSidebar() {
       <Link className="cx-sb-brand" to="/">
         <img className="cx-sb-logo" src="/mindlab-symbol.svg" alt="" />
         <div>
-          <div className="cx-sb-brand-name">Macaron</div>
-          <div className="cx-sb-brand-sub">Codex plugin</div>
+          <div className="cx-sb-brand-name">Macaron Artifacts</div>
+          <div className="cx-sb-brand-sub">Presented by Mind Lab</div>
         </div>
       </Link>
 

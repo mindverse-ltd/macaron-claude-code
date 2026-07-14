@@ -356,22 +356,17 @@ export function getActiveProviderRaw():
   return { id: p.id, name: p.name, endpoint: p.endpoint, model: p.model, apiKey: p.apiKey };
 }
 
-// Sync getter for hot-path consumers (claude-runner reads this on every run
-// to decide whether to force bypassPermissions). Cache is warmed at startup
-// by warmSettingsCache(), so this never blocks on disk I/O.
-// Back-compat shim: the legacy `yoloMode` boolean maps onto the new
-// `defaultPermissionMode === 'bypassPermissions'` semantic.
-export function getYoloMode(): boolean {
-  return getDefaultPermissionMode() === 'bypassPermissions';
-}
-
+// Sync getter for the global default permission mode. Cache is warmed at
+// startup by warmSettingsCache(), so this never blocks on disk I/O.
 export function getDefaultPermissionMode(): DefaultPermissionMode {
-  return (cache ?? makeDefaults()).defaultPermissionMode ?? 'default';
+  return normalizePermissionMode((cache ?? makeDefaults()).defaultPermissionMode);
 }
 
-export async function setDefaultPermissionMode(mode: DefaultPermissionMode): Promise<void> {
+export async function setDefaultPermissionMode(
+  mode: DefaultPermissionMode,
+): Promise<void> {
   const s = await readSettings();
-  s.defaultPermissionMode = mode;
+  s.defaultPermissionMode = normalizePermissionMode(mode);
   await persist();
 }
 

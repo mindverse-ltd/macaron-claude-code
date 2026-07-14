@@ -128,11 +128,17 @@ export type PublicCustomProvider = {
   model: string;
   configured: boolean;
 };
+export type DefaultPermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'bypassPermissions';
+
 export type PublicSettings = {
   activeProviderId: string;
   builtins: PublicBuiltinProvider[];
   customProviders: PublicCustomProvider[];
-  yoloMode: boolean;
+  defaultPermissionMode: DefaultPermissionMode;
   followupSuggestions: boolean;
 };
 
@@ -212,11 +218,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providerId }),
     }),
-  setYoloMode: (enabled: boolean) =>
-    req<PublicSettings>('/api/settings/yolo', {
+  setDefaultPermissionMode: (mode: DefaultPermissionMode) =>
+    req<PublicSettings>('/api/settings/permission-mode', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify({ mode }),
     }),
   setFollowupSuggestions: (enabled: boolean) =>
     req<PublicSettings>('/api/settings/followups', {

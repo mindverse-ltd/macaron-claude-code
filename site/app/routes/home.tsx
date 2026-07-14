@@ -10,6 +10,7 @@ import { Check, Clipboard, MonitorPlay, MessagesSquare, SlidersHorizontal, Wand2
 import ClaudeCode from '@lobehub/icons/es/ClaudeCode/components/Mono';
 import Codex from '@lobehub/icons/es/Codex/components/Mono';
 import { baseOptions } from '@/lib/layout.shared';
+import ChatShowcase from '@/components/chat-showcase';
 
 function CommandCopyButton({ code }: { code: string }) {
   const [checked, onClick] = useCopyButton(() => navigator.clipboard.writeText(code));
@@ -83,6 +84,10 @@ export default function Home() {
               Quick Start
             </Link>
           </div>
+        </section>
+
+        <section className="w-full max-w-xl pb-20">
+          <ChatShowcase />
         </section>
 
         <section className="w-full max-w-3xl pb-20">

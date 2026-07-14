@@ -132,6 +132,15 @@ function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown })
           if (p.isError || String(p.text || '').startsWith('render_ui failed:')) {
             t.status = 'error';
             t.error = String(p.text || '').replace(/^render_ui failed:/, '').trim();
+          } else if (!t.code) {
+            // Result arrived but no `code` ever streamed — the model sent
+            // the wrong arg (e.g. `prompt`) or the tool_input was rejected.
+            // Flag instead of spinning forever on "generating UI…".
+            t.status = 'error';
+            const detail = String(p.text || '').slice(0, 200);
+            t.error = detail
+              ? `no TSX code in tool_use input (result: ${detail})`
+              : 'no TSX code in tool_use input — check the render_ui call arguments.';
           } else if (t.status === 'pending') {
             t.status = 'ready';
           }

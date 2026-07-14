@@ -43,7 +43,10 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [data, setData] = useState<WsWithSessions[]>([]);
-  const [yolo, setYolo] = useState(false);
+  // Same one-shot toggle the old YOLO command used to do — bounces the global
+  // default between 'bypassPermissions' (all tools auto-approve) and 'default'
+  // (ask for every call). The full 4-way picker lives in Settings.
+  const [bypassDefault, setBypassDefault] = useState(false);
   const [msgHits, setMsgHits] = useState<MessageSearchHit[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
@@ -111,7 +114,7 @@ export function CommandPalette() {
       }
       try {
         const s = await api.settings();
-        if (!cancelled) setYolo(s.yoloMode);
+        if (!cancelled) setBypassDefault(s.defaultPermissionMode === 'bypassPermissions');
       } catch {
         /* ignore */
       }
@@ -193,13 +196,15 @@ export function CommandPalette() {
     const commands: Item[] = [
       {
         kind: 'command',
-        id: 'toggle-yolo',
-        title: yolo ? 'Disable YOLO mode' : 'Enable YOLO mode',
-        subtitle: 'Bypass all tool permission prompts',
+        id: 'toggle-bypass-default',
+        title: bypassDefault ? 'Reset default permission mode' : 'Set default to Bypass all',
+        subtitle: bypassDefault
+          ? 'New sessions will start asking for every tool call'
+          : 'New sessions will start with all tool permissions auto-approved',
         run: async () => {
           try {
-            const s = await api.setYoloMode(!yolo);
-            setYolo(s.yoloMode);
+            const s = await api.setDefaultPermissionMode(bypassDefault ? 'default' : 'bypassPermissions');
+            setBypassDefault(s.defaultPermissionMode === 'bypassPermissions');
           } catch {
             /* ignore */
           }
@@ -262,7 +267,7 @@ export function CommandPalette() {
     }));
 
     return [...cmdMatched, ...sessMatched, ...wsMatched, ...msgItems];
-  }, [query, data, yolo, msgHits, currentProject, navigate, close]);
+  }, [query, data, bypassDefault, msgHits, currentProject, navigate, close]);
 
   // Clamp the active index whenever the filtered list shrinks.
   useEffect(() => {

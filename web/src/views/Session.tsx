@@ -36,6 +36,7 @@ import { ensureNotificationPermission, notify } from '../lib/notify';
 import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 import { CreatePrDialog } from '../components/CreatePrDialog';
+import { collapseReadSearchGroups, summarize } from '../lib/collapseReadSearch';
 
 const RENDER_UI_TOOL = 'mcp__macaron__render_ui';
 const isRenderUITool = (name: string) => name === RENDER_UI_TOOL || name.endsWith('__render_ui');
@@ -87,7 +88,12 @@ type Item =
   | { id: string; kind: 'live-assistant'; text: string }
   // Pending / resolved permission gate. Rendered as an inline card with
   // Allow/Deny buttons while `status === 'pending'`.
-  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; suggestion?: { label: string }; status: 'pending' | 'allow' | 'deny' };
+  | { id: string; kind: 'permission'; permissionId: string; toolName: string; input: unknown; suggestion?: { label: string }; status: 'pending' | 'allow' | 'deny' }
+  // Collapsed run of consecutive read-only tools (Read / Grep / Glob / cat /
+  // ls / …) — clicking expands the group back into its constituent rows.
+  // Built by collapseReadSearchGroups() during the render pass; `items` is
+  // the original sequence so the expand path re-renders each ToolItem.
+  | { id: string; kind: 'collapsed'; ids: string[]; searchCount: number; readFiles: Set<string>; readOpCount: number; listCount: number; latestHint: string; allDone: boolean; anyError: boolean; items: Item[] };
 
 const TODO_WRITE_NAMES = new Set(['TodoWrite', 'todo_write']);
 const isTodoWriteTool = (name: string) => TODO_WRITE_NAMES.has(name);
@@ -233,6 +239,15 @@ export function flatten(messages: Message[]): Item[] {
             if (t.startsWith('render_ui failed:')) {
               g.status = 'error';
               g.error = t.slice('render_ui failed:'.length).trim();
+            } else if (!g.code) {
+              // Result arrived but the tool_use never carried any `code` —
+              // the model sent the wrong arg (e.g. `prompt`) or the input
+              // was rejected upstream. Don't leave the row spinning; flag
+              // it so the user + the model can see something went wrong.
+              g.status = 'error';
+              g.error = t
+                ? `no TSX code in tool_use input (result: ${t.slice(0, 200)})`
+                : 'no TSX code in tool_use input — check the render_ui call arguments.';
             } else {
               g.status = 'ready';
             }
@@ -874,7 +889,46 @@ export function ItemView({
         <PermissionItem it={it} onDecide={decide} />
       );
     }
+    case 'collapsed':
+      return <CollapsedGroupItem it={it} project={project} sid={sid} />;
   }
+}
+
+// Summary row for a group of consecutive read-only tool calls (Read /
+// Grep / Glob / cat / grep / ls / …). Click to expand — reveals each row
+// at full detail via the same ItemView, so this is a pure UI wrapper.
+function CollapsedGroupItem({
+  it,
+  project,
+  sid,
+}: {
+  it: Extract<Item, { kind: 'collapsed' }>;
+  project?: string;
+  sid?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const summary = summarize(it);
+  return (
+    <div className="ti-collapsed" data-item-id={it.id}>
+      <button
+        type="button"
+        className={'ti-collapsed-head' + (it.anyError ? ' err' : '')}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="ti-collapsed-dot">●</span>
+        <span className="ti-collapsed-summary">{summary || `${it.ids.length} operations`}</span>
+        <span className="ti-collapsed-caret">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="ti-collapsed-body">
+          {it.items.map((child) => (
+            <ItemView key={child.id} it={child} project={project} sid={sid} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Session-level actions dropdown ("···" button). Extra items get added
@@ -1255,6 +1309,19 @@ export function Session(props: SessionProps = {}) {
   const [slashIdx, setSlashIdx] = useState(0);
   const [shown, setShown] = useState(PAGE_SIZE);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // Pull the global default once per mount so a fresh session opens at the
+  // mode the user configured in Settings. Only applies when the user hasn't
+  // already touched the picker (checked via a ref because the settings call
+  // is async and could otherwise stomp a manual change).
+  const permissionModeTouchedRef = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    api.settings().then((s) => {
+      if (!alive || permissionModeTouchedRef.current) return;
+      setPermissionMode(s.defaultPermissionMode);
+    }).catch(() => {/* keep 'default' */});
+    return () => { alive = false; };
+  }, []);
   // Shift+Tab cycles through permission modes globally on the Session view
   // (mirrors claude-cli). The toast surfaces the change since the status bar
   // may be off-screen when the user scrolls up through history.
@@ -1479,7 +1546,7 @@ export function Session(props: SessionProps = {}) {
       // setMode). Mirror that in the local mode state so the next send() and
       // the status bar reflect it — otherwise the composer would silently
       // re-enter plan mode on the following turn.
-      if (decision === 'allow' && mode) setPermissionMode(mode);
+      if (decision === 'allow' && mode) { permissionModeTouchedRef.current = true; setPermissionMode(mode); }
       api.permissionDecision(permissionId, decision, { scope, mode }).catch((e) => {
         toast(`permission ${decision} failed: ${(e as Error).message}`);
       });
@@ -1583,6 +1650,7 @@ export function Session(props: SessionProps = {}) {
       ke.preventDefault();
       const cur = permissionModeRef.current;
       const next = CYCLE[(CYCLE.indexOf(cur) + 1) % CYCLE.length]!;
+      permissionModeTouchedRef.current = true;
       setPermissionMode(next);
       toast(`Permission → ${LABELS[next]}`);
     };
@@ -1700,7 +1768,13 @@ export function Session(props: SessionProps = {}) {
     };
   }, [isPending, sid, load, onPendingConsumed]);
 
-  const items = useMemo(() => (data ? flatten(data.messages) : []), [data]);
+  const rawItems = useMemo(() => (data ? flatten(data.messages) : []), [data]);
+  // Collapse consecutive read-only tool operations (Read / Grep / Glob /
+  // cat / grep / ls / …) into a single summary badge, mirroring Claude
+  // Code CLI's `⏺ Searching for N patterns, reading M files, listing K
+  // directories…` line. Destructive tools (Edit / Write / Bash mutations)
+  // and non-tool items break the group so nothing important gets hidden.
+  const items = useMemo(() => collapseReadSearchGroups(rawItems) as Item[], [rawItems]);
   const total = items.length;
   const hidden = Math.max(0, total - shown);
   const tail = items.slice(-shown);
@@ -2072,7 +2146,7 @@ export function Session(props: SessionProps = {}) {
     // Apply UI-facing knobs upfront so the composer chrome reflects the picks
     // even before the first turn resolves. send() takes explicit overrides
     // below to avoid racing these setState calls on the auto path.
-    if (seed.permissionMode) setPermissionMode(seed.permissionMode);
+    if (seed.permissionMode) { permissionModeTouchedRef.current = true; setPermissionMode(seed.permissionMode); }
     if (seed.isolate !== undefined) setIsolate(seed.isolate);
     const seedImages: AttachedImage[] = (seed.images ?? []).map((img, i) => ({
       id: img.id ?? `seed-img-${i}`,
@@ -2413,7 +2487,7 @@ export function Session(props: SessionProps = {}) {
             }}
           />
         )}
-        {[...completedTurns].reverse().map((it) => (
+        {[...(collapseReadSearchGroups(completedTurns) as Item[])].reverse().map((it) => (
           <ItemView key={it.id} it={it} project={project} sid={sid} />
         ))}
         {[...tail].reverse().map((it) => (
@@ -2652,7 +2726,7 @@ export function Session(props: SessionProps = {}) {
       <StatusBar
         projectName={name}
         permissionMode={permissionMode}
-        onPermissionChange={setPermissionMode}
+        onPermissionChange={(v) => { permissionModeTouchedRef.current = true; setPermissionMode(v); }}
         sending={sending}
         currentTodo={currentTodo}
         latestUsage={data?.latestUsage}
