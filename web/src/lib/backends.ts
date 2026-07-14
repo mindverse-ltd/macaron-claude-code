@@ -39,8 +39,8 @@ function read<T>(key: string): T | null {
   } catch { return null; }
 }
 
-function write(key: string, value: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
+function write(key: string, value: unknown): boolean {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; /* private mode / quota */ }
 }
 
 // Load the backend list, seeding + migrating on first run. Always returns at
@@ -52,18 +52,19 @@ export function loadBackends(): Backend[] {
     return stored.some((b) => b.id === LOCAL_BACKEND_ID) ? stored : [localDefault(), ...stored];
   }
   // First run on a multi-backend build: fold any legacy single token into the
-  // local backend so a remembered share-link/tunnel token keeps working, then
-  // delete the legacy key so a later clearToken() stays cleared even if the
-  // backend list is reset (otherwise the stale token would re-migrate).
+  // local backend so a remembered share-link/tunnel token keeps working. Only
+  // delete the legacy key AFTER the seeded list is confirmed persisted — else a
+  // failed write (private mode / quota) would drop the token with nothing to
+  // re-migrate from. If persistence fails we keep the legacy key so the next
+  // load retries the migration.
   const local = localDefault();
   let legacy = '';
   try { legacy = localStorage.getItem(LEGACY_TOKEN_KEY) || ''; } catch { /* ignore */ }
-  if (legacy) {
-    local.token = legacy;
+  if (legacy) local.token = legacy;
+  const seeded = [local];
+  if (write(BACKENDS_KEY, seeded) && legacy) {
     try { localStorage.removeItem(LEGACY_TOKEN_KEY); } catch { /* ignore */ }
   }
-  const seeded = [local];
-  write(BACKENDS_KEY, seeded);
   return seeded;
 }
 

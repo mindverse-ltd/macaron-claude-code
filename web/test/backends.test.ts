@@ -2,16 +2,20 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 
 // Minimal localStorage shim so the browser-facing modules run under node --test.
-function installLocalStorage(seed: Record<string, string> = {}): void {
+// Returns a handle whose `failWrites` flag makes setItem throw (private mode /
+// quota), so migration-persistence failures are testable.
+function installLocalStorage(seed: Record<string, string> = {}): { failWrites: boolean } {
   const store = new Map<string, string>(Object.entries(seed));
+  const ctl = { failWrites: false };
   (globalThis as unknown as { localStorage: Storage }).localStorage = {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
-    setItem: (k: string, v: string) => { store.set(k, String(v)); },
+    setItem: (k: string, v: string) => { if (ctl.failWrites) throw new Error('QuotaExceeded'); store.set(k, String(v)); },
     removeItem: (k: string) => { store.delete(k); },
     clear: () => store.clear(),
     key: (i: number) => [...store.keys()][i] ?? null,
     get length() { return store.size; },
   } as Storage;
+  return ctl;
 }
 
 // Fresh module state per test: node caches ESM, so bust the query string.
@@ -57,6 +61,20 @@ test('cleared token stays cleared even if the backend list is reset', async () =
   // Re-seeding must NOT resurrect the legacy token.
   assert.equal(backends.getActiveBackend().token, undefined);
   assert.equal(auth.getToken(), '');
+});
+
+test('failed persistence keeps the legacy key so the next load retries migration', async () => {
+  const ls = installLocalStorage({ macaron_auth_token: 'legacy-abc' });
+  const { backends, auth } = await freshModules();
+  ls.failWrites = true;
+  // Migration still surfaces the token in-memory this run, but must NOT delete
+  // the legacy key when the seeded list couldn't be persisted.
+  assert.equal(auth.getToken(), 'legacy-abc');
+  assert.equal(localStorage.getItem('macaron_auth_token'), 'legacy-abc');
+  // Storage recovers → the next load completes the migration and removes the key.
+  ls.failWrites = false;
+  assert.equal(backends.getActiveBackend().token, 'legacy-abc');
+  assert.equal(localStorage.getItem('macaron_auth_token'), null);
 });
 
 test('no legacy token → LOCAL backend has no token', async () => {
