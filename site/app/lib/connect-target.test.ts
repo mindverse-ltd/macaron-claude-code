@@ -6,7 +6,7 @@ import { buildTarget } from './connect-target.ts';
 // inferred by host), https + path/query/hash forced to root, http allowed only
 // for local hosts, other schemes / userinfo rejected, token from field vs URL,
 // and token encoding. Extends PR #144's gate with the http-localhost case.
-const cases: Array<{ name: string; url: string; token: string; expect: { href: string } | { error: true } }> = [
+const cases: Array<{ name: string; url: string; token: string; self?: string; expect: { href: string } | { error: true } }> = [
   // bare host → scheme inferred
   { name: 'bare public host → https + field token', url: 'x.trycloudflare.com', token: 'tok9', expect: { href: 'https://x.trycloudflare.com/?token=tok9' } },
   { name: 'bare public host, no token', url: 'x.trycloudflare.com', token: '', expect: { href: 'https://x.trycloudflare.com/' } },
@@ -31,11 +31,35 @@ const cases: Array<{ name: string; url: string; token: string; expect: { href: s
   { name: 'empty input is rejected', url: '', token: '', expect: { error: true } },
   { name: 'whitespace-only input is rejected', url: '   ', token: '', expect: { error: true } },
   { name: 'garbage is rejected', url: 'not a url ::::', token: 'x', expect: { error: true } },
+
+  // EVE PR #158 regressions — DNS-prefix bypass of the http/local gate. A hostname
+  // that merely starts with a private-range prefix is NOT local and must fail
+  // closed (http rejected), never send a token in cleartext to a public host.
+  { name: '127.x DNS name is not local (http rejected)', url: 'http://127.attacker.invalid:7878/?token=EVE_BYPASS', token: '', expect: { error: true } },
+  { name: '10.x DNS name is not local', url: 'http://10.attacker.invalid:7878/', token: 't', expect: { error: true } },
+  { name: '192.168 DNS name is not local', url: 'http://192.168.attacker.invalid:7878/', token: 't', expect: { error: true } },
+  { name: '172.16 DNS name is not local', url: 'http://172.16.attacker.invalid:7878/', token: 't', expect: { error: true } },
+  { name: 'fc-prefixed DNS name is not local', url: 'http://fc-attacker.invalid:7878/', token: 't', expect: { error: true } },
+  { name: 'fd-prefixed DNS name is not local', url: 'http://fd.attacker.invalid:7878/', token: 't', expect: { error: true } },
+  { name: 'bare 127.x DNS name infers https, not http', url: '127.attacker.invalid:7878', token: 't', expect: { href: 'https://127.attacker.invalid:7878/?token=t' } },
+  { name: 'octet > 255 is not a v4 literal (public)', url: 'http://127.0.0.999:7878/', token: 't', expect: { error: true } },
+  { name: 'five octets is not a v4 literal (public)', url: 'http://127.0.0.0.1:7878/', token: 't', expect: { error: true } },
+
+  // Ranges the header comment claims but the old code missed.
+  { name: '169.254 link-local → http allowed', url: 'http://169.254.1.2:7878/', token: 't', expect: { href: 'http://169.254.1.2:7878/?token=t' } },
+  { name: 'fe80 link-local IPv6 → http allowed', url: 'http://[fe80::1]:7878/', token: 't', expect: { href: 'http://[fe80::1]:7878/?token=t' } },
+  { name: '::1 IPv6 loopback → http allowed', url: 'http://[::1]:7878/', token: 't', expect: { href: 'http://[::1]:7878/?token=t' } },
+  { name: 'trailing-dot localhost. → http allowed', url: 'http://localhost.:7878/', token: 't', expect: { href: 'http://localhost.:7878/?token=t' } },
+
+  // Self-origin rejection — never send the token back to the docs host itself.
+  { name: 'self origin is rejected', url: 'https://docs.example.com/?token=EVE_SELF', token: '', self: 'https://docs.example.com', expect: { error: true } },
+  { name: 'self origin bare host is rejected', url: 'docs.example.com', token: 't', self: 'https://docs.example.com', expect: { error: true } },
+  { name: 'different origin under same self is allowed', url: 'https://other.example.com/', token: 't', self: 'https://docs.example.com', expect: { href: 'https://other.example.com/?token=t' } },
 ];
 
 for (const c of cases) {
   test(c.name, () => {
-    const r = buildTarget(c.url, c.token);
+    const r = buildTarget(c.url, c.token, c.self);
     if ('error' in c.expect) {
       assert.ok('error' in r, `expected an error for ${JSON.stringify(c.url)}, got ${JSON.stringify(r)}`);
     } else {
