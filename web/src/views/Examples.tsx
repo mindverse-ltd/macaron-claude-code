@@ -28,10 +28,11 @@ const EXAMPLES: Example[] = [
     blurb: 'A/B/C decision as clickable cards — no typing back.',
     category: 'interactive',
     prompt:
-      '我想新起一个 web 项目，帮我在 Next.js / Vite+React / Remix / Astro 里选一个。' +
-      '用 render_ui 画一张对比卡：每个候选一列，标出各自的适用场景 (SSR/SPA/静态站)、' +
-      '生态活跃度、上手曲线、部署便利度。底部四个 Button，点击后调 sendUserMessage 告诉' +
-      '我 "用 <XX> 起项目"，把上下文（我说的"新 web 项目"）也带上。',
+      "I'm starting a new web project — help me pick between Next.js / Vite+React / Remix / Astro. " +
+      'Use render_ui to draw a comparison card: one column per candidate, listing where it fits ' +
+      '(SSR / SPA / static site), ecosystem activity, learning curve, deploy story. ' +
+      'Below, four Buttons — clicking one calls sendUserMessage with "Start the project with <framework>", ' +
+      "carrying the original context (\"new web project\") so the next turn has everything it needs.",
   },
   {
     id: 'config-wizard',
@@ -40,11 +41,11 @@ const EXAMPLES: Example[] = [
     blurb: 'Structured form → posts a JSON payload back.',
     category: 'interactive',
     prompt:
-      '帮我设计一份新服务的初始配置。用 render_ui 画一个表单卡片，字段：服务名 (Input)、' +
-      '端口 (Input number, 默认 8080)、Node 版本 (Select: 18/20/22)、是否启用 SSL (Switch)、' +
-      '日志级别 (RadioGroup: debug/info/warn/error)、并发上限 (Slider 1-200)。' +
-      '提交按钮 onClick 用 sendUserMessage 把所有字段汇总成一句话 + 附一个 JSON fenced ' +
-      '块，让下一轮我可以直接读结构化数据。',
+      'Help me draft the initial config for a new service. Use render_ui to render a form card with fields: ' +
+      'service name (Input), port (Input number, default 8080), Node version (Select: 18/20/22), ' +
+      'enable SSL (Switch), log level (RadioGroup: debug/info/warn/error), max concurrency (Slider 1-200). ' +
+      'The submit Button onClick should call sendUserMessage with a one-sentence summary + a fenced JSON ' +
+      'block containing every field, so the next turn can read the structured data directly.',
   },
   {
     id: 'destructive-confirm',
@@ -53,10 +54,10 @@ const EXAMPLES: Example[] = [
     blurb: 'Diff summary + Apply / Cancel buttons.',
     category: 'interactive',
     prompt:
-      '假设我让你清理项目里所有 node_modules 目录。请不要真的执行，只做演示：' +
-      '用 render_ui 画一张确认卡，标题红色警告风，中间列出"将要删除的 12 个候选路径"' +
-      '（编一些常见的），底部一个灰色 Cancel + 一个 destructive 红色 "Delete 12 folders"，' +
-      '点击后分别 sendUserMessage 说 "cancel" 或 "confirmed, do it"。',
+      "Pretend I asked you to clean up every node_modules directory in the project. Do NOT actually run anything — " +
+      'this is a demo. Use render_ui to draw a confirmation card, red warning styling, listing 12 plausible ' +
+      'candidate paths in the middle. Bottom row: a grey Cancel button + a destructive red "Delete 12 folders" ' +
+      'button. On click, each calls sendUserMessage with "cancel" or "confirmed, do it" respectively.',
   },
 
   // ---- UI Change Previews (ui-preview skill in action) ----
@@ -67,10 +68,10 @@ const EXAMPLES: Example[] = [
     blurb: 'Read source → preview redesign → Apply writes files.',
     category: 'preview',
     prompt:
-      '读 web/src/components/StatusBar.tsx 的当前实现，然后按 ui-preview skill：' +
-      'render_ui 一份"改造后的 StatusBar" 完整预览 (更紧凑、状态圆点带渐变、字号统一，' +
-      '把上下文用量和权限模式做成两个小 badge 而不是纯文字)，' +
-      '底部三个按钮 Apply / Tweak / Discard。等我点 Apply 你才动文件。',
+      'Read web/src/components/StatusBar.tsx, then follow the ui-preview skill: ' +
+      'render_ui a full preview of the redesigned StatusBar (more compact, gradient status dots, unified ' +
+      'font sizes, context-usage and permission-mode collapsed into two small badges instead of plain text), ' +
+      'with three buttons at the bottom — Apply / Tweak / Discard. Do NOT touch the file until I click Apply.',
   },
   {
     id: 'copy-variants',
@@ -79,10 +80,10 @@ const EXAMPLES: Example[] = [
     blurb: 'Three hero variants side-by-side; click your favorite.',
     category: 'preview',
     prompt:
-      '给一个假设的 AI 编程 IDE 产品写 hero 文案。用 render_ui 画一张 3-column 卡片，' +
-      '每列一版风格不同的 headline + subline：(1) 极简直接，(2) 情感化，(3) 技术圈内味儿。' +
-      '每列下面一个 "Use this" 按钮，点击 sendUserMessage 说 "选风格 X (原文)"，' +
-      '这样下一轮可以基于选中的风格继续迭代或落地到 landing 组件。',
+      'Draft hero copy for a hypothetical AI coding IDE. Use render_ui to render a 3-column card, each ' +
+      'column a different tone: (1) minimalist and direct, (2) emotional, (3) developer-insider. ' +
+      'Below each column, a "Use this" button that calls sendUserMessage with "Go with variant X (full copy)". ' +
+      'That way the next turn can iterate on the chosen variant or ship it into the landing component.',
   },
   {
     id: 'dark-mode-preview',
@@ -91,11 +92,11 @@ const EXAMPLES: Example[] = [
     blurb: 'Toggle-driven color scheme preview with Apply.',
     category: 'preview',
     prompt:
-      '读 web/src/views/Home.tsx，用 render_ui 做一个"暗色模式预览"卡片：' +
-      '上方是页面主视觉的迷你 mock (logo + 输入框 + 按钮 + 一段文字)，' +
-      '底下一个 Switch "Dark mode"，切换时用 useState 让 mock 里的颜色实时改变。' +
-      '最下方 Apply / Discard 按钮，Apply 用 sendUserMessage 说 "apply this dark palette ' +
-      'to the Home page for real"。别真的改文件，等我看完 preview 才动。',
+      'Read web/src/views/Home.tsx and use render_ui to build a "dark mode preview" card: ' +
+      'up top, a mini mock of the page (logo + composer + button + a line of text); below, a Switch ' +
+      'labelled "Dark mode" that recolours the mock live via useState. At the bottom, Apply / Discard buttons — ' +
+      'Apply calls sendUserMessage with "Apply this dark palette to the Home page for real". ' +
+      "Do NOT edit the file yet — wait for my Apply click.",
   },
 
   // ---- Data & status ----
@@ -106,24 +107,24 @@ const EXAMPLES: Example[] = [
     blurb: 'Paste tabular data, get a chart + summary.',
     category: 'data',
     prompt:
-      '编 168 行"过去 7 天 API 每小时请求量"的示例数据 (工作日高峰 + 周末低谷 + 一次尖刺)。' +
-      '用 render_ui 渲染一张仪表盘：顶部 4 个 Stat (总量 / 峰值 / 均值 / 峰谷比)，' +
-      '下方 LineChart 时间序列，右侧 PieChart 按 endpoint 分布，底部一句 AI 归纳的"洞察"。' +
-      '用 macaron-ui 的 Chart 组件。',
+      'Make up 168 rows of "hourly API request volume over the past 7 days" (weekday peaks + weekend dips + ' +
+      "one spike). Use render_ui to render a dashboard: 4 Stats on top (total / peak / mean / peak-to-trough ratio), " +
+      'a LineChart of the time series below, a PieChart on the right breaking it down by endpoint, and one ' +
+      'AI-generated "insight" sentence at the bottom. Use the Chart components from macaron-ui.',
   },
   {
     id: 'git-summary',
     emoji: '📅',
-    title: '本周开发汇总',
+    title: 'This week in commits',
     blurb: 'git log → dashboard: commits, files, contributors.',
     category: 'data',
     prompt:
-      '用 Bash 跑 `git log --since="7 days ago" --pretty=format:"%h|%an|%ad|%s" --date=short ' +
-      '--shortstat` 拿到本仓库最近 7 天提交，然后 render_ui 一张周报卡片：顶部 Stat 网格' +
-      ' (commits / files changed / lines +/-/ contributors 数)，下面 Timeline 按天列出' +
-      '主要 commit，最右边 PillRow 展示 top contributors。' +
-      '底部一个按钮 "写成 Markdown 周报"，点击 sendUserMessage 让下一轮把它整理成' +
-      'markdown 落地到 docs/weekly-2026-Wxx.md。',
+      'Run `git log --since="7 days ago" --pretty=format:"%h|%an|%ad|%s" --date=short --shortstat` in Bash ' +
+      "to fetch this repo's last 7 days of commits. Then render_ui a weekly-report card: a Stat grid on top " +
+      '(commits / files changed / lines +/-/ contributors), a Timeline of the main commits grouped by day ' +
+      'below, and a PillRow of top contributors on the right. ' +
+      'Add a button "Write as Markdown weekly report" — on click, sendUserMessage tells the next turn to ' +
+      'draft the markdown and drop it into docs/weekly-2026-Wxx.md.',
   },
   {
     id: 'file-explorer',
@@ -132,12 +133,11 @@ const EXAMPLES: Example[] = [
     blurb: 'Read the workspace tree into a visual explorer.',
     category: 'data',
     prompt:
-      '用 Bash 跑 `find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" ' +
-      '-not -path "*/dist/*" | head -200` 拿一个文件清单。' +
-      '按扩展名分组 (.tsx / .ts / .css / .md / .json / 其它)，用 render_ui 画一张 ' +
-      'StatGrid：每种类型一个 tile，显示文件数 + 总代码行数 (用 wc -l 抽样估计即可)。' +
-      '下面 Table 列出 top 10 最大的文件 (按行数)，每行一个"查看"按钮 sendUserMessage ' +
-      '说 "打开 <file>"，方便我下一步 focus。',
+      'Run `find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" | head -200` ' +
+      'in Bash to sample the file tree. Group by extension (.tsx / .ts / .css / .md / .json / other) and ' +
+      'render_ui a StatGrid: one tile per type showing file count + total LOC (a rough wc -l sampling is fine). ' +
+      'Below, a Table of the 10 largest files (by line count), each row with a "View" button that ' +
+      'sendUserMessage "Open <file>" so I can drill in next turn.',
   },
 ];
 
