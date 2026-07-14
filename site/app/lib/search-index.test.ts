@@ -181,6 +181,32 @@ test('real structure() split chunks: escaped quotes, generic defaults, OOB entit
   assert.ok(!nsAttr.some((t) => /NSNEEDLE|<Panel|ns:prop/.test(t)), `namespaced-attr opener leaked: ${JSON.stringify(nsAttr)}`);
   assert.ok(nsAttr.includes('nsbody'), 'namespaced-attr body must survive');
 
+  // Non-glued TS generics and comparisons — the `<` follows whitespace, `>`, `)` or
+  // chunk start, so a glued/non-glued heuristic would wrongly strip them. The real
+  // TypeScript grammar keeps every one verbatim and searchable:
+  //   - an arrow-function type-param list with a default,
+  //   - a call-site type-argument list,
+  //   - a chained comparison, and
+  //   - a `$`-suffixed / non-ASCII identifier default.
+  assert.deepEqual(clean('const identity = \\<T, U = "ARROWNEEDLE">(x) => x keeps ARROWPROSEKEEP'), ['const identity = <T, U = "ARROWNEEDLE">(x) => x keeps ARROWPROSEKEEP']);
+  assert.deepEqual(clean('factory()\\<T, CALLNEEDLE>() keeps CALLPROSEKEEP'), ['factory()<T, CALLNEEDLE>() keeps CALLPROSEKEEP']);
+  assert.deepEqual(clean('alpha \\<beta && gamma> delta keeps CMPPROSEKEEP'), ['alpha <beta && gamma> delta keeps CMPPROSEKEEP']);
+  assert.deepEqual(clean('type $Box\\<T$ = "DOLLARNEEDLE"> keeps DOLLARPROSEKEEP'), ['type $Box<T$ = "DOLLARNEEDLE"> keeps DOLLARPROSEKEEP']);
+
+  // A COMPLETE JSX element sitting flush against surrounding prose (`prefix<Panel …>body
+  // </Panel>suffix`) — structure() serializes it as a glued escaped opener. The opener +
+  // its attribute must not enter the index; the prose and the component body survive.
+  const glued = clean('prefix<Panel items={["ADJACENTNEEDLE"]}>bodyX</Panel>suffix');
+  assert.ok(!glued.some((t) => /ADJACENTNEEDLE|<Panel|items=/.test(t)), `glued JSX opener leaked: ${JSON.stringify(glued)}`);
+  assert.ok(glued.some((t) => /prefix/.test(t) && /suffix/.test(t) && /bodyX/.test(t)), `glued JSX prose/body must survive: ${JSON.stringify(glued)}`);
+
+  // A multiline JSX element whose terminating `>` sits ALONE on its own line: structure()
+  // splits it into an unclosed opener chunk, a lone `>` chunk, and the body. The opener
+  // residue (attribute needle) must never reach the index; the body must survive.
+  const mlGt = clean('<Panel\n  items={["MLGTNEEDLE"]}\n>\n\nmlgtbody\n\n</Panel>');
+  assert.ok(!mlGt.some((t) => /MLGTNEEDLE|<Panel|items=/.test(t)), `multiline gt-own-line opener leaked: ${JSON.stringify(mlGt)}`);
+  assert.ok(mlGt.includes('mlgtbody'), 'multiline gt-own-line body must survive');
+
   // An out-of-range numeric entity is not a real code point: String.fromCodePoint
   // would throw and abort the index build, so it must be kept as literal text.
   assert.deepEqual(clean('literal \\&#9999999999; KEEP'), ['literal &#9999999999; KEEP']);
