@@ -54,8 +54,8 @@ export function meta({}: Route.MetaArgs) {
 }
 
 // pkg.pr.new ships prebuilt tarballs per commit; __COMMIT_SHA__ is injected at build time (falls back to `<sha>`).
-const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@${__COMMIT_SHA__}`;
-const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@${__COMMIT_SHA__}`;
+const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
+const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
 
 export default function Home() {
   return (
@@ -112,7 +112,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
+                  <Command code="claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Install the Plugin</p>
@@ -132,7 +132,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
+                  <Command code="codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Add the Plugin</p>
