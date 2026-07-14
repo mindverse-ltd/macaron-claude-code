@@ -1,0 +1,100 @@
+---
+title: Overview
+description: A tour of how Macaron Artifacts fits together — one server binary, two SPA entries, and a live GenUI renderer.
+---
+
+Macaron Artifacts is a local WebUI for driving agent sessions from the browser. Under the hood it is a small monorepo: a **Fastify server** that fronts the Claude Agent SDK and the Codex SDK, a **React SPA** that renders sessions and streams turns, and a **shared** package that pins the wire contract between them. This section walks the whole system top to bottom.
+
+<Callout title="Who this is for">
+  These pages document the *implementation*, not day-to-day usage. If you just want to install and run the WebUI, start with [Usage](/docs/usage). Come here when you want to understand how a turn flows from the browser to the SDK and back, or how the two engines share one binary.
+</Callout>
+
+## The Monorepo
+
+<Files>
+  <Folder name="macaron-claude-code" defaultOpen>
+    <Folder name="shared" defaultOpen>
+      <File name="src/types.ts — REST + domain types" />
+      <File name="src/sse.ts — the streaming contract" />
+    </Folder>
+    <Folder name="server">
+      <File name="src/index.ts — Fastify bootstrap" />
+      <File name="src/config.ts — ports, hosts, paths" />
+      <Folder name="src/lib">
+        <File name="claude-runner.ts — Claude Agent SDK loop" />
+        <File name="codex-app-server.ts — Codex app-server client" />
+        <File name="session-store.ts — reads ~/.claude transcripts" />
+      </Folder>
+      <Folder name="src/routes">
+        <File name="sessions.ts, relay.ts, codex.ts, …" />
+      </Folder>
+    </Folder>
+    <Folder name="web">
+      <File name="index.html — Claude SPA entry" />
+      <File name="codex.html — Codex SPA entry" />
+      <Folder name="src">
+        <File name="main.tsx — router + GenUI runtime bootstrap" />
+        <File name="macaron-vendor/ — vendored GenUI renderer" />
+      </Folder>
+    </Folder>
+    <Folder name="bin">
+      <File name="mcc.mjs — Claude launcher" />
+    </Folder>
+    <Folder name="mcx">
+      <File name="bin/mcx.mjs — Codex launcher" />
+    </Folder>
+  </Folder>
+</Files>
+
+The workspace (`pnpm-workspace.yaml`) has four members: `shared`, `server`, `web`, and `mcx`. The root package is published as **`mcc`** (the Claude launcher); **`mcx`** is a second, self-contained package that ships its own copy of the built server and web bundles.
+
+## The Big Picture
+
+Three moving parts, one data contract:
+
+<Cards>
+  <Card title="Server" href="/docs/architecture/server">
+    A Fastify app that owns the agent runtimes, reads on-disk transcripts, relays provider traffic, and serves the SPA.
+  </Card>
+  <Card title="Web" href="/docs/architecture/web">
+    A React SPA with a canvas of session tiles, a fetch-based SSE reader, and a live GenUI preview.
+  </Card>
+  <Card title="GenUI" href="/docs/architecture/genui">
+    The `render_ui` tool + vendored renderer that compile model-authored TSX to a live component as tokens stream.
+  </Card>
+  <Card title="Codex Variant" href="/docs/architecture/codex">
+    How the same server binary boots a second SPA and talks to the Codex SDK instead of Claude.
+  </Card>
+  <Card title="Packaging" href="/docs/architecture/packaging">
+    Two publishable launchers, prebuilt bundles, and the pkg.pr.new per-commit release flow.
+  </Card>
+</Cards>
+
+## One Binary, Two Front Ends
+
+The single most important design choice: **there is exactly one server binary**, and an environment variable decides which SPA it serves at `/`.
+
+<Steps>
+<Step>
+### Launch picks the engine
+
+`mcc` runs with the default engine (Claude, port `7878`); `mcx` sets `MACARON_ENGINE=codex` and defaults to port `7979`. Both `import('../server/dist/index.js')` — the same compiled server.
+</Step>
+<Step>
+### The server chooses an SPA entry
+
+At boot the server reads `MACARON_ENGINE` and picks `codex.html` or `index.html` as the `/` document and the SPA fallback. Static assets (JS/CSS chunks) are shared between both entries.
+
+```ts
+const spaEntry = process.env.MACARON_ENGINE === 'codex' ? 'codex.html' : 'index.html';
+app.get('/', (_req, reply) => reply.sendFile(spaEntry));
+```
+</Step>
+<Step>
+### The browser loads one runtime
+
+Each HTML entry boots its own React tree — the Claude UI or the ChatGPT-style Codex UI — but both talk to the same `/api/*` surface and the same SSE contract.
+</Step>
+</Steps>
+
+Read on for how each layer works, starting with the [server](/docs/architecture/server).
