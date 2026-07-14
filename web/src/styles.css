@@ -4182,13 +4182,21 @@ textarea:focus, select:focus, input:focus {
 }
 .heatmap-cell[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .heatmap-cell--empty { visibility: hidden; }
-/* Solid fills stepping from a light empty square toward full accent. Light and
-   dark themes share the ramp via color-mix against the theme's own surface. */
+/* Solid fills, no border at any level. Each active tint interpolates accent→
+   surface-2, then darkens toward --text by --hm-darken so every ACTIVE level
+   (L1–L4) clears 3:1 against the panel: light needs 18% darkening (raw tints
+   only reach ~1.6–3.9:1 on white), dark already clears 3:1 on its charcoal
+   panel so its darken is 0. Verified L1–L4 = light 3.15/3.52/4.11/4.72,
+   dark 3.27/3.81/4.58/5.44. L0 is the empty-day square: like the reference it
+   is a light fill (~1.1:1) that reads as "no activity", not a data value — the
+   ≥3:1 guarantee is for the levels that encode a count. */
+.heatmap { --hm-darken: 18%; }
+:root[data-theme='dark'] .heatmap { --hm-darken: 0%; }
 .heatmap-cell[data-level='0'] { background: var(--surface-2); }
-.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
-.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 55%, var(--surface-2)); }
-.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 78%, var(--surface-2)); }
-.heatmap-cell[data-level='4'] { background: var(--accent); }
+.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--text) var(--hm-darken), color-mix(in srgb, var(--accent) 66%, var(--surface-2))); }
+.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--text) var(--hm-darken), color-mix(in srgb, var(--accent) 76%, var(--surface-2))); }
+.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--text) var(--hm-darken), color-mix(in srgb, var(--accent) 88%, var(--surface-2))); }
+.heatmap-cell[data-level='4'] { background: color-mix(in srgb, var(--text) var(--hm-darken), var(--accent)); }
 .heatmap-footer {
   display: flex;
   align-items: center;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -54,11 +54,12 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
   const [active, setActive] = useState<{ key: string; count: number } | null>(null);
   const [rovingKey, setRovingKey] = useState<string | null>(null);
   const focusedRef = useRef<{ key: string; count: number } | null>(null);
-  // How many whole columns the container currently fits. Measured, not guessed,
-  // so desktop and phone each show exactly as many full weeks as their width allows.
+  // How many whole columns the container currently fits. Measured before paint
+  // (useLayoutEffect) so a long history never flashes its full width for a frame
+  // before clamping — the first visible paint already has the fitted count.
   const [fitWeeks, setFitWeeks] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const measure = () => {
@@ -74,9 +75,34 @@ function UsageHeatmap({ daily, sinceDate, untilDate, window }: { daily: Analytic
 
   const maxWeeks = useMemo(() => availableWeeks(daily, sinceDate, untilDate, window), [daily, sinceDate, untilDate, window]);
   const weeks = Math.min(fitWeeks || maxWeeks, maxWeeks);
-  const grid = useMemo(() => buildHeatmap(daily, untilDate, weeks), [daily, untilDate, weeks]);
+  // For 'all', clamp the window's low bound to the first active day (sinceDate is
+  // epoch), so buildHeatmap clips leading padding to real in-window days only.
+  const effectiveSince = window === 'all' ? (daily.length ? daily[0]!.date : untilDate) : sinceDate;
+  const grid = useMemo(() => buildHeatmap(daily, effectiveSince, untilDate, weeks), [daily, effectiveSince, untilDate, weeks]);
 
   const level = (count: number) => levelFor(count, grid.max);
+
+  // When a resize changes which columns are visible, a previously-focused or
+  // roving day may fall off the left edge. Reconcile roving key + real DOM focus
+  // + the caption to a still-visible day so keyboard state never points at a cell
+  // that no longer exists.
+  useLayoutEffect(() => {
+    const visible = new Set(grid.weeks.flat().filter(Boolean).map((c) => c!.key));
+    if (rovingKey && !visible.has(rovingKey)) {
+      const firstVisible = grid.weeks.flat().find((c) => c)?.key ?? null;
+      setRovingKey(firstVisible);
+      // If focus was on the dropped cell, move real focus (and its caption) too.
+      const activeKey = (document.activeElement as HTMLElement)?.dataset?.key;
+      if (activeKey === rovingKey && firstVisible) {
+        const el = gridRef.current?.querySelector<HTMLElement>(`.heatmap-cell[data-key="${firstVisible}"]`);
+        el?.focus();
+      }
+    }
+    if (focusedRef.current && !visible.has(focusedRef.current.key)) {
+      focusedRef.current = null;
+      setActive(null);
+    }
+  }, [grid]);
 
   // Roving tabindex over a row-major (weekday × week) cell space. All target
   // resolution (arrows stay put at an edge; Home/End walk the weekday row;

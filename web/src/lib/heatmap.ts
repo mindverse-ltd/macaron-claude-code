@@ -29,11 +29,15 @@ export function availableWeeks(daily: Array<{ date: string }>, sinceDate: string
 }
 
 // Build the most-recent `weeks` columns (weekday rows Sun→Sat) ending at the
-// week that contains untilDate. Days after untilDate (the tail of the current
-// week) are null placeholders; every other slot is a real day whose count comes
-// from `daily`, defaulting to 0 so empty days still render as light squares.
-export function buildHeatmap(daily: Array<{ date: string; messageCount: number }>, untilDate: string, weeks: number): HeatGrid {
+// week that contains untilDate. Days outside the server's [sinceDate, untilDate]
+// window — the leading days before sinceDate in the first column and the trailing
+// days after untilDate in the last — are null placeholders (not zero-count cells),
+// so we never render a padding day the server didn't account for. Every in-window
+// slot is a real day whose count comes from `daily`, defaulting to 0 so empty
+// days still render as light squares.
+export function buildHeatmap(daily: Array<{ date: string; messageCount: number }>, sinceDate: string, untilDate: string, weeks: number): HeatGrid {
   const byDay = new Map(daily.map((d) => [d.date, d.messageCount]));
+  const startMs = dayToUTC(sinceDate);
   const endMs = dayToUTC(untilDate);
   const lastSunday = endMs - new Date(endMs).getUTCDay() * DAY;
   const n = Math.max(1, weeks);
@@ -44,7 +48,7 @@ export function buildHeatmap(daily: Array<{ date: string; messageCount: number }
   for (let ms = gridStart, c = 0; c < n; c++) {
     const week: HeatCell[] = [];
     for (let row = 0; row < 7; row++, ms += DAY) {
-      if (ms > endMs) { week.push(null); continue; } // future day → placeholder
+      if (ms < startMs || ms > endMs) { week.push(null); continue; } // outside window → placeholder
       const key = utcToDay(ms);
       const count = byDay.get(key) ?? 0;
       if (count > max) max = count;
