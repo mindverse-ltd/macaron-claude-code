@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
-import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Circle, CircleDot, ClipboardList, GitBranch, GitFork, Lock, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Square, Undo2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Circle, CircleDot, ClipboardList, GitBranch, GitFork, Info, Lock, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Square, Undo2, X } from 'lucide-react';
 import { sessionToMarkdown } from '@macaron/shared';
 import {
   api,
@@ -413,7 +413,7 @@ function SystemEventItem({ eventType, text }: { eventType: string; text: string 
   const shown = open || !isLong ? text : text.slice(0, 200) + '…';
   return (
     <div className="ti-sysevent">
-      <span className="ti-sysevent-mark">※</span>
+      <span className="ti-sysevent-mark"><Info size={12} aria-hidden="true" /></span>
       <span className="ti-sysevent-label">{label}:</span> {shown}
       {isLong && (
         <button className="ti-expand ti-sysevent-toggle" onClick={() => setOpen((v) => !v)}>

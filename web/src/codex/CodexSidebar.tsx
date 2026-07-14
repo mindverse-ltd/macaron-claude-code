@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Check, Plus, X, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, Circle, Plus, X, Settings } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { codexApi, type CodexThread, type CodexWorkspace } from './api';
 import {
@@ -229,6 +229,7 @@ export function CodexSidebar() {
 
       <footer className="cx-sb-foot">
         <div className={'cx-sb-status cx-sb-status-' + status}>
+          <Circle className="cx-sb-status-dot" size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
           {status === 'ok' ? providerLabel || 'online' : status === 'bad' ? 'config missing' : 'connecting…'}
         </div>
       </footer>

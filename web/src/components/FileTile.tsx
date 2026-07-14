@@ -7,6 +7,7 @@
 // api.writeFile; unsaved changes are indicated by a dot and confirmed
 // before switching files.
 
+import { Circle } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -188,7 +189,7 @@ export function FileTile({
                 onClick={() => setMode('edit')}
               >
                 Edit
-                {dirty && <span className="ft-dirty" title="Unsaved changes">●</span>}
+                {dirty && <span className="ft-dirty" role="img" aria-label="Unsaved changes" title="Unsaved changes"><Circle size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>}
               </button>
             </div>
             {mode !== 'preview' && (

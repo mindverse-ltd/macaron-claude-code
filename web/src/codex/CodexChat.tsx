@@ -4,7 +4,7 @@
 // blocks — is tuned to match the claude WebUI's palette (see styles.css).
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Terminal, Pencil, Search, Hexagon, ListTodo, Settings, ChevronDown, ChevronRight, Sparkles, Diamond, CheckSquare, CircleDot, Square, Flag, GitBranch } from 'lucide-react';
+import { Terminal, Pencil, Search, Hexagon, ListTodo, Settings, ChevronDown, ChevronRight, Sparkles, Diamond, CheckSquare, CircleDot, Square, Flag, GitBranch, AlertTriangle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -666,7 +666,7 @@ export function CodexChat(props: CodexChatProps = {}) {
             {error && (
               <div className="cx-tool err">
                 <div className="cx-tool-head">
-                  <span className="cx-tool-glyph">!</span>
+                  <span className="cx-tool-glyph"><AlertTriangle size={14} aria-hidden="true" /></span>
                   <span className="cx-tool-name">Error</span>
                 </div>
                 <div className="cx-tool-out err">{error}</div>

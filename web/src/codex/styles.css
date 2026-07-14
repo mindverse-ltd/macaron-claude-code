@@ -253,16 +253,14 @@ body {
   color: var(--cx-muted);
   font-size: 11.5px;
 }
-.cx-sb-status::before {
-  content: '●';
-  display: inline-block;
-  margin-right: 6px;
-  color: var(--cx-muted-2);
-  font-size: 8px;
-  vertical-align: 2px;
+.cx-sb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.cx-sb-status-ok::before { color: var(--cx-good); }
-.cx-sb-status-bad::before { color: var(--cx-bad); }
+.cx-sb-status-dot { color: var(--cx-muted-2); flex-shrink: 0; }
+.cx-sb-status-ok .cx-sb-status-dot { color: var(--cx-good); }
+.cx-sb-status-bad .cx-sb-status-dot { color: var(--cx-bad); }
 
 /* ---------- Main ---------- */
 
