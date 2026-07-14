@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { structure } from 'fumadocs-core/mdx-plugins/remark-structure';
 import { initAdvancedSearch } from 'fumadocs-core/search/server';
+import { oramaStaticClient } from 'fumadocs-core/search/client/orama-static';
 import { buildIndex, sanitizeSearchText } from './search-index';
 
 // Unit: the sanitizer strips markdown/entity artifacts WITHOUT mangling
@@ -24,13 +25,31 @@ test('sanitizeSearchText strips markup but preserves identifiers', () => {
   }
   // Serialized MDX flow-component tags are removed, not left as searchable text.
   assert.equal(sanitizeSearchText('App shell. </Step> </Steps>'), 'App shell.');
-  assert.equal(sanitizeSearchText('\\<Tabs items=\\{[1]}> <Tab value="x">'), '');
-  // A `>` inside an attribute value or JSX expression must not end the tag early
-  // — the old `/<[^>]*>/` regex left `B">` / `b"]}>` residue behind.
+  // structure() serializes a component tag with markdown escapes (`\<Tabs …>`);
+  // the tag (and its attribute expression) is stripped, body text kept.
+  assert.equal(sanitizeSearchText('\\<Tabs items=\\{[1]}> a</Tabs>'), 'a');
+
+  // Adversarial cases (EVE, round 4) — the scanner must confirm a complete, legal
+  // tag before deleting, and honour escaped quotes, entities, template literals,
+  // HTML/MDX comments and fragments:
+  // A `>` inside an attribute value or a JSX expression must not end the tag early
+  // (the old `/<[^>]*>/` regex left `B">` / `b"]}>` behind).
   assert.equal(sanitizeSearchText('Body <Callout title="A > B">inner</Callout> tail'), 'Body inner tail');
   assert.equal(sanitizeSearchText('<Tabs items={["a > b"]}>content</Tabs>'), 'content');
-  // A bare `<` in prose (not a tag open) is left intact.
+  // Entity-escaped quote inside an attribute, and a `}`/`>` inside a template
+  // literal expression — attribute residue must not leak into the body text.
+  assert.equal(sanitizeSearchText('<Callout title="A &quot; > B">quoteneedle</Callout>'), 'quoteneedle');
+  assert.equal(sanitizeSearchText('<X value={`a } > b`}>templateneedle</X>'), 'templateneedle');
+  // HTML comment, MDX expression comment, and fragment shorthand.
+  assert.equal(sanitizeSearchText('before <!-- secret --> visible'), 'before visible');
+  assert.equal(sanitizeSearchText('{/* hidden */}shown'), 'shown');
+  assert.equal(sanitizeSearchText('<>content</>'), 'content');
+  // Compact comparisons and a code-span TypeScript generic must stay searchable —
+  // a bare `<`/`>` with no complete tag is NOT markup.
   assert.equal(sanitizeSearchText('when c < d holds'), 'when c < d holds');
+  assert.equal(sanitizeSearchText('when alpha<beta remains searchable'), 'when alpha<beta remains searchable');
+  assert.equal(sanitizeSearchText('when a<b && c>d holds'), 'when a<b && c>d holds');
+  assert.equal(sanitizeSearchText('returns `<T>(value)` => value'), 'returns <T>(value) => value');
 });
 
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
@@ -103,5 +122,51 @@ test('production index: serialized MDX tags never enter the index', async () => 
       assert.ok(!summary.includes(tag), `result for "${tag}" contains the literal tag: ${summary.slice(0, 100)}`);
       assert.ok(!/<\/?[A-Za-z][^>]*>/.test(summary.replace(/<\/?mark>/g, '')), `result for "${tag}" contains tag markup`);
     }
+  }
+});
+
+// True route-level wiring: load the BUILT `/api/search` artifact (produced by
+// routes/search.ts → createFromSource(source, { buildIndex }) → server.staticGET)
+// and query it through fumadocs' own client, oramaStaticClient — the exact code
+// path the browser search box uses. This is the end-to-end check the earlier
+// rounds lacked: delete the buildIndex wiring in routes/search.ts, or let the
+// sanitizer regress, and this test fails because the served database changes.
+// Skips (does not fail) when the site hasn't been built yet — `pnpm build` runs
+// before it in verify/CI.
+const BUILT_INDEX = path.resolve(DOCS_DIR, '../../build/client/api/search');
+
+test('built /api/search: real Orama client honours the contract', async (t) => {
+  if (!existsSync(BUILT_INDEX)) {
+    t.skip('run `pnpm build` first — no build/client/api/search to load');
+    return;
+  }
+  const exported = readFileSync(BUILT_INDEX, 'utf8');
+  // oramaStaticClient fetches `${from}` and load()s it into Orama; shim fetch to
+  // serve the on-disk artifact so no dev server is needed.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) =>
+    String(url).includes('/api/search') ? new Response(exported, { headers: { 'content-type': 'application/json' } }) : realFetch(url as never)) as typeof fetch;
+  try {
+    const client = oramaStaticClient({ from: 'http://test.local/api/search' });
+
+    for (const id of ['MACARON_CODEX_TRANSPORT', 'MACARON_AUTH_TOKEN', 'permission_request']) {
+      const hits = await client.search(id);
+      assert.ok(Array.isArray(hits) && hits.length > 0, `built index: "${id}" should hit`);
+      const corrupted = await client.search(id.replace(/_/g, ''));
+      assert.ok(Array.isArray(corrupted) && corrupted.length === 0, `built index: corrupted "${id.replace(/_/g, '')}" must miss`);
+      for (const r of hits) {
+        const summary = (r.content ?? '').replace(/<\/?mark>/g, '');
+        assert.ok(!/`|&#x?[0-9a-fA-F]+;|<\/?[A-Za-z][^>]*>/.test(summary), `built index summary leaked markup: ${summary.slice(0, 100)}`);
+      }
+    }
+    // Tag-shaped query: may match the natural word ("step"), but no served summary
+    // ever contains the literal serialized tag.
+    for (const tag of ['</Step>', '<Tabs', '<Callout']) {
+      for (const r of await client.search(tag)) {
+        assert.ok(!(r.content ?? '').includes(tag), `built index: result for "${tag}" contains the literal tag`);
+      }
+    }
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

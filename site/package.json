@@ -22,7 +22,9 @@
     "isbot": "^5.2.0",
     "lucide-react": "^1.23.0",
     "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-mdx": "^3.0.0",
     "mdast-util-to-string": "^4.0.0",
+    "micromark-extension-mdxjs": "^3.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.2.0"
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@react-router/dev": "^8.2.0",
     "@tailwindcss/vite": "^4.3.2",
+    "@types/mdast": "^4.0.4",
     "@types/mdx": "^2.0.14",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
