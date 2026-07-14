@@ -4158,6 +4158,42 @@ textarea:focus, select:focus, input:focus {
   .usage-tiles { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* GitHub-style contribution heatmap. Columns are weeks, rows are weekdays;
+   cell shade steps through 5 accent tints keyed by that day's message count. */
+.heatmap { overflow-x: auto; }
+.heatmap-months {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 13px;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.heatmap-grid { display: flex; gap: 3px; }
+.heatmap-week { display: flex; flex-direction: column; gap: 3px; }
+.heatmap-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+.heatmap-cell--empty { visibility: hidden; }
+.heatmap-cell[data-level='0'] { background: var(--surface-2); }
+.heatmap-cell[data-level='1'] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+.heatmap-cell[data-level='2'] { background: color-mix(in srgb, var(--accent) 55%, var(--surface-2)); }
+.heatmap-cell[data-level='3'] { background: color-mix(in srgb, var(--accent) 78%, var(--surface-2)); }
+.heatmap-cell[data-level='4'] { background: var(--accent); }
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.heatmap-legend span { margin: 0 3px; }
+
 /* Command palette (Cmd-K) — overlay convention mirrors .confirm-backdrop,
    but top-anchored like a spotlight search rather than centered. */
 .cmdk-backdrop {

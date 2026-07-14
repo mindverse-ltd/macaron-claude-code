@@ -34,6 +34,81 @@ type SortKey = keyof Pick<
 
 const SESSION_CAP = 100;
 
+const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// GitHub-style contribution grid over the active window, one cell per day
+// (columns = weeks, rows = weekday), shaded by that day's message count.
+function UsageHeatmap({ daily, since, until }: { daily: AnalyticsResponse['daily']; since: number; until: number }) {
+  const grid = useMemo(() => {
+    const byDay = new Map(daily.map((d) => [d.date, d.messageCount]));
+    // Clamp an 'all'-window (since=0) to the earliest active day so the grid stays compact.
+    const earliest = daily.length ? new Date(daily[0]!.date + 'T00:00:00').getTime() : until;
+    const start = new Date(Math.max(since, earliest));
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - start.getDay()); // back up to Sunday
+    const end = new Date(until);
+    end.setHours(0, 0, 0, 0);
+
+    const weeks: Array<Array<{ key: string; count: number; inRange: boolean } | null>> = [];
+    const months: Array<{ col: number; label: string }> = [];
+    let max = 0;
+    for (let cursor = new Date(start), col = 0; cursor <= end; col++) {
+      const week: Array<{ key: string; count: number; inRange: boolean } | null> = [];
+      for (let row = 0; row < 7; row++) {
+        const ts = cursor.getTime();
+        const key = dateKey(cursor);
+        const inRange = ts >= since && ts <= until;
+        const count = inRange ? byDay.get(key) ?? 0 : 0;
+        if (count > max) max = count;
+        week.push({ key, count, inRange });
+        if (row === 0 && cursor.getDate() <= 7) months.push({ col, label: MONTHS[cursor.getMonth()]! });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      weeks.push(week);
+    }
+    return { weeks, months, max };
+  }, [daily, since, until]);
+
+  const level = (count: number) => {
+    if (count <= 0 || grid.max <= 0) return 0;
+    return Math.min(4, Math.ceil((count / grid.max) * 4));
+  };
+
+  return (
+    <div className="heatmap">
+      <div className="heatmap-months">
+        {grid.months.map((m, i) => (
+          <span key={i} style={{ gridColumnStart: m.col + 1 }}>{m.label}</span>
+        ))}
+      </div>
+      <div className="heatmap-grid">
+        {grid.weeks.map((week, wi) => (
+          <div key={wi} className="heatmap-week">
+            {week.map((cell, di) =>
+              cell && cell.inRange ? (
+                <div
+                  key={di}
+                  className="heatmap-cell"
+                  data-level={level(cell.count)}
+                  title={`${cell.key}: ${cell.count} message${cell.count === 1 ? '' : 's'}`}
+                />
+              ) : (
+                <div key={di} className="heatmap-cell heatmap-cell--empty" />
+              ),
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-legend">
+        <span>Less</span>
+        {[0, 1, 2, 3, 4].map((l) => <div key={l} className="heatmap-cell" data-level={l} />)}
+        <span>More</span>
+      </div>
+    </div>
+  );
+}
+
 export function Analytics() {
   const [window, setWindow] = useState('30d');
   const [data, setData] = useState<AnalyticsResponse | null>(null);
@@ -129,6 +204,15 @@ export function Analytics() {
               <div className="stat-value">{int(totals.sessionCount)}</div>
               <div className="stat-sub">{dailyChart.length} active day{dailyChart.length === 1 ? '' : 's'}</div>
             </div>
+          </div>
+
+          <div className="usage-panel">
+            <h2 className="sec-title">Activity</h2>
+            {dailyChart.length === 0 ? (
+              <p className="muted">No activity in this window.</p>
+            ) : (
+              <UsageHeatmap daily={data.daily} since={data.since} until={data.until} />
+            )}
           </div>
 
           <div className="usage-panel">
