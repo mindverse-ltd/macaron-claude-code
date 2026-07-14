@@ -6,7 +6,7 @@ import path from 'node:path';
 import { structure } from 'fumadocs-core/mdx-plugins/remark-structure';
 import { initAdvancedSearch } from 'fumadocs-core/search/server';
 import { oramaStaticClient } from 'fumadocs-core/search/client/orama-static';
-import { buildIndex, sanitizeSearchText, collectCloserNames } from './search-index';
+import { buildIndex, sanitizeSearchText, pairResidues } from './search-index';
 
 // Unit: the sanitizer strips markdown/entity artifacts WITHOUT mangling
 // technical identifiers. The old regex stack turned `MACARON_CODEX_TRANSPORT`
@@ -62,8 +62,8 @@ test('sanitizeSearchText strips markup but preserves identifiers', () => {
 test('real structure() split chunks: residue never leaks, prose survives', () => {
   const clean = (raw: string) => {
     const chunks = structure(raw).contents.map((c) => c.content);
-    const closers = collectCloserNames(chunks);
-    return chunks.map((c) => sanitizeSearchText(c, closers));
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
 
   // A template literal in a `<Tabs items={…}>` attribute, split off as its own
@@ -101,8 +101,8 @@ test('real structure() split chunks: residue never leaks, prose survives', () =>
 test('real structure() split chunks: escaped quotes, generic defaults, OOB entities', () => {
   const clean = (raw: string) => {
     const chunks = structure(raw).contents.map((c) => c.content);
-    const closers = collectCloserNames(chunks);
-    return chunks.map((c) => sanitizeSearchText(c, closers));
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
 
   // A backslash-escaped backtick inside the template, and a backslash-escaped quote
@@ -262,17 +262,17 @@ test('real structure() split chunks: escaped quotes, generic defaults, OOB entit
   assert.deepEqual(clean('before <!-- secret --> visible'), ['before visible']);
 });
 
-// EVE round 13 — re-converge the JSX/TS decision on a CROSS-CHUNK signal instead of a
-// per-chunk oracle union. structure() emits a `</Name>` closing residue for every real
-// flow component but never for a TS generic, so the page-wide `</Name>` set (collectCloserNames)
-// is the authority that separates genuinely-ambiguous openers (`<out disabled>` component vs
-// `<out T = "x">` generic) that BOTH grammars accept. Each raw sample is fed through real
-// structure() with the page-wide closer set, exactly as buildIndex does.
+// EVE round 13 — re-converge the JSX/TS decision on a cross-chunk signal instead of a
+// per-chunk oracle union. structure() emits a closing residue for every real flow component
+// but never for a TS generic, so positional residue pairing (pairResidues) is the authority
+// that separates genuinely-ambiguous openers (`<out disabled>` component vs `<out T = "x">`
+// generic) that BOTH grammars accept. Each raw sample is fed through real structure() with the
+// page-wide paired-position set, exactly as buildIndex does.
 test('real structure() cross-chunk closer pairing: lossy openers, ambiguous keywords, own-line >', () => {
   const clean = (raw: string) => {
     const chunks = structure(raw).contents.map((c) => c.content);
-    const closers = collectCloserNames(chunks);
-    return chunks.map((c) => sanitizeSearchText(c, closers));
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
 
   // Blocker 1 — a glued opener whose attribute holds an escaped quote / escaped template
@@ -298,9 +298,12 @@ test('real structure() cross-chunk closer pairing: lossy openers, ambiguous keyw
     assert.ok(!r.some((t) => new RegExp(`${needle}|instanceof=|ns\\.Qualified`).test(t)), `ambiguous opener ${open} leaked: ${JSON.stringify(r)}`);
     assert.ok(r.some((t) => t.includes(body)), `ambiguous opener ${open} body must survive: ${JSON.stringify(r)}`);
   }
-  // A `<const dataÉ="x">` component with a Unicode attribute, paired by a page closer, strips.
+  // A whole-chunk `<const dataÉ="x">` (Unicode attribute name, no page closer): grammatically
+  // this is a VALID TS variance/modifier generic — identical in shape to `<const T = "x">` —
+  // so no grammar oracle can tell it apart from prose. Deleting a real generic is the worse
+  // failure, so it is KEPT searchable rather than stripped as a speculative component.
   const constUni = clean('<const dataÉ="CONSTUNINEEDLE">\n\n## H\n\nconstunibody\n\n</const>');
-  assert.ok(!constUni.some((t) => /CONSTUNINEEDLE|<const|dataÉ/.test(t)), `const-unicode opener leaked: ${JSON.stringify(constUni)}`);
+  assert.ok(constUni.some((t) => /CONSTUNINEEDLE/.test(t)), `const-unicode generic must stay searchable: ${JSON.stringify(constUni)}`);
   assert.ok(constUni.some((t) => t.includes('constunibody')), `const-unicode body must survive: ${JSON.stringify(constUni)}`);
 
   // Blocker 2 reverse — a genuinely-VALID no-space generic default (`<in T = "…">`) has NO
@@ -324,6 +327,106 @@ test('real structure() cross-chunk closer pairing: lossy openers, ambiguous keyw
     assert.ok(!r.some((s) => new RegExp(`<${tag.replace('$', '\\$')}`).test(s)), `no-attr paired <${tag}> leaked: ${JSON.stringify(r)}`);
     assert.ok(r.some((s) => s.includes(body)), `no-attr paired <${tag}> body must survive: ${JSON.stringify(r)}`);
   }
+});
+
+// EVE round 14 — real-chain reproductions the page-level closer-NAME set (round 13) got wrong.
+// The pairing is now POSITIONAL, hierarchy- and code-span-aware, name scanning is by Unicode
+// code point (astral + namespaced), and the whole-chunk `standalone` tie-break is gone.
+test('real structure() positional pairing: lossy > recovery, code-span closers, prose generics, astral names', () => {
+  const clean = (raw: string) => {
+    const chunks = structure(raw).contents.map((c) => c.content);
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
+  };
+
+  // Blocker 1 — an escaped-quote / template attribute that itself CONTAINS a `>`: the scan must
+  // not treat that inner `>` as the tag end. Glued opener → body + suffix survive; chunk-start
+  // opener → whole opener (and its needle) dropped, the body survives.
+  const gq = clean('prefix<Panel title="a \\" > b QUOTEATTRNEEDLE">visiblebodyA</Panel>suffixA');
+  assert.ok(!gq.some((t) => /QUOTEATTRNEEDLE|<Panel|title=/.test(t)), `glued quote>-attr leaked: ${JSON.stringify(gq)}`);
+  assert.ok(gq.some((t) => /prefix/.test(t) && /visiblebodyA/.test(t) && /suffixA/.test(t)), `glued quote>-attr body/suffix lost: ${JSON.stringify(gq)}`);
+  const gt = clean('prefix<Panel title={`a } > b TPLATTRNEEDLE`}>visiblebodyB</Panel>suffixB');
+  assert.ok(!gt.some((t) => /TPLATTRNEEDLE|<Panel|title=/.test(t)), `glued template>-attr leaked: ${JSON.stringify(gt)}`);
+  assert.ok(gt.some((t) => /prefix/.test(t) && /visiblebodyB/.test(t) && /suffixB/.test(t)), `glued template>-attr body/suffix lost: ${JSON.stringify(gt)}`);
+  const cs = clean('<Panel title="a \\" > b CSNEEDLE">\n\n## H\n\ncsbody\n\n</Panel>');
+  assert.ok(!cs.some((t) => /CSNEEDLE|<Panel|title=/.test(t)), `chunk-start quote>-attr leaked: ${JSON.stringify(cs)}`);
+  assert.ok(cs.includes('csbody'), `chunk-start quote>-attr body lost: ${JSON.stringify(cs)}`);
+
+  // Blocker 2 — a code-span `` `</T>` `` literal in one chunk must NOT pair off (and delete) a
+  // real `<T, U = …>` generic / inline `<in>…</in>` prose in another section.
+  assert.ok(clean('`</T>`\n\n## H\n\ntype X\\<T, U="CODECLOSERNEEDLE"> here').some((t) => t.includes('CODECLOSERNEEDLE')), 'code-span closer wrongly deleted a real generic');
+  assert.ok(clean('a <in>x</in> b\n\n## H\n\ntype P\\<in T="INLINEINNEEDLE"> here').some((t) => t.includes('INLINEINNEEDLE')), 'inline <in> pairing wrongly deleted a cross-section modifier generic');
+
+  // Blocker 3 — a whole-chunk prose generic with a modifier default (`out`/`in`/`const`) must
+  // NOT be deleted by any standalone tie-break — the needle stays searchable.
+  assert.deepEqual(clean('type Producer\\<out T = "OUTWHOLENEEDLE">'), ['type Producer<out T = "OUTWHOLENEEDLE">']);
+  assert.deepEqual(clean('type Consumer\\<in T = "INWHOLENEEDLE">'), ['type Consumer<in T = "INWHOLENEEDLE">']);
+  assert.deepEqual(clean('function f\\<const T = "CONSTWHOLENEEDLE">'), ['function f<const T = "CONSTWHOLENEEDLE">']);
+
+  // Blocker 4 — astral (`𐐀`, a surrogate pair) and namespaced (`ns:tag`) paired tags: the name
+  // scan must read whole code points and include `:`, so opener/attr/closer are all removed.
+  const astral = clean('<𐐀Panel x={["ASTRALNEEDLE"]}>\n\n## H\n\nastralbody\n\n</𐐀Panel>');
+  assert.ok(!astral.some((t) => /ASTRALNEEDLE|𐐀Panel/.test(t)), `astral tag leaked: ${JSON.stringify(astral)}`);
+  assert.ok(astral.includes('astralbody'), `astral body lost: ${JSON.stringify(astral)}`);
+  const nsColon = clean('<ns:tag x={["NSCOLONNEEDLE"]}>\n\n## H\n\nnscolonbody\n\n</ns:tag>');
+  assert.ok(!nsColon.some((t) => /NSCOLONNEEDLE|ns:tag/.test(t)), `namespaced-colon tag leaked: ${JSON.stringify(nsColon)}`);
+  assert.ok(nsColon.includes('nscolonbody'), `namespaced-colon body lost: ${JSON.stringify(nsColon)}`);
+
+  // Positional hierarchy — a same-name nested split (`<AoutÉ>…<BinÉ>…</BinÉ>…</AoutÉ>`) pairs by
+  // nesting depth, so both openers' attribute needles are stripped and both bodies survive.
+  const nested = clean('<AoutÉ x={["OUTERN"]}>\n\n## H\n\n<BinÉ y={["INNERN"]}>\n\n### H2\n\ninnerbody\n\n</BinÉ>\n\nmidbody\n\n</AoutÉ>');
+  assert.ok(!nested.some((t) => /OUTERN|INNERN|AoutÉ|BinÉ/.test(t)), `nested residue leaked: ${JSON.stringify(nested)}`);
+  assert.ok(nested.some((t) => t.includes('innerbody')) && nested.some((t) => t.includes('midbody')), `nested bodies lost: ${JSON.stringify(nested)}`);
+});
+
+// EVE round 15 — the exact real-chain counterexamples that survived round 14: a lossy
+// `>`-inside-`{…}` recovery that cut inside the attribute, a same-name inner generic in a
+// component body that the pairing stack mispaired, and a bare `<out/in/const T="x">` generic
+// wrongly emptied by the standalone `hasAttrShape` strip. Each is fed through real structure().
+test('real structure() round-15: lossy-expression recovery, same-name inner generic, bare modifier generics', () => {
+  const clean = (raw: string) => {
+    const chunks = structure(raw).contents.map((c) => c.content);
+    const paired = pairResidues(chunks);
+    return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
+  };
+
+  // Blocker 1 — the lossy `>` lives INSIDE an `items={[…]}` expression: recovery must find the
+  // real tag end at brace-depth 0, not the `>` hiding in the attribute. A paired chunk-start
+  // opener, a glued chunk-start opener, and a template variant all keep body/suffix, drop needle.
+  const e1p = clean('<Tabs items={["a \\" > LOSSYQUOTEATTRNEEDLE", "c"]}>\n\n## H\n\nbodyE1\n\n</Tabs>');
+  assert.ok(!e1p.some((t) => /LOSSYQUOTEATTRNEEDLE|items=|<Tabs/.test(t)), `lossy-expr paired leaked: ${JSON.stringify(e1p)}`);
+  assert.ok(e1p.includes('bodyE1'), `lossy-expr paired body lost: ${JSON.stringify(e1p)}`);
+  const e1g = clean('prefix <Tabs items={["a \\" > CHUNKSTARTNEEDLE"]}>visbody</Tabs>suf');
+  assert.ok(!e1g.some((t) => /CHUNKSTARTNEEDLE|items=|<Tabs/.test(t)), `lossy-expr glued leaked: ${JSON.stringify(e1g)}`);
+  assert.ok(e1g.some((t) => /prefix/.test(t) && /visbody/.test(t) && /suf/.test(t)), `lossy-expr glued body/suffix lost: ${JSON.stringify(e1g)}`);
+  const e1t = clean('<Tabs items={[`a \\` > TPLLEAKNEEDLE`, `c`]}>\n\n## H\n\nbodyTPL\n\n</Tabs>');
+  assert.ok(!e1t.some((t) => /TPLLEAKNEEDLE|items=|<Tabs/.test(t)), `lossy-expr template leaked: ${JSON.stringify(e1t)}`);
+  assert.ok(e1t.includes('bodyTPL'), `lossy-expr template body lost: ${JSON.stringify(e1t)}`);
+
+  // Blocker 2 — a component body contains a SAME-NAME generic type-argument list
+  // (`factory()\<𐐀Panel, INNER>()`). The pairing stack must not treat `<Name, …>` (a top-level
+  // `,` right after the name = a TS type-arg list) as an opener, or the outer `</Name>` pops the
+  // inner generic and deletes it. The inner needle stays searchable; the outer opener strips.
+  for (const [name, outer, inner] of [
+    ['𐐀Panel', 'OUTERE2', 'INNERGENERIC'],
+    ['$Panel', 'OUTDOLLAR', 'INNERDOLLAR'],
+    ['_Panel', 'OUTUS', 'INNERUS'],
+    ['ns.Qualified', 'OUTNSQ', 'INNERNSQ'],
+  ] as const) {
+    const r = clean(`<${name} x={["${outer}"]}>\n\n## H\n\nfactory()\\<${name}, ${inner}>()\n\n</${name}>`);
+    assert.ok(!r.some((t) => t.includes(outer)), `inner-generic ${name}: outer opener leaked: ${JSON.stringify(r)}`);
+    assert.ok(r.some((t) => t.includes(inner)), `inner-generic ${name}: inner generic wrongly deleted: ${JSON.stringify(r)}`);
+    assert.ok(r.some((t) => t.includes('factory')), `inner-generic ${name}: body prose lost: ${JSON.stringify(r)}`);
+  }
+
+  // Blocker 3 — a bare `<out/in/const T="x">` (no-space attribute form) is a VALID TS
+  // variance/modifier generic, not a component: it must stay searchable even standalone. The
+  // grammatically-identical `<const dataÉ="x">` is likewise kept (a real generic must never be
+  // deleted on speculation), which the round-14 test wrongly asserted the other way.
+  assert.deepEqual(clean('\\<out T="OUTNOSPACE">'), ['<out T="OUTNOSPACE">']);
+  assert.deepEqual(clean('\\<in T="INNOSPACE">'), ['<in T="INNOSPACE">']);
+  assert.deepEqual(clean('\\<const T="CONSTNOSPACE">'), ['<const T="CONSTNOSPACE">']);
+  assert.ok(clean('lead\n\n## H\n\n\\<out T="WHOLEOUTNOSPACE">').some((t) => t.includes('WHOLEOUTNOSPACE')), 'whole-chunk bare out-generic wrongly deleted');
 });
 
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
