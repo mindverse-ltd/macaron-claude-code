@@ -174,6 +174,31 @@ test('snapshot handoff rejects stale and partial JSONL, then accepts the complet
   assert.equal(snapshotCoversLiveTurn(complete, turn), true);
 });
 
+test('snapshot handoff tolerates persisted assistant line-ending and trailing-space normalization', () => {
+  const startedAt = Date.parse('2026-07-14T10:00:00.000Z');
+  const turn = fingerprintLiveTurn({
+    cwd: '/repo',
+    startedAt,
+    userText: 'hello',
+    userImages: [],
+    timeline: [{ kind: 'text', id: 'live-t-1', text: 'first\r\nsecond  \r\n' }],
+    outputTokens: 4,
+    done: true,
+    terminalSeen: true,
+  });
+  const timestamp = '2026-07-14T10:00:00.100Z';
+  const normalized: Message[] = [
+    transcriptMessage('user', timestamp, [{ kind: 'text', text: 'hello' }]),
+    transcriptMessage('assistant', timestamp, [{ kind: 'text', text: 'first\nsecond' }]),
+  ];
+
+  assert.equal(snapshotCoversLiveTurn(normalized, turn), true);
+  assert.equal(snapshotCoversLiveTurn([
+    normalized[0]!,
+    transcriptMessage('assistant', timestamp, [{ kind: 'text', text: 'first' }]),
+  ], turn), false);
+});
+
 test('snapshot handoff waits for persisted tool results that were visible live', () => {
   const startedAt = Date.parse('2026-07-14T10:00:00.000Z');
   const live: LiveState = {

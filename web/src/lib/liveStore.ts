@@ -137,6 +137,10 @@ function matchesLiveUser(message: Message, turn: LiveTurnFingerprint): boolean {
       && image.data === expectedImages[index]?.data);
 }
 
+function persistedAssistantText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').trimEnd();
+}
+
 /**
  * True only when the persisted transcript contains the complete live turn.
  * A message count cannot prove this: JSONL may expose an old history or only
@@ -172,7 +176,7 @@ export function snapshotCoversLiveTurn(messages: Message[], turn: LiveTurnFinger
   // An explicitly terminal empty/error turn is complete once its current user
   // record is present. Non-empty turns still require every visible assistant
   // fragment and resolved tool result below.
-  return assistantText === turn.assistantText
+  return persistedAssistantText(assistantText) === persistedAssistantText(turn.assistantText)
     && turn.toolUseIds.every((id) => toolUseIds.has(id))
     && turn.resolvedToolUseIds.every((id) => resolvedToolUseIds.has(id));
 }
