@@ -273,7 +273,10 @@ export function pairResidues(chunks: string[]): Set<string> {
           // nearest opener by LIFO, so an earlier glued generic can't steal a later flow's closer regardless
           // of source order (EVE round-30 STALEGLUED29 → REALGLUED29 order-independence).
           const budget = genericFlowBudget.get(tag.name) ?? 0, reserve = standaloneReserve.get(tag.name) ?? 0;
-          if (generic && glued && tag.closed) { const r = (gluedRemaining.get(tag.name) ?? 0) - 1; gluedRemaining.set(tag.name, r); }
+          // Only a glued generic that pre-scan actually COUNTED into gluedGenerics advances the remaining
+          // window — a proseGlued opener was skipped there, so decrementing on it would shift the window and
+          // hand a scarce closer to an EARLIER glued generic (EVE round-31 STALESHIFT31 → REALSHIFT31).
+          if (generic && glued && tag.closed && !proseGlued) { const r = (gluedRemaining.get(tag.name) ?? 0) - 1; gluedRemaining.set(tag.name, r); }
           const gluedWins = !glued || (gluedRemaining.get(tag.name) ?? 0) < (gluedSlots.get(tag.name) ?? 0);
           const genericFlow = !inBody && generic && tag.closed && budget > 0 && (!glued || budget > reserve) && gluedWins;
           if (genericFlow) { genericFlowBudget.set(tag.name, budget - 1); if (!glued && reserve > 0) standaloneReserve.set(tag.name, reserve - 1); }
@@ -448,16 +451,15 @@ function isTsGeneric(body: string): boolean {
   return clean(`type _<${inner}> = 0;`) || clean(`f<${inner}>();`) || clean(`x = a<${inner}>b;`);
 }
 
-// Does `name<inner>` parse as a generic in OPERAND position — a call `f<…>()` or a relational
-// `a<…>b`, but NOT the standalone type-parameter-list context? A GLUED opener (`Box<$Panel>`,
-// `Foo<Bar, Baz>` — real prose preceding `<`) sits after an operand, so a valid operand-position
-// parse proves it is a TS instantiation / type-argument, not component residue. A residue opener
-// (`$Panel extends X`, `$Panel a="1"`) rejects in operand position. This is the grammar signal that
-// replaces guessing the opener's role from the character after its `>`.
+// Does `name<inner>` parse as a generic in CALL-ARGUMENT position — `f<…>()`? A GLUED opener
+// (`Box<$Panel>`, `Foo<Bar, Baz>` — real prose preceding `<`) sits after an operand, so a valid
+// type-argument-list parse proves it is a TS instantiation / type-argument, not component residue. A
+// residue opener rejects: `$Panel extends X` (not a type-arg list), and — crucially — a JSX boolean
+// prop `$Panel in X` / `$Panel as X` / `$Panel satisfies X` too. The relational template `a<…>b` was
+// dropped: it wrongly accepted those boolean props as a binary-operator chain (`a < $Panel in X > b`).
 function gluedGeneric(inner: string): boolean {
   const s = deEscape(inner).replace(/\s+/g, ' ').trim();
-  const clean = (src: string) => ((ts.createSourceFile('t.ts', src, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS) as ts.SourceFile & { parseDiagnostics?: unknown[] }).parseDiagnostics ?? []).length === 0;
-  return clean(`f<${s}>();`) || clean(`x = a<${s}>b;`);
+  return ((ts.createSourceFile('t.ts', `f<${s}>();`, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS) as ts.SourceFile & { parseDiagnostics?: unknown[] }).parseDiagnostics ?? []).length === 0;
 }
 
 function opensJsxElement(body: string): boolean {
@@ -555,25 +557,33 @@ function lossyOpenerEnd(text: string, nameEnd: number, k: number): number {
   // backslash, so the string closed one char early and the DANGLING value-close quote is preceded by
   // the space that used to sit before the escaped quote (`title="a \" >…` → `…a " >`). A CLEAN opener
   // GLUES its real close-quote to the last value char (`a="1" >` — `1" >`, no space BEFORE the quote),
-  // so this never fires on an honest trailing-space tag. `leakQuote[1]` is the leaked string's quote.
+  // so this fires on an honest opener only in the pathological case of an attribute VALUE that itself
+  // ends in a literal space (`a="1 " >`), which serializes byte-identically to a dropped-quote leak —
+  // no opener-local signal can tell the two apart, so we treat the leak (the real structure() failure
+  // mode, EVE rounds 26-30) as canonical. `leakQuote[1]` is the leaked string's quote.
   const leakQuote = /\s(["'])\s+>$/.exec(text.slice(nameEnd, k));
   if (leakQuote) {
     // scanTag stopped at a FAKE `>` still INSIDE a string whose closing quote structure() dropped the
     // backslash of (`title="a \" >…` → `title="a " >…`). We are mid-string at `k`. Close that string at
     // its REAL quote, then finish a normal brace/quote/regex-aware tag scan to the tag's real `>` — so a
     // later honest attribute (`pattern={/">/.test(X)}>`) is consumed instead of leaking into the body.
+    // The decision is purely OPENER-LOCAL: the leak signature is read from the opener span, and the end
+    // is then found by a deterministic lexical scan — no dependency on the visible body's first char
+    // (an earlier `text[end]` whitespace guess both leaked a real `"> ` end and ate a clean body's `">`).
     let m = k;
     for (; m < text.length; m++) { const ch = text[m]; if (ch === '\\') { m++; continue; } if (ch === leakQuote[1]) { m++; break; } }
     const end = scanToTagEnd(text, m);
-    // Accept the recovery ONLY when the recovered `>` looks like a REAL opener end: glued to body
-    // (next char non-space) or ending the chunk. A clean opener's `>` (at `k`) already IS the end, and
-    // scanning its visible body would land on a body `">` whose `>` is followed by whitespace — reject.
-    if (end !== -1 && (end >= text.length || !/\s/.test(text[end] ?? ''))) return end;
+    if (end !== -1) return end;
   }
   // BRACKET leak — only when the opener's OWN span carried a `{…}`/`[…]` attribute expression
-  // (structure() escapes its open as `\{`/`\[`). A clean string-only attribute opener (`a="1">`) has
-  // no such expression, so an honest body `"}>` / `]>` must NOT be mistaken for a leaked bracket close.
-  if (!/\\[{[]/.test(text.slice(nameEnd, k))) return -1;
+  // (structure() escapes its open as `\{`/`\[`) AND that span is opener-provably lossy: either
+  // bracket-DESYNCED, or scanTag landed on a FAKE early `>` preceded by whitespace (`… }] >` / `… ]} >`
+  // — a dropped string-quote let the leaked closes drift, so the `>` sits after a space). A CLEAN
+  // expression attribute (`b={x}>` — the bracket close is GLUED to the real `>`, no space) is neither,
+  // so an honest body `"}>` / `]>` is never mistaken for a leaked bracket close. Opener-local: reads
+  // only the opener span, never the visible body.
+  const bspan = text.slice(nameEnd, k);
+  if (!/\\[{[]/.test(bspan) || !(bracketDesync(bspan) || /\s>$/.test(bspan))) return -1;
   let depth = 0, prevSig = '';
   for (let m = k; m < text.length; m++) {
     const ch = text[m];
@@ -582,7 +592,7 @@ function lossyOpenerEnd(text: string, nameEnd: number, k: number): number {
     if (ch === '/' && text[m + 1] === '/') { const e = text.indexOf('\n', m + 2); m = e === -1 ? text.length : e; continue; }
     if (ch === '/' && !/[\w$)\]}"'`]/.test(prevSig)) { const e = regexEnd(text, m); if (e !== -1) { m = e - 1; prevSig = '/'; continue; } } // regex only after a non-operand
     if (ch === '\\') { const n = text[m + 1]; if (n === '{' || n === '[') depth++; m++; if (n && !/\s/.test(n)) prevSig = n; continue; } // structure()'s escaped opening bracket
-    if (ch === '}' || ch === ']') { depth--; if (depth < 0) { const cb = /^[}\]]\s*>/.exec(text.slice(m)); if (cb) { const e = m + cb[0].length; if (e >= text.length || !/\s/.test(text[e] ?? '')) return e; } } }
+    if (ch === '}' || ch === ']') { depth--; if (depth < 0) { const cb = /^[}\]]\s*>/.exec(text.slice(m)); if (cb) return m + cb[0].length; } }
     if (!/\s/.test(ch)) prevSig = ch;
   }
   return -1;

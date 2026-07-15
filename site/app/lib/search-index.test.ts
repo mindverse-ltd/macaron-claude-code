@@ -1133,6 +1133,46 @@ test('real structure() round-31: opener-provable roles only — no chunk-end/bod
   assert.ok((await hits(expr, 'AFTERBR')) > 0, 'clean expression-attr trailing body lost');
 });
 
+test('real structure() round-32: JSX boolean props are not TS prose, quota counts consistently, recovery is fully opener-local', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r32', data: { title: '/r32', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+
+  // (P1-a) A glued opener carrying a JSX BOOLEAN / keyword prop (`$Panel in X`, `… as X`, `… instanceof X`,
+  // `… satisfies X`) is a real flow residue, NOT a TS instantiation. The old operand-position probe also
+  // synthesized a relational template `a<$Panel in X>b`, which parses as a binary-operator chain and wrongly
+  // classified these as prose — so the opener was skipped and its markup (`Panel`) leaked. Only the
+  // type-argument-call template `f<…>()` decides now, which rejects every boolean prop. RED on old head.
+  for (const kw of ['in', 'as', 'instanceof', 'satisfies']) {
+    const raw = `prefix<$Panel ${kw} X>! I32\n\n## H\n\nB32\n\n</$Panel>`;
+    assert.equal(await hits(raw, 'Panel'), 0, `JSX boolean prop '${kw}' misclassified as prose — markup leaked`);
+    assert.ok((await hits(raw, 'B32')) > 0, `flow body lost for boolean prop '${kw}'`);
+  }
+
+  // (P1-b) The nearest-wins glued-generic quota must count only the generics pre-scan actually counted. A
+  // leading PROSE instantiation (`type Duo<$Panel, X>.` — call-parses clean, skipped in pre-scan) used to
+  // still decrement the remaining window in the main pass, shifting the lone closer to an EARLIER glued
+  // generic (`STALESHIFT31`) instead of the nearest real flow (`REALSHIFT31`). RED on old head.
+  const shift = 'type Duo<$Panel, X>.\n\nTechnical <$Panel extends STALESHIFT31>.\n\nprefix<$Panel extends REALSHIFT31>K\n\n## H\n\nB\n\n</$Panel>';
+  assert.ok((await hits(shift, 'STALESHIFT31')) > 0, 'stale leading generic stole the closer (prose instantiation miscounted the quota)');
+  assert.equal(await hits(shift, 'REALSHIFT31'), 0, 'nearest real flow markup leaked (quota shifted)');
+
+  // (P1-c) Recovery must be decided by OPENER-LOCAL evidence only, never the visible body's first char. Two
+  // mirror failures under the old `text[end]` whitespace guess:
+  //   - a genuinely lossy opener whose recovered `>` happens to be followed by whitespace (`title="a \" >
+  //     LEAKSPACE31">   BODY…`) was WRONGLY rejected → the leaked attribute leaked;
+  //   - a clean expression attribute (`b={x}>`) whose body carries a `"}>` was WRONGLY recovered → the intro
+  //     was eaten. Now the quote branch fires purely on the opener-span leak signature, and the bracket
+  //     branch only on an opener-provably lossy (`\{`/`\[` + desynced-or-fake-`>`) span. RED on old head.
+  const leak = '<$Panel title="a \\" > LEAKSPACE31">   BODYSPACE31\n\n## H\n\nt\n\n</$Panel>';
+  assert.equal(await hits(leak, 'LEAKSPACE31'), 0, 'lossy leaked attribute survived (recovery rejected on trailing-whitespace body)');
+  const expr32 = '<$Panel b={x}>LEFTEXPR31 text "}>RIGHTEXPR31\n\n## H\n\nt\n\n</$Panel>';
+  assert.ok((await hits(expr32, 'LEFTEXPR31')) > 0, 'clean expression-attr intro eaten by body-driven bracket recovery');
+  assert.ok((await hits(expr32, 'RIGHTEXPR31')) > 0, 'clean expression-attr trailing body lost');
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
