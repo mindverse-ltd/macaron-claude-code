@@ -170,7 +170,7 @@ export function pairResidues(chunks: string[]): Set<string> {
   // budget reserves one slot per standalone generic and a glued generic only stacks on the surplus
   // ABOVE that reserve (EVE's STALEFIRST28: a leading glued generic must not steal the lone closer that
   // belongs to a later standalone real flow).
-  const closers = new Map<string, number>(), nonGenericOpeners = new Map<string, number>(), standaloneGenerics = new Map<string, number>();
+  const closers = new Map<string, number>(), nonGenericOpeners = new Map<string, number>(), standaloneGenerics = new Map<string, number>(), gluedGenerics = new Map<string, number>();
   chunks.forEach((text) => {
     let i = 0;
     while (i < text.length) {
@@ -182,21 +182,27 @@ export function pairResidues(chunks: string[]): Set<string> {
         else {
           const inner = deEscape(text.slice(tag.lt + 1, tag.closed ? tag.end - 1 : tag.end)).trim();
           const isGeneric = /[\s,=]/.test(inner) && isTsGeneric(inner);
-          // A GLUED opener is only a real component when its own `>` is immediately followed by glued
-          // body (a name-start / `<` / structure-escaped `\`) or ends the chunk (a split-flow opener) —
-          // a prose TS instantiation / generic reads with whitespace or punctuation after `>` (`Box<$Panel>
-          // holds`, `Technical<$Panel extends X>.`) and must NOT be counted as an opener that claims a closer.
+          // A GLUED closed opener is prose (a TS instantiation / type-argument — `Box<$Panel>`,
+          // `Foo<Bar, Baz>`) only when `name<inner>` parses in OPERAND position (a call `f<…>()` or a
+          // relational `a<…>b`) — the glue proves an operand sits before `<`. A residue opener never does
+          // (`$Panel extends X`, `$Panel a="1"` reject in operand position), so it is NOT skipped here. No
+          // guess on the char AFTER `>`: a real flow opener's visible intro may start with a space, digit or
+          // punctuation, which a char whitelist wrongly rejected.
           const gluedOpener = text.slice(0, tag.esc ? tag.lt - 1 : tag.lt).trim() !== '';
-          // A LOSSY opener's `>` (`tag.end`) is a FAKE early one still inside a corrupted attribute, so the
-          // char after it is meaningless — only trust the body-glued tell on a clean, EXPRESSION-free opener.
-          // An opener carrying a `{…}`/`[…]` attribute expression (structure escapes its open as `\{`/`\[`)
-          // is a JSX component regardless of what follows a possibly-fake `>`.
+          // A LOSSY opener's `>` (`tag.end`) is a FAKE early one still inside a corrupted attribute; an
+          // opener carrying a `{…}`/`[…]` attribute expression (structure escapes its open as `\{`/`\[`) is
+          // a JSX component — neither is a prose generic, so both keep counting as a real opener.
           const lossy = tag.closed ? bracketDesync(text.slice(tag.nameEnd, tag.end)) : !gluedOpener;
           const hasExprAttr = /\\[{[]/.test(text.slice(tag.nameEnd, tag.end));
-          const bodyGlued = !tag.closed || lossy || hasExprAttr || text[tag.end] === undefined || /[\p{ID_Start}$_<\\]/u.test(text[tag.end] ?? '');
-          if (gluedOpener && !bodyGlued) { i = tag.closed ? tag.end : tag.nameEnd; continue; } // prose generic/instantiation, not a residue
+          // Real component body glued right after `>` (a name-start / `<` / structure escape) is a split-flow
+          // opener whose visible intro glued — keep it. This is the ONLY sound char-after-`>` signal; the
+          // chunk-end case is NOT one (a prose instantiation like `Box<$Panel>` also ends its chunk).
+          const nameStartGlued = /[\p{ID_Start}$_<\\]/u.test(text[tag.end] ?? '');
+          const proseGlued = gluedOpener && tag.closed && !lossy && !hasExprAttr && !nameStartGlued && gluedGeneric(inner);
+          if (proseGlued) { i = tag.closed ? tag.end : tag.nameEnd; continue; } // prose instantiation/type-argument, not a residue
           if (!isGeneric) nonGenericOpeners.set(tag.name, (nonGenericOpeners.get(tag.name) ?? 0) + 1);
           else if (!gluedOpener) standaloneGenerics.set(tag.name, (standaloneGenerics.get(tag.name) ?? 0) + 1);
+          else gluedGenerics.set(tag.name, (gluedGenerics.get(tag.name) ?? 0) + 1);
         }
       }
       i = tag.closed ? tag.end : tag.nameEnd;
@@ -204,6 +210,12 @@ export function pairResidues(chunks: string[]): Set<string> {
   });
   const genericFlowBudget = new Map<string, number>(), standaloneReserve = new Map(standaloneGenerics);
   for (const [name, c] of closers) genericFlowBudget.set(name, c - (nonGenericOpeners.get(name) ?? 0));
+  // How many GLUED generics of each name may stack as flow (the surplus above the standalone reserve),
+  // and how many remain UNSEEN as the main pass advances. LIFO gives a scarce closer to the NEAREST
+  // (latest) opener, so a glued generic stacks only once the remaining-unseen count has dropped to its
+  // winning quota — the LAST `gluedSlots` win, not the first (fixes leading-generic order bias).
+  const gluedSlots = new Map<string, number>(), gluedRemaining = new Map(gluedGenerics);
+  for (const [name, n] of gluedGenerics) gluedSlots.set(name, Math.max(0, Math.min(n, (genericFlowBudget.get(name) ?? 0) - (standaloneGenerics.get(name) ?? 0))));
   chunks.forEach((text, ci) => {
     const local: { name: string; key: string; endsChunk: boolean; definite: boolean; generic: boolean }[] = [];
     let i = 0;
@@ -235,13 +247,14 @@ export function pairResidues(chunks: string[]): Set<string> {
           const inner = deEscape(text.slice(tag.lt + 1, tag.closed ? tag.end - 1 : tag.end)).trim();
           const generic = /[\s,=]/.test(inner) && isTsGeneric(inner);
           const callGlued = /[)\]>]$/.test(beforeLt); // `)`/`]`/`>` before `<` ⇒ a type-argument, never a fresh element
-          // A GLUED closed opener is prose (a TS instantiation / generic — `Box\<$Panel> holds`,
-          // `Technical\<$Panel extends X>.`) unless its `>` is followed by glued component body (a
-          // name-start / `<` / escape) or ends the chunk (a split-flow opener). Mirrors the pre-scan's
-          // budget count so a prose generic never competes with a real same-name flow for the closer.
-          const bodyGlued = !tag.closed || /\\[{[]/.test(text.slice(tag.nameEnd, tag.end)) || text[tag.end] === undefined || /[\p{ID_Start}$_<\\]/u.test(text[tag.end] ?? '');
+          // A GLUED closed opener is prose (a TS instantiation / type-argument — `Box<$Panel>`,
+          // `Foo<Bar, Baz>`) only when `name<inner>` parses in OPERAND position. Mirrors the pre-scan's
+          // budget count so a prose generic never competes with a real same-name flow for the closer. No
+          // guess on the char after `>`: a real flow opener's visible intro may start with any character.
           const lossy = tag.closed ? bracketDesync(text.slice(tag.nameEnd, tag.end)) : !glued;
-          const proseGlued = glued && tag.closed && !lossy && !bodyGlued;
+          const hasExprAttr = /\\[{[]/.test(text.slice(tag.nameEnd, tag.end));
+          const nameStartGlued = /[\p{ID_Start}$_<\\]/u.test(text[tag.end] ?? '');
+          const proseGlued = glued && tag.closed && !lossy && !hasExprAttr && !nameStartGlued && gluedGeneric(inner);
           const flowOpen = global.some((g) => g.name === tag.name && g.definite) || local.some((l) => l.name === tag.name && l.endsChunk && l.definite);
           const trailing = tag.closed && text.slice(tag.end).trim() !== ''; // content after the opener's `>` in THIS chunk
           // A same-name opener while a DEFINITE flow is open is IN-BODY prose when it is GLUED (a
@@ -255,11 +268,14 @@ export function pairResidues(chunks: string[]): Set<string> {
           const inBody = callGlued || proseGlued || (flowOpen && (glued || !tag.closed || (generic && trailing)));
           const definite = !generic && !glued && (tag.closed || lossy); // bare/attr'd real component, not generic-shaped
           // A generic-shaped opener stacks as flow only while a same-name closer remains for it (see
-          // genericFlowBudget). A STANDALONE generic draws its own reserved slot; a GLUED one only stacks
-          // on the surplus ABOVE the still-unclaimed standalone reserve, so a leading technical generic
-          // can't steal the closer a later standalone real flow needs (EVE's STALEFIRST28).
+          // genericFlowBudget). A STANDALONE generic draws its own reserved slot; a GLUED one stacks only
+          // when it is among the LAST `gluedSlots` glued generics of its name — the nearest closer pops the
+          // nearest opener by LIFO, so an earlier glued generic can't steal a later flow's closer regardless
+          // of source order (EVE round-30 STALEGLUED29 → REALGLUED29 order-independence).
           const budget = genericFlowBudget.get(tag.name) ?? 0, reserve = standaloneReserve.get(tag.name) ?? 0;
-          const genericFlow = !inBody && generic && tag.closed && budget > 0 && (!glued || budget > reserve);
+          if (generic && glued && tag.closed) { const r = (gluedRemaining.get(tag.name) ?? 0) - 1; gluedRemaining.set(tag.name, r); }
+          const gluedWins = !glued || (gluedRemaining.get(tag.name) ?? 0) < (gluedSlots.get(tag.name) ?? 0);
+          const genericFlow = !inBody && generic && tag.closed && budget > 0 && (!glued || budget > reserve) && gluedWins;
           if (genericFlow) { genericFlowBudget.set(tag.name, budget - 1); if (!glued && reserve > 0) standaloneReserve.set(tag.name, reserve - 1); }
           const flow = !inBody && (definite || lossy || (generic ? genericFlow : tag.closed));
           // A same-name UNCLOSED in-body generic reads as a JSX opener to the per-chunk grammar (`\<$Panel
@@ -432,6 +448,18 @@ function isTsGeneric(body: string): boolean {
   return clean(`type _<${inner}> = 0;`) || clean(`f<${inner}>();`) || clean(`x = a<${inner}>b;`);
 }
 
+// Does `name<inner>` parse as a generic in OPERAND position — a call `f<…>()` or a relational
+// `a<…>b`, but NOT the standalone type-parameter-list context? A GLUED opener (`Box<$Panel>`,
+// `Foo<Bar, Baz>` — real prose preceding `<`) sits after an operand, so a valid operand-position
+// parse proves it is a TS instantiation / type-argument, not component residue. A residue opener
+// (`$Panel extends X`, `$Panel a="1"`) rejects in operand position. This is the grammar signal that
+// replaces guessing the opener's role from the character after its `>`.
+function gluedGeneric(inner: string): boolean {
+  const s = deEscape(inner).replace(/\s+/g, ' ').trim();
+  const clean = (src: string) => ((ts.createSourceFile('t.ts', src, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS) as ts.SourceFile & { parseDiagnostics?: unknown[] }).parseDiagnostics ?? []).length === 0;
+  return clean(`f<${s}>();`) || clean(`x = a<${s}>b;`);
+}
+
 function opensJsxElement(body: string): boolean {
   const inner = deEscape(body).replace(/\s+/g, ' ').trim();
   if (isTsGeneric(body)) return false; // valid TS → prose, keep
@@ -537,7 +565,10 @@ function lossyOpenerEnd(text: string, nameEnd: number, k: number): number {
     let m = k;
     for (; m < text.length; m++) { const ch = text[m]; if (ch === '\\') { m++; continue; } if (ch === leakQuote[1]) { m++; break; } }
     const end = scanToTagEnd(text, m);
-    if (end !== -1) return end;
+    // Accept the recovery ONLY when the recovered `>` looks like a REAL opener end: glued to body
+    // (next char non-space) or ending the chunk. A clean opener's `>` (at `k`) already IS the end, and
+    // scanning its visible body would land on a body `">` whose `>` is followed by whitespace — reject.
+    if (end !== -1 && (end >= text.length || !/\s/.test(text[end] ?? ''))) return end;
   }
   // BRACKET leak — only when the opener's OWN span carried a `{…}`/`[…]` attribute expression
   // (structure() escapes its open as `\{`/`\[`). A clean string-only attribute opener (`a="1">`) has
@@ -551,7 +582,7 @@ function lossyOpenerEnd(text: string, nameEnd: number, k: number): number {
     if (ch === '/' && text[m + 1] === '/') { const e = text.indexOf('\n', m + 2); m = e === -1 ? text.length : e; continue; }
     if (ch === '/' && !/[\w$)\]}"'`]/.test(prevSig)) { const e = regexEnd(text, m); if (e !== -1) { m = e - 1; prevSig = '/'; continue; } } // regex only after a non-operand
     if (ch === '\\') { const n = text[m + 1]; if (n === '{' || n === '[') depth++; m++; if (n && !/\s/.test(n)) prevSig = n; continue; } // structure()'s escaped opening bracket
-    if (ch === '}' || ch === ']') { depth--; if (depth < 0) { const cb = /^[}\]]\s*>/.exec(text.slice(m)); if (cb) return m + cb[0].length; } }
+    if (ch === '}' || ch === ']') { depth--; if (depth < 0) { const cb = /^[}\]]\s*>/.exec(text.slice(m)); if (cb) { const e = m + cb[0].length; if (e >= text.length || !/\s/.test(text[e] ?? '')) return e; } } }
     if (!/\s/.test(ch)) prevSig = ch;
   }
   return -1;

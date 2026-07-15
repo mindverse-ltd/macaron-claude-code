@@ -1087,6 +1087,52 @@ test('real structure() round-30: glued budget LIFO, prose instantiation, opener-
   assert.ok((await hits(reg, 'BODYQ29')) > 0, 'regex-case visible body lost');
 });
 
+test('real structure() round-31: opener-provable roles only — no chunk-end/body-first-char guessing, recovery gated on opener lossiness', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r31', data: { title: '/r31', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+
+  // (A) A glued technical generic whose `>` lands at the CHUNK END (`type Box<$Panel>` on its own line, nothing
+  // after the `>`) is prose, not a residue: its token survives AND — critically — it must not be counted as an
+  // opener that claims the lone same-name closer. The old code auto-realed any glued opener sitting at chunk end,
+  // so the later real `<$Panel …>` flow lost the closer and leaked its markup. Grammar (operand-position parse)
+  // now decides the role. RED on old head: `REALCLOSE` markup leaked; GREEN now.
+  const gen = 'type Box<$Panel>\n\nGENTOK\n\n<$Panel extends REALCLOSE>\n\n## H\n\nBODYEND\n\n</$Panel>';
+  assert.ok((await hits(gen, 'GENTOK')) > 0, 'chunk-end technical generic token dropped');
+  assert.equal(await hits(gen, 'REALCLOSE'), 0, 'real flow markup leaked (chunk-end generic stole the closer)');
+  assert.ok((await hits(gen, 'BODYEND')) > 0, 'real flow body lost');
+
+  // (A2/A3/A4) A real flow opener whose body starts with whitespace / a digit / punctuation must still drop
+  // its markup — the old code auto-realed an opener when its body-first char was outside a whitelist, guessing
+  // the role from the first content byte. Grammar-only: these are genuine flow residues, markup drops, body keeps.
+  const space = '<FLOWSPACE30 a="1">   visible space intro\n\n## H\n\nbody-space\n\n</FLOWSPACE30>';
+  assert.equal(await hits(space, 'FLOWSPACE30'), 0, 'whitespace-intro flow markup leaked');
+  assert.ok((await hits(space, 'visible')) > 0 && (await hits(space, 'body-space')) > 0, 'whitespace-intro flow content lost');
+  const digit = '<FLOWDIGIT30 a="1">7 visible digit intro\n\n## H\n\nbody-digit\n\n</FLOWDIGIT30>';
+  assert.equal(await hits(digit, 'FLOWDIGIT30'), 0, 'digit-intro flow markup leaked');
+  assert.ok((await hits(digit, 'visible')) > 0 && (await hits(digit, 'body-digit')) > 0, 'digit-intro flow content lost');
+  const punct = '<FLOWPUNCT30 a="1">! visible punct intro\n\n## H\n\nbody-punct\n\n</FLOWPUNCT30>';
+  assert.equal(await hits(punct, 'FLOWPUNCT30'), 0, 'punct-intro flow markup leaked');
+  assert.ok((await hits(punct, 'visible')) > 0 && (await hits(punct, 'body-punct')) > 0, 'punct-intro flow content lost');
+
+  // (B) A CLEAN attributed opener with a legitimate trailing space before its `>` (`a="1" >`) is not lossy —
+  // quote recovery must not scan its visible body. Both single- and double-quoted forms keep their body tokens.
+  const dq = '<$Panel a="1" >LEFTTRAIL30 body RIGHTTRAIL30\n\n## H\n\ntail\n\n</$Panel>';
+  assert.ok((await hits(dq, 'LEFTTRAIL30')) > 0 && (await hits(dq, 'RIGHTTRAIL30')) > 0, 'clean trailing-space (double-quote) body scanned as leaked');
+  const sq = "<$Panel a='1' >LEFTTRAILSQ body RIGHTTRAILSQ\n\n## H\n\ntail\n\n</$Panel>";
+  assert.ok((await hits(sq, 'LEFTTRAILSQ')) > 0 && (await hits(sq, 'RIGHTTRAILSQ')) > 0, 'clean trailing-space (single-quote) body scanned as leaked');
+
+  // (C) A CLEAN expression attribute (`b={x}`) is not lossy — bracket recovery must not fire on it. The old
+  // code, on seeing a later `"}> ` / `]> ` sequence in the visible body, treated the whole opener as a leaked
+  // bracket attribute and swallowed everything up to that body `>`, dropping the intro. RED on old head:
+  // `EATBR` intro eaten; GREEN now (recovery only fires when the opener itself is bracket-desynced).
+  const expr = '<$Panel b={x}>EATBR arr "}> AFTERBR text\n\n## H\n\ntail\n\n</$Panel>';
+  assert.ok((await hits(expr, 'EATBR')) > 0, 'clean expression-attr intro eaten by spurious bracket recovery');
+  assert.ok((await hits(expr, 'AFTERBR')) > 0, 'clean expression-attr trailing body lost');
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
