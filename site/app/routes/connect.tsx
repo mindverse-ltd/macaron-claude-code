@@ -3,24 +3,7 @@ import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { useState, useEffect } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { baseOptions } from '@/lib/layout.shared';
-import { buildTarget } from '@/lib/connect-target';
-
-// Remove any `token` query param from what the user pasted, so a rejected or
-// completed attempt never leaves the secret visible in the URL input. Falls
-// back to a regex when the value isn't a parseable URL (e.g. bare host).
-function stripToken(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return raw;
-  try {
-    const u = new URL(/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(trimmed) ? trimmed : `https://${trimmed}`);
-    if (!u.searchParams.has('token')) return raw;
-    u.searchParams.delete('token');
-    // Rebuild without the scheme we may have added, keeping it close to input.
-    return /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(trimmed) ? u.toString() : u.toString().replace(/^https:\/\//, '');
-  } catch {
-    return trimmed.replace(/([?&])token=[^&#]*(&?)/i, (_m, sep, amp) => (amp ? sep : '')).replace(/[?&]$/, '');
-  }
-}
+import { submit, onRestore } from '@/lib/connect-state';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -39,26 +22,18 @@ export default function Connect() {
   // DOM would otherwise show.
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
-      if (e.persisted) { setToken(''); setUrl((u) => stripToken(u)); }
+      if (e.persisted) { const s = onRestore({ url, token, error }); setUrl(s.url); setToken(s.token); }
     };
     window.addEventListener('pageshow', onShow);
     return () => window.removeEventListener('pageshow', onShow);
-  }, []);
+  }, [url, token, error]);
 
   const go = () => {
-    const r = buildTarget(url, token, window.location.origin);
-    if ('error' in r) {
-      setError(r.error);
-      // Don't leave a token sitting in visible inputs / the DOM on a rejected
-      // attempt: drop the field token and strip any `?token=` from the URL box.
-      setToken('');
-      setUrl((u) => stripToken(u));
-      return;
-    }
-    setError('');
-    setToken('');
-    setUrl((u) => stripToken(u)); // clear before we navigate, so Back/BFCache can't restore a token
-    window.location.assign(r.href); // full navigation to the server's own WebUI — no token kept here
+    const { state, navigate } = submit(url, token, window.location.origin);
+    setUrl(state.url);
+    setToken(state.token);
+    setError(state.error);
+    if (navigate) window.location.assign(navigate); // full navigation to the server's own WebUI — no token kept here
   };
 
   return (

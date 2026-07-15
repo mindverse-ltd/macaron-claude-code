@@ -20,6 +20,16 @@
 
 export type BuildResult = { href: string } | { error: string };
 
+// Compare a parsed URL's origin against `selfOrigin`, treating a hostname that
+// differs only by a single trailing dot (`host` vs `host.`) as the same origin.
+function sameOrigin(parsed: URL, selfOrigin: string): boolean {
+  let self: URL;
+  try { self = new URL(selfOrigin); } catch { return false; }
+  if (parsed.protocol !== self.protocol || parsed.port !== self.port) return false;
+  const strip = (host: string) => host.replace(/\.$/, '').toLowerCase();
+  return strip(parsed.hostname) === strip(self.hostname);
+}
+
 // Matches a leading URI scheme per RFC 3986 (`scheme ":"`), but NOT a bare
 // `host:port` — a scheme's colon is never followed by a digit, whereas
 // `localhost:7878` is host:port. So `https://x` / `ftp://x` are schemes, while
@@ -54,12 +64,16 @@ function isLocalHost(hostname: string): boolean {
   // Loopback names (accept a trailing dot, the FQDN root form).
   if (h === 'localhost' || h === 'localhost.' || h.endsWith('.localhost') || h.endsWith('.localhost.')) return true;
 
-  // IPv6 literal (URL keeps the brackets in .hostname; strip them).
+  // IPv6 literal (URL keeps the brackets in .hostname; strip them). Decide the
+  // range by the numeric value of the FIRST 16-bit hextet, never a text prefix:
+  // `fc::1` is `00fc::1` (first hextet 0x00fc) and is NOT ULA, so it fails closed.
   if (h.startsWith('[') && h.endsWith(']')) {
     const v6 = h.slice(1, -1);
-    if (v6 === '::1') return true;                                    // loopback
-    if (/^fe[89ab][0-9a-f]?:/.test(v6) || /^fe[89ab]$/.test(v6)) return true; // fe80::/10 link-local
-    if (/^f[cd][0-9a-f]{0,2}:/.test(v6) || /^f[cd][0-9a-f]{0,2}$/.test(v6)) return true; // fc00::/7 ULA
+    if (v6 === '::1') return true;                       // loopback
+    const first = v6.startsWith('::') ? 0 : parseInt(v6.split(':')[0], 16);
+    if (Number.isNaN(first)) return false;
+    if (first >= 0xfe80 && first <= 0xfebf) return true; // fe80::/10 link-local
+    if (first >= 0xfc00 && first <= 0xfdff) return true; // fc00::/7 unique-local
     return false;
   }
 
@@ -101,7 +115,9 @@ export function buildTarget(rawUrl: string, rawToken: string, selfOrigin?: strin
   if (parsed.username || parsed.password) return { error: 'Remove the user:pass@ part from the URL.' };
   // Never send the token to this site's own origin — that would leak it into
   // the docs host's request log / browser history instead of a Macaron server.
-  if (selfOrigin && parsed.origin === selfOrigin) {
+  // Normalize a single trailing dot on the hostname so `<host>.` (DNS-equal but
+  // a distinct serialized origin) can't slip past the equality check.
+  if (selfOrigin && sameOrigin(parsed, selfOrigin)) {
     return { error: 'That is this site’s own address — paste your Macaron server URL instead.' };
   }
 

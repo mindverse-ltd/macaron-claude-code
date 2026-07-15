@@ -55,6 +55,22 @@ const cases: Array<{ name: string; url: string; token: string; self?: string; ex
   { name: 'self origin is rejected', url: 'https://docs.example.com/?token=EVE_SELF', token: '', self: 'https://docs.example.com', expect: { error: true } },
   { name: 'self origin bare host is rejected', url: 'docs.example.com', token: 't', self: 'https://docs.example.com', expect: { error: true } },
   { name: 'different origin under same self is allowed', url: 'https://other.example.com/', token: 't', self: 'https://docs.example.com', expect: { href: 'https://other.example.com/?token=t' } },
+
+  // EVE round-2: IPv6 range must be decided by the numeric first hextet, not a
+  // text prefix. `fc::1` is 00fc::1 and is NOT in fc00::/7 — must fail closed.
+  { name: 'fc::1 is not ULA (http rejected)', url: 'http://[fc::1]:7878/?token=EVE_IPV6', token: '', expect: { error: true } },
+  { name: 'fca::1 is not ULA', url: 'http://[fca::1]:7878/', token: 't', expect: { error: true } },
+  { name: 'fd0::1 is not ULA', url: 'http://[fd0::1]:7878/', token: 't', expect: { error: true } },
+  { name: 'fe8::1 is not link-local', url: 'http://[fe8::1]:7878/', token: 't', expect: { error: true } },
+  { name: 'feb::1 is not link-local', url: 'http://[feb::1]:7878/', token: 't', expect: { error: true } },
+  { name: 'fc00::1 IS ULA (http allowed)', url: 'http://[fc00::1]:7878/', token: 't', expect: { href: 'http://[fc00::1]:7878/?token=t' } },
+  { name: 'fdff::1 IS ULA', url: 'http://[fdff::1]:7878/', token: 't', expect: { href: 'http://[fdff::1]:7878/?token=t' } },
+  { name: 'fe80::1 IS link-local', url: 'http://[fe80::1]:7878/', token: 't', expect: { href: 'http://[fe80::1]:7878/?token=t' } },
+  { name: 'febf::1 IS link-local', url: 'http://[febf::1]:7878/', token: 't', expect: { href: 'http://[febf::1]:7878/?token=t' } },
+
+  // EVE round-2: self-origin must survive a DNS trailing dot on either side.
+  { name: 'self origin with trailing dot is rejected', url: 'https://docs.example.com./?token=EVE_DOT', token: '', self: 'https://docs.example.com', expect: { error: true } },
+  { name: 'self origin bare host with trailing dot is rejected', url: 'docs.example.com.', token: 't', self: 'https://docs.example.com', expect: { error: true } },
 ];
 
 for (const c of cases) {
