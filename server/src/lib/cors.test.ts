@@ -36,13 +36,26 @@ test('allowed origin: GET gets echoed origin + credentials, done() called', () =
   assert.equal(reply.sent_, false); // GET is not short-circuited
 });
 
-test('disallowed origin: no ACAO header, request still proceeds (browser blocks)', () => {
+test('disallowed cross-origin: refused 403 before routing (no ACAO, done NOT called)', () => {
   const hook = makeCorsHook(ALLOW);
   const reply = makeReply();
   let doneCalled = false;
   hook(req('GET', 'https://evil.example'), reply as never, () => { doneCalled = true; });
   assert.equal(reply.headers['access-control-allow-origin'], undefined);
-  assert.equal(doneCalled, true);
+  assert.equal(reply.code_, 403);
+  assert.equal(reply.sent_, true);
+  assert.equal(doneCalled, false); // short-circuited, never reaches auth/route
+});
+
+test('disallowed cross-origin simple write (POST): also refused 403, handler never runs', () => {
+  const hook = makeCorsHook(ALLOW);
+  const reply = makeReply();
+  let doneCalled = false;
+  // A simple/no-cors text/plain POST would otherwise execute server-side even
+  // though the browser can't read the response — the 403 stops it outright.
+  hook(req('POST', 'https://evil.example', { 'content-type': 'text/plain' }), reply as never, () => { doneCalled = true; });
+  assert.equal(reply.code_, 403);
+  assert.equal(doneCalled, false);
 });
 
 test('OPTIONS preflight from allowed origin: 204, methods, and PNA grant', () => {
@@ -64,13 +77,15 @@ test('OPTIONS preflight echoes requested headers when present', () => {
   assert.equal(reply.headers['access-control-allow-headers'], 'authorization,x-custom');
 });
 
-test('OPTIONS from disallowed origin: 204 but no CORS grant headers', () => {
+test('OPTIONS preflight from disallowed origin: refused 403, no PNA grant', () => {
   const hook = makeCorsHook(ALLOW);
   const reply = makeReply();
-  hook(req('OPTIONS', 'https://evil.example', { 'access-control-request-private-network': 'true' }), reply as never, () => {});
-  assert.equal(reply.code_, 204);
+  let doneCalled = false;
+  hook(req('OPTIONS', 'https://evil.example', { 'access-control-request-private-network': 'true' }), reply as never, () => { doneCalled = true; });
+  assert.equal(reply.code_, 403);
   assert.equal(reply.headers['access-control-allow-origin'], undefined);
   assert.equal(reply.headers['access-control-allow-private-network'], undefined);
+  assert.equal(doneCalled, false);
 });
 
 test('wildcard allowlist echoes any origin (with credentials, never literal *)', () => {
@@ -85,6 +100,18 @@ test('no Origin header: no CORS headers, request proceeds', () => {
   const reply = makeReply();
   let doneCalled = false;
   hook(req('GET'), reply as never, () => { doneCalled = true; });
+  assert.equal(reply.headers['access-control-allow-origin'], undefined);
+  assert.equal(doneCalled, true);
+});
+
+test('same-origin request (Origin host == host): not refused, no CORS headers, proceeds', () => {
+  const hook = makeCorsHook(ALLOW);
+  const reply = makeReply();
+  let doneCalled = false;
+  // Browsers attach an Origin on same-origin POST/PUT/DELETE; that must not be
+  // read as cross-origin and 403'd.
+  hook(req('POST', 'http://127.0.0.1:7878', { host: '127.0.0.1:7878' }), reply as never, () => { doneCalled = true; });
+  assert.equal(reply.code_, 0);
   assert.equal(reply.headers['access-control-allow-origin'], undefined);
   assert.equal(doneCalled, true);
 });

@@ -61,14 +61,30 @@ export function resolveApiUrl(input: string): string {
 // existing `?token=`) points the UI at a remote server, then we strip it from
 // the URL so it doesn't linger in history. Same-origin loads have no `?server=`
 // and keep the empty base. Call once at startup BEFORE consumeTokenFromUrl.
-export function consumeServerFromUrl(): void {
+//
+// Credentials are bound to the origin: whenever `?server=` is present we drop
+// any previously stored token unless the SAME URL carries a fresh `?token=`.
+// Otherwise a token minted for server A would be sent as the bearer — and into
+// `/api/events?token=` — of an attacker-supplied server B. `clearToken` is
+// passed in (not imported) to avoid an apiBase↔auth import cycle. The URL is
+// scrubbed even when the server value is malformed, so a bad `?server=` can't
+// linger in history either.
+export function consumeServerFromUrl(clearToken?: () => void): void {
   try {
     const url = new URL(window.location.href);
     const server = url.searchParams.get('server');
     if (server === null) return;
-    if (server === '') clearApiBase();
-    else setApiBase(server); // throws on garbage/with-path → left unset, connect fails loudly
-    url.searchParams.delete('server');
-    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
-  } catch { /* non-browser / malformed URL / bad server origin */ }
+    // A `?server=` switch invalidates any stored credential unless this same
+    // load also brings a matching token. Clear first; consumeTokenFromUrl runs
+    // next and re-sets the token when `?token=` is present.
+    if (!url.searchParams.get('token')) clearToken?.();
+    try {
+      if (server === '') clearApiBase();
+      else setApiBase(server); // throws on garbage/with-path
+    } finally {
+      // Always scrub, even if setApiBase threw on a malformed origin.
+      url.searchParams.delete('server');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  } catch { /* non-browser / malformed URL */ }
 }

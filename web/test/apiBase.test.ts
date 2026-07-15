@@ -11,9 +11,18 @@ class MemStorage {
 }
 (globalThis as unknown as { localStorage: MemStorage }).localStorage = new MemStorage();
 
-const { getApiBase, setApiBase, clearApiBase, resolveApiUrl, isLoopbackBase } = await import('../src/lib/apiBase');
+// window shim so consumeServerFromUrl can read location + scrub via replaceState.
+let currentHref = 'https://hosted.example/';
+const win = {
+  get location() { return new URL(currentHref); },
+  history: { replaceState(_s: unknown, _t: string, url: string) { currentHref = new URL(url, currentHref).href; } },
+};
+(globalThis as unknown as { window: typeof win }).window = win;
+function setHref(h: string) { currentHref = h; }
 
-beforeEach(() => clearApiBase());
+const { getApiBase, setApiBase, clearApiBase, resolveApiUrl, isLoopbackBase, consumeServerFromUrl } = await import('../src/lib/apiBase');
+
+beforeEach(() => { clearApiBase(); setHref('https://hosted.example/'); });
 
 test('same-origin (empty base): /api paths pass through untouched', () => {
   assert.equal(getApiBase(), '');
@@ -62,4 +71,40 @@ test('clearApiBase reverts to same-origin passthrough', () => {
   clearApiBase();
   assert.equal(getApiBase(), '');
   assert.equal(resolveApiUrl('/api/x'), '/api/x');
+});
+
+// --- P0-3: credential must bind to origin; a ?server= switch can't leak a token ---
+
+test('consumeServerFromUrl: ?server= without ?token= clears the stored token (no leak to new origin)', () => {
+  let cleared = false;
+  setHref('https://hosted.example/?server=https%3A%2F%2Fattacker.example');
+  consumeServerFromUrl(() => { cleared = true; });
+  assert.equal(cleared, true);            // stale credential dropped
+  assert.equal(getApiBase(), 'https://attacker.example');
+  assert.equal(window.location.search, ''); // ?server= scrubbed
+});
+
+test('consumeServerFromUrl: ?server= WITH a fresh ?token= keeps the token (reissued for new origin)', () => {
+  let cleared = false;
+  setHref('https://hosted.example/?server=https%3A%2F%2Ftunnel.test&token=fresh');
+  consumeServerFromUrl(() => { cleared = true; });
+  assert.equal(cleared, false);           // same load brings a matching token
+  assert.equal(getApiBase(), 'https://tunnel.test');
+});
+
+test('consumeServerFromUrl: malformed ?server= still scrubs the URL (and clears token)', () => {
+  let cleared = false;
+  setHref('https://hosted.example/?server=https%3A%2F%2Fbad.example%2Fdeep%2Fpath');
+  consumeServerFromUrl(() => { cleared = true; });
+  assert.equal(cleared, true);
+  assert.equal(getApiBase(), '');         // rejected, base left unset
+  assert.equal(window.location.search, ''); // but URL still scrubbed
+});
+
+test('consumeServerFromUrl: no ?server= at all is a no-op (token untouched)', () => {
+  let cleared = false;
+  setHref('https://hosted.example/?token=keepme');
+  consumeServerFromUrl(() => { cleared = true; });
+  assert.equal(cleared, false);
+  assert.equal(getApiBase(), '');
 });

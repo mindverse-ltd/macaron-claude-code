@@ -12,15 +12,15 @@ import { CodexWorkspace } from './CodexWorkspace';
 import { AuthGate } from '../components/AuthGate';
 import { ToastProvider } from '../components/Toast';
 import { ConfirmProvider } from '../components/Confirm';
-import { consumeTokenFromUrl } from '../lib/auth';
+import { clearToken, consumeTokenFromUrl } from '../lib/auth';
 import { consumeServerFromUrl } from '../lib/apiBase';
 import { registerServiceWorker } from '../lib/pwa';
 import './styles.css';
 import '../chat-code.css';
 
 // Pick up a ?server=... then ?token=... bootstrap from a shared link before
-// anything fetches.
-consumeServerFromUrl();
+// anything fetches. clearToken lets a server switch drop a stale credential.
+consumeServerFromUrl(clearToken);
 consumeTokenFromUrl();
 
 const router = createHashRouter([

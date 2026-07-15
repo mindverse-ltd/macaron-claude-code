@@ -25,12 +25,25 @@ export function isForwarded(req: FastifyRequest): boolean {
   return FORWARD_HEADERS.some((h) => req.headers[h] !== undefined);
 }
 
+// True when the request carries a *cross-origin* browser Origin — one present
+// and pointing at a different host than the one addressed. Such a request is a
+// fetch from another site: even though its socket may be loopback, it must not
+// inherit the frictionless-localhost bypass, so a hosted/other-origin page is
+// always token-checked. A same-origin Origin (browsers send one on same-origin
+// POST/PUT/DELETE) and a no-Origin native/CLI call are NOT cross-origin.
+export function isCrossOriginRequest(req: FastifyRequest): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return false;
+  try { return new URL(origin).host !== req.headers.host; } catch { return true; }
+}
+
 // The auth-exemption test: a loopback socket that wasn't relayed in through a
-// tunnel. Using this instead of isLoopback alone is what stops a tunnel from
-// inheriting the frictionless-localhost bypass. On ambiguity it fails safe
-// (challenge for the token), never open.
+// tunnel and isn't a cross-origin browser request. Using this instead of
+// isLoopback alone is what stops a tunnel — or a hosted page pointed at this
+// loopback server — from inheriting the frictionless-localhost bypass. On
+// ambiguity it fails safe (challenge for the token), never open.
 export function isLocalRequest(req: FastifyRequest): boolean {
-  return isLoopback(req.ip) && !isForwarded(req);
+  return isLoopback(req.ip) && !isForwarded(req) && !isCrossOriginRequest(req);
 }
 
 // The armed shared secret ('' = auth off). Held in a module slot rather than
