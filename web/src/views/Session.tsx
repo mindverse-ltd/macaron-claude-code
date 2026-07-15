@@ -698,14 +698,33 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   const code = it.code || '';
   const streaming = it.status === 'pending' && Boolean(code);
 
-  if (it.status === 'error') {
-    return (
-      <div className="ti-genui" data-item-id={it.id}>
-        <div className="ti-genui-error">render_ui failed: {it.error || 'unknown error'}</div>
-      </div>
-    );
-  }
-  if (!code) {
+  // Remember the most recent code that actually rendered so a subsequent
+  // failure (streamed partial that briefly breaks, or a tool_result marked
+  // error) doesn't wipe the widget — we keep showing the last good frame
+  // and just tack an error banner on top.
+  const [lastGoodCode, setLastGoodCode] = useState('');
+  const [runtimeError, setRuntimeError] = useState('');
+
+  const onRendered = useCallback((rendered: string) => {
+    setLastGoodCode(rendered);
+    setRuntimeError('');
+  }, []);
+  const onError = useCallback((err: Error) => {
+    setRuntimeError(err.message || String(err));
+  }, []);
+
+  const displayCode = code || lastGoodCode;
+  const toolError = it.status === 'error' ? (it.error || 'unknown error') : '';
+  const banner = toolError || runtimeError;
+
+  if (!displayCode) {
+    if (toolError) {
+      return (
+        <div className="ti-genui" data-item-id={it.id}>
+          <div className="ti-genui-error">render_ui failed: {toolError}</div>
+        </div>
+      );
+    }
     return (
       <div className="ti-genui" data-item-id={it.id}>
         <div className="ti-genui-pending">generating UI…</div>
@@ -714,12 +733,19 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   }
   return (
     <div className="ti-genui" data-item-id={it.id}>
+      {banner && (
+        <div className="ti-genui-error stale" title={banner}>
+          Newer render failed — showing last good frame. {banner}
+        </div>
+      )}
       <StaticGenUIRenderer
-        code={code}
+        code={displayCode}
         active
         streaming={streaming}
         preserveStateOnUpdate={streaming}
         flushMode="immediate"
+        onRendered={onRendered}
+        onError={onError}
         className="ti-genui-renderer macaron-genui-scope"
       />
     </div>
