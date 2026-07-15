@@ -2,11 +2,28 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
 import { mdxjs } from 'micromark-extension-mdxjs';
 import { mdxFromMarkdown } from 'mdast-util-mdx';
+import { structure } from 'fumadocs-core/mdx-plugins/remark-structure';
 import type { Nodes } from 'mdast';
 import ts from 'typescript';
 import type { source } from './source';
 
 type Page = (typeof source)['$inferPage'];
+
+// A markdown-escaped quote (`\"` / `\'`) inside a JSX attribute is the ONE lossy case
+// structure() can't be recovered from downstream: it drops the backslash, so a leaked
+// dropped-quote attribute (`title="a \" > NEEDLE">`) serializes BYTE-IDENTICALLY to a
+// legit value that ends in a literal space (`a="1 " >`). Encode the escaped quote to a
+// private-use sentinel BEFORE structure() runs: the leaked string then stays balanced
+// (its inner `>` sits inside the quoted region, so scanTag lands on the REAL tag `>` and
+// strips the whole opener, needle and all), while a legit close-quote remains a real
+// quote and its body survives. Private-use code points no real doc text contains; decoded
+// back to the quote in sanitizeSearchText's final output, so no sentinel enters the index
+// and a legit prose `\"quote\"` keeps its characters (won't conflict with body text).
+const SENTINEL_DQUOTE = '\uE000';
+const SENTINEL_SQUOTE = '\uE001';
+export function encodeEscapedQuotes(raw: string): string {
+  return raw.replace(/\\"/g, SENTINEL_DQUOTE).replace(/\\'/g, SENTINEL_SQUOTE);
+}
 
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
@@ -527,70 +544,22 @@ function rawCloserRe(name: string): RegExp {
   return new RegExp(`</${body}\\s*>`);
 }
 
-// The single lexical-safe boundary scanner for a same-name FLOW opener whose scanTag `>` (`k`) may be
-// FAKE. structure() escapes EVERY opening bracket (`\{`, `\[`) and leaves EVERY close bare, and it can
-// drop the backslash of a `\"` / `\'` inside a string attribute — either way an opener's REAL end can
-// leak PAST `k`. Both tells are OPENER-LOCAL (derived from the span `nameEnd..k`, never the visible
-// body) and single/double-quote consistent; a clean opener trips neither, so this returns -1 and `k`
-// stays the boundary (the visible intro survives):
-//   • QUOTE leak — the span ENDS with `["']\s+>`: a dropped quote-backslash closed the string one char
-//     early (`title="a \" >…` → `title="a " >…`, `title='a \' >…` → `title='a ' >…`), so the residual
-//     value-close quote sits with whitespace before the fake `>`. A CLEAN opener glues its `>` to the
-//     last attribute token (`a="1">`), so this never fires on honest intro. Recover to the leaked
-//     string's REAL close `["']\s*>` in the body.
+// The lexical-safe boundary scanner for a same-name FLOW opener whose scanTag `>` (`k`) may be FAKE.
+// structure() escapes EVERY opening bracket (`\{`, `\[`) and leaves EVERY close bare, so an opener's
+// REAL end can leak PAST `k` when its `{…}` attribute expression carries a bare close. The tell is
+// OPENER-LOCAL (derived from the span `nameEnd..k`, never the visible body); a clean opener trips it
+// not, so this returns -1 and `k` stays the boundary (the visible intro survives). A dropped-quote
+// leak (`title="a \" > NEEDLE">`) is NOT handled here: encodeEscapedQuotes runs BEFORE structure(),
+// turning the escaped quote into a sentinel so the leaked string stays balanced and scanTag lands on
+// the REAL `>` — no fake early `>`, no recovery needed, and a legit trailing-space attr (`a="1 " >`)
+// keeps its body (the two are no longer byte-identical).
 //   • BRACKET leak — a depth scan from `k` where structure()'s escaped opens (`\{`/`\[`) are +1 and bare
 //     closes (`}`/`]`) are −1. Honest body brackets are ALWAYS structure-escaped, so depth only goes
 //     NEGATIVE on a `}`/`]` leaked from the opener's own `{…}` attribute expression; that negative-depth
-//     close glued to `>` (`}>` / `]}>` / `)}>`) is the real end. This also covers the quote-leak variant
-//     whose corrupting quote sits PAST `k` (`value={fn("a \" } > X", …)}>` — the span looks balanced but
-//     the real end is the trailing `)}>`). Lexically safe: regex literals `/…/`, `/* … */` / `// …`
-//     comments, and code spans `` `…` `` are skipped so their literal `}` / `]` / `>` never miscount.
-// Resume a tag scan at `start` (just PAST a recovered leaked string) and return the index just past the
-// tag's real `>` at brace depth 0, or -1 if none. Mirrors scanTag's lexical rules over structure()'s
-// serialized residue: escaped opening brackets (`\{`/`\[`) raise depth, bare closes lower it, and quote /
-// regex / comment / code-span runs are skipped so their `>` never ends the tag early.
-function scanToTagEnd(text: string, start: number): number {
-  let quote = '', brace = 0, prevSig = '';
-  for (let m = start; m < text.length; m++) {
-    const ch = text[m];
-    if (quote) { if (ch === '\\') { m++; continue; } if (ch === quote) { quote = ''; prevSig = '"'; } continue; }
-    if (ch === '`') { const cs = codeSpanEnd(text, m); if (cs !== -1) { m = cs - 1; prevSig = '`'; continue; } }
-    if (brace > 0 && ch === '/' && text[m + 1] === '*') { const e = text.indexOf('*/', m + 2); m = e === -1 ? text.length : e + 1; continue; }
-    if (brace > 0 && ch === '/' && text[m + 1] === '/') { const e = text.indexOf('\n', m + 2); m = e === -1 ? text.length : e; continue; }
-    if (brace > 0 && ch === '/' && !/[\w$)\]}"'`]/.test(prevSig)) { const e = regexEnd(text, m); if (e !== -1) { m = e - 1; prevSig = '/'; continue; } }
-    if (ch === '\\' && /[<>{}[\]]/.test(text[m + 1] ?? '')) { const p = text[m + 1]; if (p === '{') brace++; else if (p === '}' && brace > 0) brace--; m++; prevSig = p; continue; }
-    if (ch === '"' || ch === "'") { quote = ch; continue; }
-    if (ch === '{') brace++;
-    else if (ch === '}' && brace > 0) brace--;
-    else if (ch === '>' && !brace) return m + 1;
-    if (!/\s/.test(ch)) prevSig = ch;
-  }
-  return -1;
-}
-
+//     close glued to `>` (`}>` / `]}>` / `)}>`) is the real end. Lexically safe: regex literals `/…/`,
+//     `/* … */` / `// …` comments, and code spans `` `…` `` are skipped so their literal `}` / `]` / `>`
+//     never miscount.
 function lossyOpenerEnd(text: string, nameEnd: number, k: number): number {
-  // QUOTE leak — the span ends with `<space><quote><space>+>`: structure() dropped a `\"`/`\'`
-  // backslash, so the string closed one char early and the DANGLING value-close quote is preceded by
-  // the space that used to sit before the escaped quote (`title="a \" >…` → `…a " >`). A CLEAN opener
-  // GLUES its real close-quote to the last value char (`a="1" >` — `1" >`, no space BEFORE the quote),
-  // so this fires on an honest opener only in the pathological case of an attribute VALUE that itself
-  // ends in a literal space (`a="1 " >`), which serializes byte-identically to a dropped-quote leak —
-  // no opener-local signal can tell the two apart, so we treat the leak (the real structure() failure
-  // mode, EVE rounds 26-30) as canonical. `leakQuote[1]` is the leaked string's quote.
-  const leakQuote = /\s(["'])\s+>$/.exec(text.slice(nameEnd, k));
-  if (leakQuote) {
-    // scanTag stopped at a FAKE `>` still INSIDE a string whose closing quote structure() dropped the
-    // backslash of (`title="a \" >…` → `title="a " >…`). We are mid-string at `k`. Close that string at
-    // its REAL quote, then finish a normal brace/quote/regex-aware tag scan to the tag's real `>` — so a
-    // later honest attribute (`pattern={/">/.test(X)}>`) is consumed instead of leaking into the body.
-    // The decision is purely OPENER-LOCAL: the leak signature is read from the opener span, and the end
-    // is then found by a deterministic lexical scan — no dependency on the visible body's first char
-    // (an earlier `text[end]` whitespace guess both leaked a real `"> ` end and ate a clean body's `">`).
-    let m = k;
-    for (; m < text.length; m++) { const ch = text[m]; if (ch === '\\') { m++; continue; } if (ch === leakQuote[1]) { m++; break; } }
-    const end = scanToTagEnd(text, m);
-    if (end !== -1) return end;
-  }
   // BRACKET leak — only when the opener's OWN span carried a `{…}`/`[…]` attribute expression
   // (structure() escapes its open as `\{`/`\[`) AND that span is opener-provably lossy: either
   // bracket-DESYNCED, or scanTag landed on a FAKE early `>` preceded by whitespace (`… }] >` / `… ]} >`
@@ -713,6 +682,10 @@ export function sanitizeSearchText(input: string, chunkIndex = 0, paired: Set<st
     text = toString(fromMarkdown(cleaned), { includeHtml: false }).replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ');
   }
   return decodeContentEntities(text)
+    // Decode the escaped-quote sentinels back to real quotes so a legit prose `\"quote\"`
+    // keeps its characters and NO sentinel code point ever enters the search index.
+    .replace(new RegExp(SENTINEL_DQUOTE, 'g'), '"')
+    .replace(new RegExp(SENTINEL_SQUOTE, 'g'), "'")
     // Drop stray backticks the AST left as literal text (a lone/unpaired `,
     // e.g. from a decoded `&#x60;`). Only backticks — never `_` or word chars —
     // so identifiers are untouched.
@@ -725,7 +698,13 @@ export function sanitizeSearchText(input: string, chunkIndex = 0, paired: Set<st
 // extractor, but every heading and content chunk is sanitized so the static
 // search JSON holds clean prose instead of markdown/entities.
 export async function buildIndex(page: Page) {
-  const structuredData = await page.data.structuredData;
+  // Recompute structure() from the RAW markdown with escaped quotes sentinel-encoded, so the
+  // dropped-quote leak (`title="a \" > NEEDLE">`) becomes a self-balancing string that scanTag
+  // strips cleanly — the prebuilt page.data.structuredData already lost the `\` backslash and
+  // can't be recovered. Production and the regression tests both go through encodeEscapedQuotes,
+  // so buildIndex only ever consumes this explicit signal instead of guessing at the byte sequence.
+  const raw = await page.data.getText('raw');
+  const structuredData = structure(encodeEscapedQuotes(raw));
   // Pair residue openers/closers once over the ORDERED content chunk stream so an opener
   // that structure() split away from its closer into a later chunk is still recognized.
   const contents = structuredData.contents.map((c) => c.content);

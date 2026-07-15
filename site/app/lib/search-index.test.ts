@@ -6,7 +6,7 @@ import path from 'node:path';
 import { structure } from 'fumadocs-core/mdx-plugins/remark-structure';
 import { initAdvancedSearch } from 'fumadocs-core/search/server';
 import { oramaStaticClient } from 'fumadocs-core/search/client/orama-static';
-import { buildIndex, sanitizeSearchText, pairResidues } from './search-index';
+import { buildIndex, sanitizeSearchText, pairResidues, encodeEscapedQuotes } from './search-index';
 
 // Unit: the sanitizer strips markdown/entity artifacts WITHOUT mangling
 // technical identifiers. The old regex stack turned `MACARON_CODEX_TRANSPORT`
@@ -61,7 +61,7 @@ test('sanitizeSearchText strips markup but preserves identifiers', () => {
 // emits such a residue; the guarantee is that no needle-adjacent markup survives.
 test('real structure() split chunks: residue never leaks, prose survives', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -100,7 +100,7 @@ test('real structure() split chunks: residue never leaks, prose survives', () =>
 // chunks, plus boundary fidelity the earlier rounds missed.
 test('real structure() split chunks: escaped quotes, generic defaults, OOB entities', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -270,7 +270,7 @@ test('real structure() split chunks: escaped quotes, generic defaults, OOB entit
 // page-wide paired-position set, exactly as buildIndex does.
 test('real structure() cross-chunk closer pairing: lossy openers, ambiguous keywords, own-line >', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -334,7 +334,7 @@ test('real structure() cross-chunk closer pairing: lossy openers, ambiguous keyw
 // code point (astral + namespaced), and the whole-chunk `standalone` tie-break is gone.
 test('real structure() positional pairing: lossy > recovery, code-span closers, prose generics, astral names', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -385,7 +385,7 @@ test('real structure() positional pairing: lossy > recovery, code-span closers, 
 // wrongly emptied by the standalone `hasAttrShape` strip. Each is fed through real structure().
 test('real structure() round-15: lossy-expression recovery, same-name inner generic, bare modifier generics', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -442,7 +442,7 @@ test('real structure() round-15: lossy-expression recovery, same-name inner gene
 //       corrupted attribute hides such a `}]` is stripped whole, not cut at scanTag's false `>`.
 test('real structure() round-16: syntactic-role pairing exemption, string-aware lossy recovery', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -499,7 +499,7 @@ test('real structure() round-16: syntactic-role pairing exemption, string-aware 
 //       directions and keeps the visible body/suffix.
 test('real structure() round-17: glued custom-name pairing, glued inline bracket matrix', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -556,7 +556,7 @@ test('real structure() round-17: glued custom-name pairing, glued inline bracket
 //       inline component, entered the stack, and stole the outer real closer. The probe must skip code.
 test('real structure() round-18: desync-gated anchor, custom-name × bracket matrix, code-span fake closer', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -615,7 +615,7 @@ test('real structure() round-18: desync-gated anchor, custom-name × bracket mat
 //       unterminated run is literal, not a fence) shared by every code-span skip.
 test('real structure() round-19: opener-local desync, hierarchy attribution, CommonMark code spans', () => {
   const clean = (raw: string) => {
-    const chunks = structure(raw).contents.map((c) => c.content);
+    const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content);
     const paired = pairResidues(chunks);
     return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired));
   };
@@ -654,11 +654,11 @@ test('real structure() round-19: opener-local desync, hierarchy attribution, Com
 // recovery (honest body kept, lossy attribute dropped) — the exact reproductions from EVE's review.
 test('real structure() round-21: hierarchy-decided generics, opener-local recovery, code-span parity', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r21', data: { title: '/r21', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r21', data: { title: '/r21', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
-  const clean = (raw: string) => { const chunks = structure(raw).contents.map((c) => c.content); const paired = pairResidues(chunks); return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired)); };
+  const clean = (raw: string) => { const chunks = structure(encodeEscapedQuotes(raw)).contents.map((c) => c.content); const paired = pairResidues(chunks); return chunks.map((c, ci) => sanitizeSearchText(c, ci, paired)); };
 
   // P1 #1a — a same-name generic PRECEDING a real same-name inline, in live prose (NOT a code span, so
   // pairResidues actually sees it). Hierarchy must keep the generic: positional nearest-pop hands the
@@ -703,7 +703,7 @@ test('real structure() round-21: hierarchy-decided generics, opener-local recove
 // chunk stream. These drive the real structure() → buildIndex() → Orama chain with EVE's exact reals.
 test('real structure() round-22: outer/generic/inline hierarchy, cross-chunk flow, balanced-lossy contract', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r22', data: { title: '/r22', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r22', data: { title: '/r22', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -749,7 +749,7 @@ test('real structure() round-22: outer/generic/inline hierarchy, cross-chunk flo
 // the real structure() → buildIndex() → Orama chain with EVE's exact reals from the round-22 review.
 test('real structure() round-23: whole-chunk/compact generics, intro/nested flow, single-close recovery', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r23', data: { title: '/r23', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r23', data: { title: '/r23', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -789,7 +789,7 @@ test('real structure() round-23: whole-chunk/compact generics, intro/nested flow
 // Each case drives the real structure() → buildIndex() → Orama chain with EVE's exact round-23 reals.
 test('real structure() round-24: bidirectional generic classification, opener-local strip boundary', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r24', data: { title: '/r24', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r24', data: { title: '/r24', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -826,7 +826,7 @@ test('real structure() round-24: bidirectional generic classification, opener-lo
 // never a whole-chunk scan), and the `()` desync no longer misjudges JS lexical contexts (regex, comment).
 test('real structure() round-25: real-hierarchy pairing, opener-local lossy boundary, lexical-safe desync', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r25', data: { title: '/r25', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r25', data: { title: '/r25', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -872,7 +872,7 @@ test('real structure() round-25: real-hierarchy pairing, opener-local lossy boun
 // regex `/[}>]/` or comment `/* } > */` inside an honest `{…}` attribute is lexed, not miscounted.
 test('real structure() round-26: hierarchy role, opener-local lossy boundary, lexical-safe scan', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r26', data: { title: '/r26', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r26', data: { title: '/r26', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -918,7 +918,7 @@ test('real structure() round-26: hierarchy role, opener-local lossy boundary, le
 // that must not be mistaken for a quote leak.
 test('real structure() round-27: unified lexical-safe opener boundary across lossy shapes', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r27', data: { title: '/r27', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r27', data: { title: '/r27', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -950,7 +950,7 @@ test('real structure() round-27: unified lexical-safe opener boundary across los
 // (4) `/` after a `}` object-literal operand is division, not a regex.
 test('real structure() round-28: lexical-safe opener span, unified LIFO pairing, division after }', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r28', data: { title: '/r28', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r28', data: { title: '/r28', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1004,7 +1004,7 @@ test('real structure() round-28: lexical-safe opener span, unified LIFO pairing,
 //     in the leaked attribute is not a real boundary.
 test('real structure() round-29: budget order-independence, opener-local & quote-consistent lossy recovery', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r29', data: { title: '/r29', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r29', data: { title: '/r29', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1054,7 +1054,7 @@ test('real structure() round-29: budget order-independence, opener-local & quote
 //     `pattern={/">/}` regex in the leaked attribute is not the real close; the tag's real `>` is.
 test('real structure() round-30: glued budget LIFO, prose instantiation, opener-local & regex-safe recovery', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r30', data: { title: '/r30', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r30', data: { title: '/r30', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1089,7 +1089,7 @@ test('real structure() round-30: glued budget LIFO, prose instantiation, opener-
 
 test('real structure() round-31: opener-provable roles only — no chunk-end/body-first-char guessing, recovery gated on opener lossiness', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r31', data: { title: '/r31', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r31', data: { title: '/r31', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1135,7 +1135,7 @@ test('real structure() round-31: opener-provable roles only — no chunk-end/bod
 
 test('real structure() round-32: JSX boolean props are not TS prose, quota counts consistently, recovery is fully opener-local', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r32', data: { title: '/r32', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r32', data: { title: '/r32', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1175,7 +1175,7 @@ test('real structure() round-32: JSX boolean props are not TS prose, quota count
 
 test('real structure() round-33: per-closer-interval quota, opener-local expression/bracket recovery, lexical-safe desync', async () => {
   const oramaFor = async (raw: string) => {
-    const index = await buildIndex({ url: '/r33', data: { title: '/r33', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    const index = await buildIndex({ url: '/r33', data: { title: '/r33', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
     return initAdvancedSearch({ language: 'english', indexes: [index] });
   };
   const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
@@ -1208,6 +1208,50 @@ test('real structure() round-33: per-closer-interval quota, opener-local express
   assert.ok((await hits(cmt, 'RIGHTCMT32')) > 0, 'clean comment-attr trailing body lost');
 });
 
+test('real structure() round-34: sentinel-encoded escaped quotes distinguish leak from legit trailing-space attr', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r34', data: { title: '/r34', description: undefined, getText: async () => raw } } as unknown as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+  const summaries = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).map((r) => r.content ?? '');
+
+  // The unresolvable P1-4 case, now split by encodeEscapedQuotes running BEFORE structure(): the escaped
+  // quote becomes a sentinel so the leaked string stays balanced, scanTag lands on the REAL `>`, and the
+  // whole opener (needle and all) is stripped — while the LEGIT trailing-space attribute (no backslash)
+  // keeps its close-quote and its body survives. Both single- and double-quote leaks; both directions.
+  const dq = '<$Panel title="a \\" > DQLEAK34">LEFTDQ34 body\n\n## H\n\nRIGHTDQ34\n\n</$Panel>';
+  assert.equal(await hits(dq, 'DQLEAK34'), 0, 'double-quote dropped-quote leak survived (needle entered index)');
+  assert.ok((await hits(dq, 'LEFTDQ34')) > 0, 'double-quote leak: opener intro body lost');
+  assert.ok((await hits(dq, 'RIGHTDQ34')) > 0, 'double-quote leak: trailing body lost');
+
+  const sq = "<$Panel title='a \\' > SQLEAK34'>LEFTSQ34 body\n\n## H\n\nRIGHTSQ34\n\n</$Panel>";
+  assert.equal(await hits(sq, 'SQLEAK34'), 0, 'single-quote dropped-quote leak survived (needle entered index)');
+  assert.ok((await hits(sq, 'LEFTSQ34')) > 0, 'single-quote leak: opener intro body lost');
+  assert.ok((await hits(sq, 'RIGHTSQ34')) > 0, 'single-quote leak: trailing body lost');
+
+  // Legit attribute VALUE ending in a literal space — byte-identical to the leak BEFORE encoding, now
+  // distinct (no backslash → no sentinel → the real close-quote stands). The intro carries a body `">`
+  // so the OLD quote-leak recovery branch over-recovered and ate the intro (`LEFTLEGIT*34`) — RED on old
+  // head. The body's own `">` must survive too. Both quote styles.
+  const legitD = '<$Panel a="1 " >LEFTLEGITD34 text "> RIGHTLEGITD34\n\n## H\n\nt\n\n</$Panel>';
+  assert.ok((await hits(legitD, 'LEFTLEGITD34')) > 0, 'legit double-quote trailing-space attr: intro body wrongly stripped');
+  assert.ok((await hits(legitD, 'RIGHTLEGITD34')) > 0, 'legit double-quote trailing-space attr: trailing body lost');
+  const legitS = "<$Panel a='1 ' >LEFTLEGITS34 text '> RIGHTLEGITS34\n\n## H\n\nt\n\n</$Panel>";
+  assert.ok((await hits(legitS, 'LEFTLEGITS34')) > 0, 'legit single-quote trailing-space attr: intro body wrongly stripped');
+  assert.ok((await hits(legitS, 'RIGHTLEGITS34')) > 0, 'legit single-quote trailing-space attr: trailing body lost');
+
+  // A legit prose quote (`\"…\"`) must round-trip through the sentinel unchanged, and NO sentinel code
+  // point (U+E000/U+E001) may ever appear in a served summary.
+  const prose = 'prefix a \\"quoted phrase\\" QUOTEPROSE34 tail';
+  const proseHits = (await summaries(prose, 'QUOTEPROSE34')).filter((r) => r.includes('QUOTEPROSE34'));
+  assert.ok(proseHits.length > 0, 'legit prose quote sample produced no content hit');
+  for (const r of proseHits) {
+    assert.ok(!/[]/.test(r), `sentinel code point leaked into the index: ${JSON.stringify(r.slice(0, 60))}`);
+    assert.ok(r.includes('"quoted phrase"'), `legit prose quote lost its characters: ${JSON.stringify(r.slice(0, 60))}`);
+  }
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
@@ -1226,11 +1270,11 @@ function mdxFiles(dir: string): string[] {
 // directly. This exercises the real sanitizer→Orama wiring, not just the string.
 async function productionSearch() {
   const pages = mdxFiles(DOCS_DIR).map((file) => {
-    const structuredData = structure(readFileSync(file, 'utf8'));
+    const raw = readFileSync(file, 'utf8');
     const url = '/' + path.relative(DOCS_DIR, file).replace(/\.mdx$/, '');
-    return { url, data: { title: url, description: undefined, structuredData } };
+    return { url, data: { title: url, description: undefined, getText: async () => raw } };
   });
-  const indexes = await Promise.all(pages.map((p) => buildIndex(p as Parameters<typeof buildIndex>[0])));
+  const indexes = await Promise.all(pages.map((p) => buildIndex(p as unknown as Parameters<typeof buildIndex>[0])));
   return initAdvancedSearch({ language: 'english', indexes });
 }
 
