@@ -101,8 +101,12 @@ process.once('SIGTERM', () => void shutdown('SIGTERM'));
 const { token: authToken, generated: authGenerated } = resolveToken(HOST, AUTH_TOKEN);
 setArmedToken(authToken);
 // CORS/LNA must run before auth so a token-less OPTIONS preflight is answered
-// (and short-circuited) instead of being 401'd by the auth hook.
-if (ALLOWED_ORIGINS.length > 0) app.addHook('onRequest', makeCorsHook(ALLOWED_ORIGINS));
+// (and short-circuited) instead of being 401'd by the auth hook. Registered
+// unconditionally: with an empty allowlist (the default) it emits no CORS
+// headers but still 403s any cross-origin request before it can route — a
+// gate an off-by-config `if` would silently drop. Same-origin and no-Origin
+// CLI requests pass through untouched.
+app.addHook('onRequest', makeCorsHook(ALLOWED_ORIGINS));
 app.addHook('onRequest', makeAuthHook());
 
 await app.register(async (instance) => {
