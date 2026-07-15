@@ -940,6 +940,59 @@ test('real structure() round-27: unified lexical-safe opener boundary across los
   assert.ok((await hits(apos, 'LEFTAP27')) > 0, 'apostrophe-case visible body lost');
 });
 
+// EVE round 28 — the exact real-Orama counterexamples from the final review, made non-skippable:
+// (1) lossyOpenerEnd stays lexically safe over the WHOLE residue — a regex/comment inside an attr and a
+//     code span in the body never miscount, and an honest `{arr[i]}>0` intro survives.
+// (2) cross- and same-chunk lossy openers share ONE boundary path — a dropped-quote same-chunk opener is
+//     cut at its own `">`, and an extra honest `"` in a cross-chunk body cannot rebalance parity and leak.
+// (3) pairing is true LIFO with no remote-generic search: a lone technical generic stays searchable while
+//     the real flow markup is stripped, and a nested flow + trailing technical generic both resolve.
+// (4) `/` after a `}` object-literal operand is division, not a regex.
+test('real structure() round-28: lexical-safe opener span, unified LIFO pairing, division after }', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r28', data: { title: '/r28', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+
+  // (1) REGATTR27 — a regex `/[}>]/` inside an honest attr expression must not be read as a leaked close;
+  // the clean opener's MDX-expression intro `{arr[i]}>0` survives and the attr needle never indexes.
+  const reg = 'pre<$Panel pattern={/[}>]REGATTR27/}>LEFTREG27 {arr[i]}>0 RIGHTREG27\n\n## H\n\nt\n\n</$Panel>';
+  assert.equal(await hits(reg, 'REGATTR27'), 0, 'regex-in-attr miscounted as a leaked close');
+  assert.ok((await hits(reg, 'LEFTREG27')) > 0 && (await hits(reg, 'arr')) > 0 && (await hits(reg, 'RIGHTREG27')) > 0, 'regex-attr clean intro eaten');
+  // comment variant — `/* } > … */` inside an attr is equally inert.
+  const cmt = 'pre<$Panel x={/* } > CMTATTR27 */ 1}>LEFTCMT27 {arr[i]}>0 RIGHTCMT27\n\n## H\n\nt\n\n</$Panel>';
+  assert.equal(await hits(cmt, 'CMTATTR27'), 0, 'comment-in-attr miscounted as a leaked close');
+  assert.ok((await hits(cmt, 'LEFTCMT27')) > 0, 'comment-attr clean intro eaten');
+
+  // (2) same-chunk dropped-quote leak — the opener + its inline closer + suffix share one chunk; the
+  // leaked attribute must be cut at its dangling `">` and never index, body/suffix survive.
+  const sc = '<$Panel title="a \\" > LEAKSAME27">BODYKEEP27</$Panel> suffix';
+  assert.equal(await hits(sc, 'LEAKSAME27'), 0, 'same-chunk dropped-quote attribute leaked');
+  assert.ok((await hits(sc, 'BODYKEEP27')) > 0, 'same-chunk lossy body lost');
+  // cross-chunk parity — an extra honest `"` in the split body must NOT rebalance the opener's quote
+  // parity and re-expose the attr needle.
+  const par = '<$Panel title="a \\" > PARLEAK27">\n\n## H\n\nbody with " honest quote\n\n</$Panel>';
+  assert.equal(await hits(par, 'PARLEAK27'), 0, 'cross-chunk body quote rebalanced parity, attribute leaked');
+
+  // (3) STALELOCAL27 — a lone technical generic (no closer of its own) before a real flow stays searchable
+  // as prose while the real flow's markup is stripped (identical contract to round-26 STANDALONEKEEP25).
+  const stale = 'Technical <$Panel extends STALELOCAL27>. prefix<$Panel>FLOWINTRO27\n\n## H\n\nb\n\n</$Panel>';
+  assert.ok((await hits(stale, 'STALELOCAL27')) > 0, 'lone technical generic wrongly deleted by the real flow closer');
+  assert.ok((await hits(stale, 'FLOWINTRO27')) > 0, 'real flow intro lost');
+  // nested flow + a trailing technical generic — the nested opener attr is stripped, the trailing generic
+  // (`type Box<$Panel extends TECHKEEP27>`, no closer of its own) stays searchable.
+  const nest = '<$Panel a="1">\n\ntop\n\n<$Panel extends INNERATTR27>\n\n## H\n\ninner\n\n</$Panel>\n\ntype Box<$Panel extends TECHKEEP27> = $Panel;\n\n</$Panel>';
+  assert.equal(await hits(nest, 'INNERATTR27'), 0, 'nested-flow inner opener attribute leaked');
+  assert.ok((await hits(nest, 'TECHKEEP27')) > 0, 'trailing technical generic wrongly deleted');
+  assert.ok((await hits(nest, 'top')) > 0 && (await hits(nest, 'inner')) > 0, 'nested-flow body lost');
+
+  // (4) object-literal division — `{a:1} / 2` after a `}` operand is division, so the opener closes at its
+  // real `>` and the visible intro survives (no run-to-end that empties the chunk).
+  const od = '<$Panel value={{a:1} / 2}>BODYOBJDIV27 intro\n\n## H\n\nt\n\n</$Panel>';
+  assert.ok((await hits(od, 'BODYOBJDIV27')) > 0, 'division after } object-literal operand emptied the chunk');
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
