@@ -533,11 +533,10 @@ function RemoteAccess() {
   const status = state?.status ?? 'stopped';
   const live = status === 'running' && state?.url;
   const starting = status === 'starting';
-  // The tunnel arms an access token; fold it into the shared URL as ?token= so
-  // the first load unlocks itself (consumeTokenFromUrl strips it after storing).
-  const shareUrl = live && state?.url
-    ? (state.token ? `${state.url}/?token=${encodeURIComponent(state.token)}` : state.url)
-    : '';
+  // The share URL carries NO token — a URL leaks via history/referrer/proxy logs.
+  // Opening it lands on the AuthGate login screen; the operator pastes the token
+  // (shown below) there. Never fold the credential into the link.
+  const shareUrl = (live && state?.url) || '';
 
   return (
     <div className="settings-section">
@@ -599,7 +598,7 @@ function RemoteAccess() {
               </div>
               <div className="settings-hint">
                 {state.token
-                  ? <><strong>This link embeds an access token</strong> — anyone you share it with can drive your Claude Code sessions. Share it only with people you trust, and stop the tunnel when you're done.</>
+                  ? <>This server requires an access token: <code>{state.token}</code>. Share it <strong>separately</strong> from the URL (never in the link) with people you trust, and stop the tunnel when you're done.</>
                   : <><strong>This server already requires its access token.</strong> Share the URL together with that token, and stop the tunnel when you're done.</>}
               </div>
             </div>

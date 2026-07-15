@@ -48,18 +48,17 @@ import { Mcp } from './views/Mcp';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { AuthGate } from './components/AuthGate';
-import { consumeTokenFromUrl, consumeHandoff } from './lib/auth';
+import { consumeHandoff } from './lib/auth';
 import { preloadRendererRuntime } from './macaron-vendor/StaticGenUIRenderer';
 import { registerServiceWorker } from './lib/pwa';
 import './styles.css';
 import './chat-code.css';
 
 // Pick up the hosted-mode handoff (the docs connect page stashed {server, token}
-// in sessionStorage same-tab), then a same-origin ?token= share link. The
-// handoff binds the token to its server origin; nothing secret is read from the
-// URL, so a crafted ?server= link can't point us at an attacker.
+// in sessionStorage same-tab). The handoff binds the token to its server origin;
+// nothing secret is read from the URL, so a crafted ?server= link can't point us
+// at an attacker and no token ever rides the query string.
 consumeHandoff();
-consumeTokenFromUrl();
 
 // The server serves the SPA for direct deep links, while createHashRouter reads
 // only the hash. Promote a pathname route before the router initializes so

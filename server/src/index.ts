@@ -185,9 +185,10 @@ try {
   if (authGenerated) {
     app.log.warn(`API reachable beyond a local peer (non-loopback bind or cross-origin enabled) with no MACARON_AUTH_TOKEN — generated one for this run.`);
     // The token is a live credential — keep it out of the structured log (which may be
-    // shipped off-box) and print the connection string straight to stdout so the operator
-    // can still grab it from their own terminal on first launch.
-    console.log(`connect from another device with: http://${HOST}:${PORT}/?token=${authToken}`);
+    // shipped off-box) and out of any URL (URLs leak via history/referrer/proxy logs).
+    // Print the address and the token on separate lines straight to stdout so the operator
+    // can grab them from their own terminal and paste the token into the UI's login screen.
+    console.log(`connect another device to: http://${HOST}:${PORT}/  ·  access token: ${authToken}`);
   } else if (authToken) {
     app.log.info('server auth enabled (MACARON_AUTH_TOKEN) — remote requests require the token.');
   }

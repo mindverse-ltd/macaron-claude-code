@@ -12,16 +12,15 @@ import { CodexWorkspace } from './CodexWorkspace';
 import { AuthGate } from '../components/AuthGate';
 import { ToastProvider } from '../components/Toast';
 import { ConfirmProvider } from '../components/Confirm';
-import { consumeTokenFromUrl, consumeHandoff } from '../lib/auth';
+import { consumeHandoff } from '../lib/auth';
 import { registerServiceWorker } from '../lib/pwa';
 import './styles.css';
 import '../chat-code.css';
 
 // Pick up the hosted-mode handoff (docs connect page stashed {server, token}
-// same-tab in sessionStorage), then a same-origin ?token= share link. The
-// handoff binds the token to its server origin; nothing secret rides the URL.
+// same-tab in sessionStorage). The handoff binds the token to its server origin;
+// nothing secret rides the URL.
 consumeHandoff();
-consumeTokenFromUrl();
 
 const router = createHashRouter([
   {

@@ -18,7 +18,11 @@ import { fileURLToPath } from 'node:url';
 const siteDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(siteDir, '..');
 const webDir = path.join(repoRoot, 'web');
-const webDist = path.join(webDir, 'dist');
+// Build the hosted bundle into its OWN outDir, never web/dist. web/dist is the
+// root-based ('/') bundle that local `mcc`/`mcx` serve at `/`; overwriting it
+// with a `/app/`-based build would make the local WebUI request /app/assets/*
+// (404 → blank). Keep the two artifacts fully separate.
+const webDistApp = path.join(webDir, 'dist-app');
 const target = path.join(siteDir, 'build', 'client', 'app');
 
 // Vercel's install step runs only in `site/` (site/vercel.json installCommand),
@@ -31,13 +35,13 @@ execFileSync('pnpm', ['install', '--frozen-lockfile'], { cwd: repoRoot, stdio: '
 console.log('[host-webui] building @macaron/shared (web imports it) …');
 execFileSync('pnpm', ['--filter', '@macaron/shared', 'build'], { cwd: repoRoot, stdio: 'inherit' });
 
-console.log('[host-webui] building /web with base=/app/ …');
-execFileSync('pnpm', ['exec', 'vite', 'build', '--base=/app/'], { cwd: webDir, stdio: 'inherit' });
+console.log('[host-webui] building /web with base=/app/ into dist-app …');
+execFileSync('pnpm', ['exec', 'vite', 'build', '--base=/app/', '--outDir=dist-app', '--emptyOutDir'], { cwd: webDir, stdio: 'inherit' });
 
-if (!existsSync(path.join(webDist, 'index.html')) || !existsSync(path.join(webDist, 'codex.html'))) {
-  throw new Error('[host-webui] web/dist is missing index.html or codex.html after build');
+if (!existsSync(path.join(webDistApp, 'index.html')) || !existsSync(path.join(webDistApp, 'codex.html'))) {
+  throw new Error('[host-webui] web/dist-app is missing index.html or codex.html after build');
 }
 
 if (existsSync(target)) rmSync(target, { recursive: true });
-cpSync(webDist, target, { recursive: true });
+cpSync(webDistApp, target, { recursive: true });
 console.log(`[host-webui] staged WebUI at ${path.relative(repoRoot, target)} (Claude Code: /app, Codex: /app/codex)`);

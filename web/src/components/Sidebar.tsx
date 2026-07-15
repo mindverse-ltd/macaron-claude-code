@@ -249,9 +249,10 @@ export function Sidebar() {
           onClick: async () => {
             try {
               const { token } = await api.createShare(w.project, s.sessionId);
-              // Build the URL from the browser's own origin so it works over
-              // LAN/tunnel, not just the server's 127.0.0.1 bind.
-              const url = `${window.location.origin}/#/share/${token}`;
+              // Build from the browser's origin + app base so it works over
+              // LAN/tunnel and under the hosted /app/ subpath, not just the
+              // server's 127.0.0.1 root bind.
+              const url = `${window.location.origin}${assetUrl('/')}#/share/${token}`;
               await navigator.clipboard.writeText(url);
               toast('share link copied');
             } catch (err) {

@@ -110,3 +110,17 @@ test('two-realm: token minted for server A is never returned when the base is se
   assert.equal(getToken(), 'TOKEN_A');
 });
 
+// --- same-server dual-tab: two tabs bound to the SAME server must keep their
+// OWN token. localStorage is shared across a tab group, sessionStorage is not,
+// so the token must live in sessionStorage — asserted by it never touching the
+// shared localStorage shim. ---
+
+test('token is stored per-tab (sessionStorage), never in shared localStorage', () => {
+  setApiBase('https://server-a.test');
+  setToken('TOKEN_A');
+  // The credential is in sessionStorage (per-tab) and absent from localStorage
+  // (shared) — so a second tab on the same server can't overwrite this one.
+  assert.equal(session.getItem('macaron_auth_token::https://server-a.test'), 'TOKEN_A');
+  assert.equal(local.getItem('macaron_auth_token::https://server-a.test'), null);
+});
+

@@ -7,9 +7,11 @@
 import { getApiBase, isLoopbackBase, resolveApiUrl, setApiBase, clearApiBase } from './apiBase';
 
 // The token is keyed by the server origin it was minted for, so a token bound to
-// server A can never be sent to server B — even with two hosted tabs sharing one
-// localStorage. Same-origin (empty base) keeps the historical bare key so an
-// existing local login survives the upgrade. See the P0-3 two-realm regression.
+// server A can never be sent to server B. It lives in sessionStorage — per browser
+// tab, not shared like localStorage — so two hosted tabs each bound to the SAME
+// server keep their OWN tokens instead of the later tab clobbering the earlier
+// one. Same-origin (empty base) keeps the historical bare key. See the two-realm
+// and same-server dual-tab regressions.
 const KEY = 'macaron_auth_token';
 function tokenKey(): string { const b = getApiBase(); return b ? `${KEY}::${b}` : KEY; }
 
@@ -18,15 +20,15 @@ function tokenKey(): string { const b = getApiBase(); return b ? `${KEY}::${b}` 
 const HANDOFF_KEY = 'macaron_connect_handoff';
 
 export function getToken(): string {
-  try { return localStorage.getItem(tokenKey()) || ''; } catch { return ''; }
+  try { return sessionStorage.getItem(tokenKey()) || ''; } catch { return ''; }
 }
 
 export function setToken(token: string): void {
-  try { localStorage.setItem(tokenKey(), token); } catch { /* private mode */ }
+  try { sessionStorage.setItem(tokenKey(), token); } catch { /* private mode */ }
 }
 
 export function clearToken(): void {
-  try { localStorage.removeItem(tokenKey()); } catch { /* private mode */ }
+  try { sessionStorage.removeItem(tokenKey()); } catch { /* private mode */ }
 }
 
 export function authHeaders(): Record<string, string> {
@@ -54,19 +56,6 @@ export async function authedFetch(input: string, init: RequestInit = {}): Promis
     window.dispatchEvent(new Event('macaron:auth-required'));
   }
   return resp;
-}
-
-// Bootstrap from a shared link: ?token=... → store it, then strip it from the
-// URL so it doesn't linger in history / referrers. Call once at startup.
-export function consumeTokenFromUrl(): void {
-  try {
-    const url = new URL(window.location.href);
-    const t = url.searchParams.get('token');
-    if (!t) return;
-    setToken(t);
-    url.searchParams.delete('token');
-    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
-  } catch { /* non-browser / malformed URL */ }
 }
 
 // Hosted-mode bootstrap. The docs connect page validated the server target and
