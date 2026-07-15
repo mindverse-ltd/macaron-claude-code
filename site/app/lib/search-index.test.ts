@@ -1042,6 +1042,51 @@ test('real structure() round-29: budget order-independence, opener-local & quote
   assert.ok((await hits(cmt, 'BODYCMT28')) > 0, 'comment-case visible body lost');
 });
 
+// EVE round 30 — the final review's 5 exact real-Orama P1s, made non-skippable:
+// (1) the generic-flow budget must have NO encounter-order bias even for GLUED→GLUED: a leading glued
+//     technical generic must keep (searchable) while the LATER same-name glued real flow claims the lone
+//     closer — pure LIFO nearest-pop, the first opener must not greedily exhaust the budget.
+// (1b) a bare TS instantiation in prose (`type Box<$Panel> holds`) is NOT a residue opener and must not
+//     be counted against a later real same-name flow's closer budget (it would starve and leak the flow).
+// (2) lossyOpenerEnd is OPENER-LOCAL: a CLEAN attributed opener whose honest body carries a `"> ` (with a
+//     space before the quote) or a `"}> ` must NOT be mistaken for a leaked attribute close.
+// (3) the dropped-quote first-segment recovery is regex/comment lexical-safe — a `">` inside a
+//     `pattern={/">/}` regex in the leaked attribute is not the real close; the tag's real `>` is.
+test('real structure() round-30: glued budget LIFO, prose instantiation, opener-local & regex-safe recovery', async () => {
+  const oramaFor = async (raw: string) => {
+    const index = await buildIndex({ url: '/r30', data: { title: '/r30', description: undefined, structuredData: structure(raw) } } as Parameters<typeof buildIndex>[0]);
+    return initAdvancedSearch({ language: 'english', indexes: [index] });
+  };
+  const hits = async (raw: string, q: string) => (await (await oramaFor(raw)).search(q)).length;
+
+  // (1) glued→glued budget order-independence — the leading glued technical generic keeps; the later
+  // glued real flow claims the lone closer (its markup drops); the intro and body survive.
+  const glued = 'Technical <$Panel extends STALEGLUED29>.\n\nprefix<$Panel extends REALGLUED29>INTROKEEP29\n\n## H\n\nBODYKEEP29\n\n</$Panel>';
+  assert.ok((await hits(glued, 'STALEGLUED29')) > 0, 'leading glued generic stole the later flow closer (order bias)');
+  assert.equal(await hits(glued, 'REALGLUED29'), 0, 'later glued real flow markup leaked (budget starved)');
+  assert.ok((await hits(glued, 'INTROKEEP29')) > 0 && (await hits(glued, 'BODYKEEP29')) > 0, 'real flow intro/body lost');
+
+  // (1b) a bare TS instantiation in prose (`type Box<$Panel> holds`) is not a residue opener — the later
+  // real same-name flow still pairs with the lone closer (its markup drops), and the prose token survives.
+  const inst = 'Bare type Box<$Panel> holds.\n\n<$Panel extends REALFLOWATTRX>\n\n## H\n\nBODYX\n\n</$Panel>';
+  assert.equal(await hits(inst, 'REALFLOWATTRX'), 0, 'real flow markup leaked (prose instantiation stole the closer)');
+  assert.ok((await hits(inst, 'Box')) > 0 && (await hits(inst, 'BODYX')) > 0, 'prose instantiation token or flow body lost');
+
+  // (2) opener-local — a CLEAN attributed opener whose honest body carries a `"> ` (space before the
+  // quote) or a `"}> ` must survive; neither is a leaked attribute close.
+  const spaced = '<$Panel a="1" >LEFTWSDQ29 text "> RIGHTWSDQ29\n\n## H\n\ntail\n\n</$Panel>';
+  assert.ok((await hits(spaced, 'LEFTWSDQ29')) > 0 && (await hits(spaced, 'RIGHTWSDQ29')) > 0, 'honest body `"> ` mistaken for a leaked close');
+  const brace = '<$Panel a="1">LEFTBRACE29 text "}> RIGHTBRACE29\n\n## H\n\ntail\n\n</$Panel>';
+  assert.ok((await hits(brace, 'LEFTBRACE29')) > 0 && (await hits(brace, 'RIGHTBRACE29')) > 0, 'honest body `"}> ` mistaken for a leaked bracket close');
+
+  // (3) dropped-quote first-segment recovery is regex-safe — a `">` inside a `pattern={/">/}` regex is not
+  // the real close; the leaked attribute and the regex body never index, the tag's real `>` ends it.
+  const reg = '<$Panel title="a \\" > LEAKQ29" pattern={/">/.test(REGQ29)}>BODYQ29</$Panel>';
+  assert.equal(await hits(reg, 'LEAKQ29'), 0, 'dropped-quote leaked attribute survived');
+  assert.equal(await hits(reg, 'REGQ29'), 0, 'regex body content leaked (matched the fake `">`)');
+  assert.ok((await hits(reg, 'BODYQ29')) > 0, 'regex-case visible body lost');
+});
+
 const DOCS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../content/docs');
 
 function mdxFiles(dir: string): string[] {
