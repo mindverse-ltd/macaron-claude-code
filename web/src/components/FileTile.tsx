@@ -7,7 +7,7 @@
 // api.writeFile; unsaved changes are indicated by a dot and confirmed
 // before switching files.
 
-import { Circle } from 'lucide-react';
+import { Circle, Save } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -132,7 +132,9 @@ export function FileTile({
     if (isMarkdown) {
       return (
         <div className="ft-preview md">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <div className="ft-reading">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         </div>
       );
     }
@@ -154,67 +156,70 @@ export function FileTile({
 
   return (
     <div className="ft-root">
-      {/* Redundant tile-header replaced by a compact floating action strip
-          in the body's top-right corner — the outer SortableTile chrome
-          already shows the filename, so we don't repeat the path here. */}
       <div className="ft-body">
-        {!isImage && !isBinary && (
-          <div className="ft-actions">
-            <div className="ft-mode-toggle" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'preview'}
-                className={'ft-mode-btn' + (mode === 'preview' ? ' active' : '')}
-                onClick={() => setMode('preview')}
-              >
-                Preview
-              </button>
-              {isMarkdown && (
+        <div className="ft-toolbar">
+          <span className="ft-path" title={path}>{path}</span>
+          {!isImage && !isBinary && (
+            <div className="ft-actions">
+              <div className="ft-mode-toggle" role="tablist" aria-label="File view mode">
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={mode === 'split'}
-                  className={'ft-mode-btn' + (mode === 'split' ? ' active' : '')}
-                  onClick={() => setMode('split')}
+                  aria-selected={mode === 'preview'}
+                  className={'ft-mode-btn' + (mode === 'preview' ? ' active' : '')}
+                  onClick={() => setMode('preview')}
                 >
-                  Split
+                  Preview
+                </button>
+                {isMarkdown && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === 'split'}
+                    className={'ft-mode-btn' + (mode === 'split' ? ' active' : '')}
+                    onClick={() => setMode('split')}
+                  >
+                    Split
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'edit'}
+                  className={'ft-mode-btn' + (mode === 'edit' ? ' active' : '')}
+                  onClick={() => setMode('edit')}
+                >
+                  Edit
+                  {dirty && <span className="ft-dirty" role="img" aria-label="Unsaved changes" title="Unsaved changes"><Circle size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>}
+                </button>
+              </div>
+              {mode !== 'preview' && (
+                <button
+                  type="button"
+                  className="ft-save"
+                  disabled={!dirty || saving}
+                  onClick={save}
+                  title={dirty ? 'Save (⌘S)' : 'Saved'}
+                  aria-label={saving ? 'Saving' : dirty ? 'Save file' : 'Saved'}
+                >
+                  <Save size={13} aria-hidden="true" />
                 </button>
               )}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'edit'}
-                className={'ft-mode-btn' + (mode === 'edit' ? ' active' : '')}
-                onClick={() => setMode('edit')}
-              >
-                Edit
-                {dirty && <span className="ft-dirty" role="img" aria-label="Unsaved changes" title="Unsaved changes"><Circle size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>}
-              </button>
             </div>
-            {mode !== 'preview' && (
-              <button
-                type="button"
-                className="ft-save"
-                disabled={!dirty || saving}
-                onClick={save}
-                title={dirty ? 'Save (⌘S)' : 'Saved'}
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            )}
-          </div>
-        )}
-        {mode === 'preview' && previewNode}
-        {mode === 'edit' && (
-          <div className="ft-editor-pane">{editorNode}</div>
-        )}
-        {mode === 'split' && (
-          <div className="ft-split">
+          )}
+        </div>
+        <div className="ft-content">
+          {mode === 'preview' && previewNode}
+          {mode === 'edit' && (
             <div className="ft-editor-pane">{editorNode}</div>
-            {previewNode}
-          </div>
-        )}
+          )}
+          {mode === 'split' && (
+            <div className="ft-split">
+              <div className="ft-editor-pane">{editorNode}</div>
+              {previewNode}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

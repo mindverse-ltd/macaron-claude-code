@@ -6,7 +6,7 @@
 // Mirrors GitPanel's slide-in shell (fixed backdrop + right-side panel
 // via the .above-modal escape hatch so it stacks over the composer).
 
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type FileEntry, type FileContentSearchResponse } from '../lib/api';
 
@@ -58,6 +58,9 @@ function TreeRow({
         title={entry.path}
       >
         <span className="fp-caret">{isDir ? (open ? <ChevronDown size={10} aria-hidden="true" /> : <ChevronRight size={10} aria-hidden="true" />) : ' '}</span>
+        <span className="fp-file-icon" aria-hidden="true">
+          {isDir ? <Folder size={13} /> : <File size={13} />}
+        </span>
         <span className="fp-name">{entry.name}</span>
       </button>
       {isDir && open && (
@@ -151,17 +154,21 @@ export function FilesPanel({
   return (
     <aside className="fp-panel" aria-label="Files panel">
         <div className="fp-head">
-          <div className="fp-title">Files</div>
+          <div className="fp-title"><FolderOpen size={15} aria-hidden="true" /> Files</div>
           <button className="fp-close" onClick={onClose} title="Close" aria-label="Close"><X size={14} aria-hidden="true" /></button>
         </div>
         <div className="fp-search">
+          <Search className="fp-search-icon" size={14} aria-hidden="true" />
           <input
             type="text"
             className="fp-input"
-            placeholder="Search files —  name, or > text for content"
+            name="file-search"
+            aria-label="Search files"
+            autoComplete="off"
+            placeholder="Search files"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            autoFocus
+            autoFocus={typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 769px)').matches}
           />
           {searching && <span className="fp-hint">…</span>}
         </div>
@@ -237,11 +244,6 @@ export function FilesPanel({
           )}
         </div>
 
-        <div className="fp-foot">
-          <span className="fp-hint">
-            Tip: type <code>&gt;</code> to search file contents (git grep).
-          </span>
-        </div>
     </aside>
   );
 }

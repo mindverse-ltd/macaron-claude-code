@@ -14,7 +14,18 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Copy, RefreshCw, Trash2, X } from 'lucide-react';
+import {
+  Copy,
+  FileText,
+  FolderOpen,
+  GitBranch,
+  GripVertical,
+  Plus,
+  RefreshCw,
+  SquareTerminal,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { api, basename, type SessionListItem, type Workspace as Wk } from '../lib/api';
 import {
   useCanvas,
@@ -263,17 +274,21 @@ export function Workspace() {
           </span>
         </div>
         <div className="ws-canvas-actions">
-          <button className="ghost small" onClick={() => setGitOpen(true)}>
-            Git
+          <button className="ghost small ws-canvas-action" onClick={() => setGitOpen(true)} title="Source control">
+            <GitBranch size={14} aria-hidden="true" />
+            <span>Git</span>
           </button>
-          <button className="ghost small" onClick={() => canvas.addTerminal()}>
-            + Terminal
+          <button className="ghost small ws-canvas-action" onClick={() => canvas.addTerminal()} title="Open terminal">
+            <SquareTerminal size={14} aria-hidden="true" />
+            <span>Terminal</span>
           </button>
-          <button className="ghost small" onClick={() => setFilesOpen(true)}>
-            Files
+          <button className="ghost small ws-canvas-action" onClick={() => setFilesOpen(true)} title="Browse files">
+            <FolderOpen size={14} aria-hidden="true" />
+            <span>Files</span>
           </button>
-          <button className="ghost small" onClick={handleNewSession}>
-            + New Session
+          <button className="ghost small ws-canvas-action" onClick={handleNewSession} title="New session">
+            <Plus size={14} aria-hidden="true" />
+            <span>Session</span>
           </button>
         </div>
       </header>
@@ -288,7 +303,8 @@ export function Workspace() {
             focusedPath={canvas.focusedSid && isFileSid(canvas.focusedSid) ? filePath(canvas.focusedSid) : ''}
             onOpen={(p) => {
               canvas.addFile(p);
-              // Keep the panel open so the user can browse more files.
+              // A phone-sized canvas needs the full width for the artifact.
+              if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches) setFilesOpen(false);
             }}
           />
         )}
@@ -478,7 +494,13 @@ function SortableTile({
       ref={setRef}
       className={`ws-tile${isFocused ? ' focused' : ''}${isDragging ? ' dragging' : ''}${isRunning ? ' running' : ''}`}
       style={style}
+      role="group"
+      tabIndex={0}
+      aria-label={`${isFile ? 'File' : isTerminal ? 'Terminal' : 'Session'}: ${label}`}
       onClick={() => {
+        if (!isFocused) onFocus();
+      }}
+      onFocus={() => {
         if (!isFocused) onFocus();
       }}
     >
@@ -490,8 +512,12 @@ function SortableTile({
         </div>
       )}
       <div className="ws-tile-grip" {...attributes} {...listeners} title="Drag to reorder">
-        <span className="ws-tile-grip-dots">⋮⋮</span>
-        <span className="ws-tile-grip-label">{label}</span>
+        <span className="ws-tile-grip-dots" aria-hidden="true"><GripVertical size={14} /></span>
+        <span className="ws-tile-grip-label">
+          {isFile ? (
+            <span className="ws-tile-kind"><FileText size={13} aria-hidden="true" /> File</span>
+          ) : label}
+        </span>
         {!isDraft && !isTerminal && !isFile && (
         <button
           className="ws-tile-action"
