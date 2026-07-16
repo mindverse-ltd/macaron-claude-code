@@ -739,9 +739,7 @@ textarea:focus, select:focus, input:focus {
   padding-left: 10px;
   white-space: pre-wrap;
 }
-/* Fractional transforms intentionally change SVG raster parity; relative
-   positioning leaves a 0.5px visible-ink center mismatch. */
-.ti-thinking > svg { transform: translateY(0.5px); }
+.ti-thinking > svg { transform: translateY(-0.5px); }
 
 /* tool call entry — original inline ● + └ layout */
 .ti-tool {
@@ -757,7 +755,6 @@ textarea:focus, select:focus, input:focus {
   flex-wrap: wrap;
   word-break: break-word;
 }
-.ti-tool-head:not(.ti-subagent-head) > .ti-dot > svg { position: relative; top: -1px; }
 .ti-dot {
   color: var(--good);
   flex-shrink: 0;
@@ -951,9 +948,6 @@ textarea:focus, select:focus, input:focus {
 .ti-todo-in_progress .ti-todo-text { color: var(--text); font-weight: 500; }
 .ti-todo-pending .ti-todo-icon { color: var(--muted-2); }
 .ti-todo-pending .ti-todo-text { color: var(--text-2); }
-.ti-todo-in_progress .ti-todo-icon > svg { transform: translateY(1.5px); }
-.ti-todo-pending .ti-todo-icon > svg { transform: translateY(0.5px); }
-.ti-todo-completed .ti-todo-icon > svg { position: relative; top: 2px; }
 
 /* ---------- system event (※ recap / resume) ---------- */
 .ti-sysevent {
@@ -972,7 +966,6 @@ textarea:focus, select:focus, input:focus {
   font-style: normal;
   margin-right: 6px;
 }
-.ti-sysevent-mark > svg { position: relative; top: 1px; }
 .ti-sysevent-label {
   color: var(--text-2);
   font-weight: 600;
@@ -2472,7 +2465,7 @@ textarea:focus, select:focus, input:focus {
   flex-wrap: wrap;
 }
 .ti-plan-icon { flex-shrink: 0; }
-.ti-plan-icon > svg { transform: translateY(-0.5px); }
+.ti-plan-icon > svg { position: relative; top: -1px; }
 .ti-plan-title { color: var(--text); font-weight: 600; }
 .ti-plan-sub { color: var(--text-2); font-size: 12.5px; }
 .ti-plan-body {

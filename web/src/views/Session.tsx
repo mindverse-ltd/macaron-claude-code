@@ -381,7 +381,7 @@ function TodoItem({ id, todos }: { id?: string; todos: TodoEntry[] }) {
           return (
             <li key={idx} className={`ti-todo-li ti-todo-${t.status}`}>
               <span className="ti-todo-icon" role="img" aria-label={t.status.replace('_', ' ')}>
-                {t.status === 'completed' ? <Check size={12} aria-hidden="true" /> : t.status === 'in_progress' ? <CircleDot size={12} aria-hidden="true" /> : <Square size={12} aria-hidden="true" />}
+                {t.status === 'completed' ? <Check size={11} aria-hidden="true" /> : t.status === 'in_progress' ? <CircleDot size={11} aria-hidden="true" /> : <Square size={11} aria-hidden="true" />}
               </span>
               <span className="ti-todo-text">{label}</span>
             </li>
@@ -413,7 +413,7 @@ function SystemEventItem({ eventType, text }: { eventType: string; text: string 
   const shown = open || !isLong ? text : text.slice(0, 200) + '…';
   return (
     <div className="ti-sysevent">
-      <span className="ti-sysevent-mark"><Info size={12} aria-hidden="true" /></span>
+      <span className="ti-sysevent-mark"><Info size={13} aria-hidden="true" /></span>
       <span className="ti-sysevent-label">{label}:</span> {shown}
       {isLong && (
         <button className="ti-expand ti-sysevent-toggle" onClick={() => setOpen((v) => !v)}>
@@ -502,7 +502,7 @@ function LiveAssistantItem({ text, streaming }: { text: string; streaming: boole
 }
 
 function ThinkingItem({ text }: { text: string }) {
-  return <div className="ti-thinking"><MessageCircle size={14} aria-hidden="true" /> {text}</div>;
+  return <div className="ti-thinking"><MessageCircle size={12} aria-hidden="true" /> {text}</div>;
 }
 
 // Assistant-side inline image (rare — some models emit vision output).
@@ -596,7 +596,7 @@ function ToolItem({ id, name, input, result, durationMs, isError }: { id?: strin
   return (
     <div className="ti-tool" data-item-id={id}>
       <div className="ti-tool-head">
-        <span className={`ti-dot${isError ? ' ti-dot-error' : ''}`}><Circle size={8} fill="currentColor" aria-hidden="true" /></span>
+        <span className={`ti-dot${isError ? ' ti-dot-error' : ''}`}><Circle size={9} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>
         <span className="ti-tool-name">{name}</span>
         {header && (
           <span className="ti-tool-args" title={header}>
@@ -809,7 +809,7 @@ function PlanApprovalItem({
   return (
     <div className="ti-plan">
       <div className="ti-plan-head">
-        <span className="ti-plan-icon"><ClipboardList size={14} aria-hidden="true" /></span>
+        <span className="ti-plan-icon"><ClipboardList size={13} aria-hidden="true" /></span>
         <span className="ti-plan-title">Ready to code?</span>
         <span className="ti-plan-sub">Here is the plan — choose how to proceed.</span>
       </div>
@@ -927,9 +927,9 @@ function CollapsedGroupItem({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="ti-collapsed-dot"><Circle size={8} fill="currentColor" aria-hidden="true" /></span>
+        <span className="ti-collapsed-dot"><Circle size={9} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>
         <span className="ti-collapsed-summary">{summary || `${it.ids.length} operations`}</span>
-        <span className="ti-collapsed-caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
+        <span className="ti-collapsed-caret">{open ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}</span>
       </button>
       {open && (
         <div className="ti-collapsed-body">

@@ -259,7 +259,7 @@ function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 }
 
 function PlanCard({ it }: { it: Extract<Item, { kind: 'plan' }> }) {
-  const glyph = (s: CodexPlanStatus): ReactNode => (s === 'completed' ? <CheckSquare size={14} aria-hidden="true" /> : s === 'inProgress' ? <CircleDot size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />);
+  const glyph = (s: CodexPlanStatus): ReactNode => (s === 'completed' ? <CheckSquare size={13} aria-hidden="true" /> : s === 'inProgress' ? <CircleDot size={13} aria-hidden="true" /> : <Square size={13} aria-hidden="true" />);
   const statusLabel = (s: CodexPlanStatus): string => (s === 'completed' ? 'completed' : s === 'inProgress' ? 'in progress' : 'pending');
   return (
     <div className="cx-plan">
