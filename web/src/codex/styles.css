@@ -1491,6 +1491,8 @@ body {
 .cx-plan-step-glyph > svg {
   display: block;
 }
+.cx-plan-step.completed .cx-plan-step-glyph,
+.cx-plan-step.inProgress .cx-plan-step-glyph { position: relative; top: -1px; }
 .cx-plan-step.completed { color: var(--cx-muted); text-decoration: line-through; }
 .cx-plan-step.inProgress { font-weight: 600; }
 .cx-plan-step.inProgress .cx-plan-step-glyph { color: var(--cx-code-strong); }
