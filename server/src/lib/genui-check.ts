@@ -51,7 +51,14 @@ const compilerOptions: ts.CompilerOptions = {
 // instead of a TS2307.
 const AMBIENT_DECLARATIONS =
   `declare module "https://*";\ndeclare module "http://*";\n` +
-  `declare module "$macaron/chat" {\n  export function sendUserMessage(prompt: string): void;\n}\n`;
+  `declare module "$macaron/chat" {\n  export function sendUserMessage(prompt: string): void;\n}\n` +
+  // The runtime shim also installs sendUserMessage on window, so TSX that
+  // writes `window.sendUserMessage(...)` (instead of the preferred import)
+  // still runs fine in the browser. Declare it on Window so the type
+  // checker doesn't flag it — the import remains the recommended pattern
+  // (see macaron-render-tool.ts guidance), but "works but noisy" is worse
+  // than silent-and-consistent.
+  `declare global {\n  interface Window {\n    sendUserMessage(prompt: string): void;\n  }\n}\nexport {};\n`;
 
 const toDiag = (d: ts.Diagnostic): GenUIDiagnostic => {
   const message = diagnosticMessage(ts, d);

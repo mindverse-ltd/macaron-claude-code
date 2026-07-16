@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useNavigate } from 'react-router-dom';
 import { api, type SlashCommand } from '../lib/api';
 import type { Workspace } from '@macaron/shared';
+import { ArrowUp, ChevronDown, Paperclip, X } from 'lucide-react';
 import { setPendingPrompt, type PendingImage } from '../lib/newSession';
 import { startNewSession } from '../lib/liveStore';
 import { SlashPalette } from '../components/SlashPalette';
@@ -290,7 +291,9 @@ export function Home() {
                     className="img-chip-x"
                     onClick={() => setImages((cur) => cur.filter((c) => c.id !== img.id))}
                     aria-label="Remove image"
-                  >×</button>
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -353,9 +356,7 @@ export function Home() {
               aria-label="Attach image"
               onClick={() => fileInputRef.current?.click()}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
+              <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
             </button>
             {/* Workspace switcher styled as a provider-chip pill — same visual
                 vocabulary as the permission chip in the StatusBar so the two
@@ -363,13 +364,7 @@ export function Home() {
                 is enough context. */}
             <div className="provider-chip home-ws-chip" title={`Workspace · ${projectName || 'none'}`}>
               <span className="provider-chip-label">{projectName || 'No workspaces yet'}</span>
-              <svg
-                className="provider-chip-caret"
-                width="8" height="8" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              <ChevronDown className="provider-chip-caret" size={8} strokeWidth={2.5} aria-hidden="true" />
               <select
                 className="provider-chip-select"
                 value={project}
@@ -391,10 +386,7 @@ export function Home() {
               aria-label={sending ? 'Opening…' : 'Send'}
               title={sending ? 'Opening…' : 'Send (Enter)'}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 19V5" />
-                <path d="m5 12 7-7 7 7" />
-              </svg>
+              <ArrowUp size={14} strokeWidth={2.4} aria-hidden="true" />
             </button>
           </div>
         </form>

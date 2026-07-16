@@ -1,5 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { getApiBase } from '../lib/apiBase';
+import { assetUrl } from '../lib/assetBase';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clipboard,
+  CopyPlus,
+  Crosshair,
+  GitMerge,
+  Link as LinkIcon,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Unlink,
+  X,
+} from 'lucide-react';
 import { api, basename, HttpError, type Workspace, type SessionListItem, type WorktreeInfo } from '../lib/api';
 import { useToast } from './Toast';
 import { useConfirm } from './Confirm';
@@ -150,12 +168,12 @@ export function Sidebar() {
       y: e.clientY,
       items: [
         {
-          icon: '+',
+          icon: <Plus size={14} aria-hidden="true" />,
           label: 'New Session',
           onClick: () => navigate(`/w/${encodeURIComponent(w.project)}`),
         },
         {
-          icon: '📋',
+          icon: <Clipboard size={14} aria-hidden="true" />,
           label: 'Copy Path',
           onClick: () => {
             navigator.clipboard.writeText(w.cwd || w.project);
@@ -164,7 +182,7 @@ export function Sidebar() {
         },
         'separator',
         {
-          icon: '✕',
+          icon: <X size={14} aria-hidden="true" />,
           label: 'Delete Workspace',
           danger: true,
           onClick: () => toast('delete not yet implemented'),
@@ -198,7 +216,7 @@ export function Sidebar() {
     const wt = worktrees[s.sessionId];
     const items: MenuItem[] = [
         {
-          icon: '◎',
+          icon: <Crosshair size={14} aria-hidden="true" />,
           label: 'Focus Session',
           onClick: () =>
             navigate(
@@ -206,12 +224,12 @@ export function Sidebar() {
             ),
         },
         {
-          icon: '✎',
+          icon: <Pencil size={14} aria-hidden="true" />,
           label: 'Rename',
           onClick: () => startRename(s),
         },
         {
-          icon: '⊕',
+          icon: <CopyPlus size={14} aria-hidden="true" />,
           label: 'Duplicate',
           onClick: async () => {
             try {
@@ -227,14 +245,19 @@ export function Sidebar() {
           },
         },
         {
-          icon: '🔗',
+          icon: <LinkIcon size={14} aria-hidden="true" />,
           label: 'Copy share link',
           onClick: async () => {
             try {
               const { token } = await api.createShare(w.project, s.sessionId);
-              // Build the URL from the browser's own origin so it works over
-              // LAN/tunnel, not just the server's 127.0.0.1 bind.
-              const url = `${window.location.origin}/#/share/${token}`;
+              // A recipient needs an origin that serves the UI AND answers
+              // /api/public: hosted mode (api base set) must use the server's
+              // own origin — a docs-origin /app link has no server bound and
+              // can never resolve. Local/tunnel keeps the browser's origin +
+              // app base so it works over LAN/tunnel, not just the server's
+              // 127.0.0.1 root bind.
+              const server = getApiBase();
+              const url = server ? `${server}/#/share/${token}` : `${window.location.origin}${assetUrl('/')}#/share/${token}`;
               await navigator.clipboard.writeText(url);
               toast('share link copied');
             } catch (err) {
@@ -243,7 +266,7 @@ export function Sidebar() {
           },
         },
         {
-          icon: '🚫',
+          icon: <Unlink size={14} aria-hidden="true" />,
           label: 'Unshare',
           onClick: async () => {
             try {
@@ -257,7 +280,7 @@ export function Sidebar() {
     ];
     if (wt) {
       items.push('separator', {
-        icon: '⭱',
+        icon: <GitMerge size={14} aria-hidden="true" />,
         label: wt.dirty ? 'Merge worktree (commit first)' : 'Merge worktree → base',
         onClick: async () => {
           try {
@@ -269,7 +292,7 @@ export function Sidebar() {
           }
         },
       }, {
-        icon: '🗑',
+        icon: <Trash2 size={14} aria-hidden="true" />,
         label: 'Discard worktree',
         danger: true,
         onClick: async () => {
@@ -303,7 +326,7 @@ export function Sidebar() {
       });
     }
     items.push('separator', {
-          icon: '✕',
+          icon: <X size={14} aria-hidden="true" />,
           label: 'Delete Session',
           danger: true,
           onClick: async () => {
@@ -326,7 +349,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar-v2">
       <Link className="sb-brand" to="/">
-        <img className="sb-logo" src="/mindlab-symbol.svg" alt="" />
+        <img className="sb-logo" src={assetUrl('/mindlab-symbol.svg')} alt="" />
         <div>
           <div className="sb-brand-name">Macaron Artifacts</div>
           <div className="sb-brand-sub">Presented by Mind Lab</div>
@@ -339,7 +362,7 @@ export function Sidebar() {
         onClick={() => window.dispatchEvent(new CustomEvent('macaron:open-search'))}
         title="Search Claude sessions"
       >
-        <span className="sb-search-icon">⌕</span>
+        <span className="sb-search-icon"><Search size={16} aria-hidden="true" /></span>
         <span className="sb-search-label">Search sessions</span>
       </button>
       <Link className={'sb-nav-link' + (location.pathname === '/examples' ? ' active' : '')} to="/examples">
@@ -378,7 +401,7 @@ export function Sidebar() {
                 }}
                 onContextMenu={(e) => wsMenu(w, e)}
               >
-                <span className="sb-arrow">{isExpanded ? '▾' : '▸'}</span>
+                <span className="sb-arrow">{isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
                 <span className="sb-ws-name">{name}</span>
                 <span className="sb-spacer" />
                 {runCount > 0 && !isExpanded && (
@@ -458,7 +481,7 @@ export function Sidebar() {
                           title={pinned ? 'Remove from canvas' : 'Add to canvas'}
                           aria-label={pinned ? 'Remove from canvas' : 'Add to canvas'}
                         >
-                          {pinned ? '✓' : '+'}
+                          {pinned ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                         </button>
                       </div>
                     );

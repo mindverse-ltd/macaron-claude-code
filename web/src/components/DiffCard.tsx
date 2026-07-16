@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ArrowUp, Circle } from 'lucide-react';
 
 // Inline diff card for Claude's file-editing tools. Everything needed is
 // already in the tool_use `input` (old/new strings), so this renders straight
@@ -76,7 +77,7 @@ export function DiffCard({ name, diff, result, isError }: { name: string; diff: 
   return (
     <div className={'ti-diff' + (failed ? ' err' : '')}>
       <div className="ti-diff-head">
-        <span className="ti-dot">●</span>
+        <span className="ti-dot"><Circle size={8} fill="currentColor" aria-hidden="true" /></span>
         <span className="ti-tool-name">{name}</span>
         {diff.filePath && (
           <span className="ti-diff-path" title={diff.filePath}>{shortPath(diff.filePath)}</span>
@@ -98,7 +99,7 @@ export function DiffCard({ name, diff, result, isError }: { name: string; diff: 
       )}
       {canCollapse && (
         <button className="ti-expand" onClick={() => setOpen((v) => !v)}>
-          {open ? '↑ collapse' : `… expand diff (+${plus} −${minus})`}
+          {open ? <><ArrowUp size={12} aria-hidden="true" /> collapse</> : `… expand diff (+${plus} −${minus})`}
         </button>
       )}
     </div>

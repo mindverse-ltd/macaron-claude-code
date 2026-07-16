@@ -283,7 +283,7 @@ export const api = {
   configFiles: () => getJSON<{ files: ConfigFileMeta[] }>('/api/config-files'),
   configFile: (id: ConfigFileId) => getJSON<ConfigFile>(`/api/config-files/${id}`),
   saveConfigFile: async (id: ConfigFileId, content: string): Promise<ConfigFile> => {
-    const r = await fetch(`/api/config-files/${id}`, {
+    const r = await authedFetch(`/api/config-files/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),

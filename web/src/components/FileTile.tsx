@@ -1,19 +1,21 @@
 // A single file rendered inside a canvas tile. Shares the tile chrome
 // (grip / actions / close) with Session and Terminal; the body toggles
 // between preview (markdown / image / plain text with syntax colors) and
-// edit (CodeMirror). Default = preview.
+// edit (Monaco). Default = preview.
 //
 // Fetches on mount and on refreshKey change. Save writes back via
 // api.writeFile; unsaved changes are indicated by a dot and confirmed
 // before switching files.
 
+import { Circle, Save } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
+import { authedFetch } from '../lib/auth';
 import { useToast } from './Toast';
 
-// CodeMirror is heavy — only load it when the user flips to Edit mode.
+// Monaco is heavy — only load it when the user flips to Edit mode.
 const CodeEditor = lazy(() => import('./CodeEditor'));
 
 const MAX_INLINE_PREVIEW_BYTES = 512 * 1024;
@@ -33,7 +35,7 @@ function basenameOf(path: string): string {
 export function FileTile({
   project,
   path,
-  focused: _focused,
+  focused,
   refreshKey,
 }: {
   project: string;
@@ -46,14 +48,30 @@ export function FileTile({
   const [original, setOriginal] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'preview' | 'edit'>('preview');
+  const [mode, setMode] = useState<'preview' | 'split' | 'edit'>('preview');
   const [saving, setSaving] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string>('');
   const dirty = content !== original;
 
   const ext = extOf(path);
   const isImage = IMAGE_EXTS.has(ext);
   const isMarkdown = MARKDOWN_EXTS.has(ext);
   const isBinary = BINARY_EXTS.has(ext);
+
+  // Images load through authedFetch (Authorization header) into a blob object
+  // URL — an <img src> can't set headers, and the old `?token=` query leaked the
+  // credential into logs/referrers. Revoke the previous URL on change/unmount.
+  useEffect(() => {
+    if (!isImage) return;
+    let url = '';
+    let cancelled = false;
+    const raw = `/api/files/${encodeURIComponent(project)}/raw?path=${encodeURIComponent(path)}`;
+    authedFetch(raw)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`http ${r.status}`))))
+      .then((b) => { if (cancelled) return; url = URL.createObjectURL(b); setImageUrl(url); })
+      .catch(() => { if (!cancelled) setImageUrl(''); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [isImage, project, path, refreshKey]);
 
   const load = useCallback(() => {
     if (isImage || isBinary) {
@@ -92,12 +110,12 @@ export function FileTile({
     }
   }, [project, path, content, dirty, saving, toast]);
 
-  // Cmd/Ctrl+S — only when this tile has focus. Simple hook: bind while
-  // in edit mode and dirty.
+  // Cmd/Ctrl+S — only the focused tile handles it. Split mode is editable,
+  // so it shares the same save shortcut as the full editor.
   const saveRef = useRef(save);
   saveRef.current = save;
   useEffect(() => {
-    if (mode !== 'edit') return;
+    if (!focused || mode === 'preview') return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -106,19 +124,18 @@ export function FileTile({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mode]);
+  }, [focused, mode]);
 
   const tooBig = content.length > MAX_INLINE_PREVIEW_BYTES;
 
   const previewNode = useMemo(() => {
     if (isImage) {
-      // Image preview via authed GET — reuse the read endpoint's raw path.
-      // Server returns text for text files; for images we use an <img> with
-      // a proxied URL so the browser handles decoding.
-      const src = `/api/files/${encodeURIComponent(project)}/raw?path=${encodeURIComponent(path)}`;
+      // Image preview via authed GET → blob object URL (see the effect above);
+      // an <img> can't send the Authorization header, so we can't ride the token
+      // on the URL. While the blob loads, imageUrl is empty.
       return (
         <div className="ft-image-wrap">
-          <img src={src} alt={basenameOf(path)} />
+          {imageUrl ? <img src={imageUrl} alt={basenameOf(path)} /> : <div className="ft-placeholder">Loading…</div>}
         </div>
       );
     }
@@ -131,71 +148,94 @@ export function FileTile({
     if (isMarkdown) {
       return (
         <div className="ft-preview md">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <div className="ft-reading">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         </div>
       );
     }
     // Plain preview — monospace, no syntax highlight (CodeMirror is only in Edit).
     return <pre className="ft-preview code">{content}</pre>;
-  }, [isImage, isBinary, isMarkdown, error, loading, tooBig, content, project, path]);
+  }, [isImage, isBinary, isMarkdown, error, loading, tooBig, content, project, path, imageUrl]);
+
+  const editorNode = error ? (
+    <div className="ft-placeholder err">Can't read: {error}</div>
+  ) : (
+    <Suspense fallback={<div className="ft-placeholder">Loading editor…</div>}>
+      <CodeEditor
+        path={path}
+        value={content}
+        onChange={setContent}
+      />
+    </Suspense>
+  );
 
   return (
     <div className="ft-root">
-      {/* Redundant tile-header replaced by a compact floating action strip
-          in the body's top-right corner — the outer SortableTile chrome
-          already shows the filename, so we don't repeat the path here. */}
       <div className="ft-body">
-        {!isImage && !isBinary && (
-          <div className="ft-actions">
-            <div className="ft-mode-toggle" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'preview'}
-                className={'ft-mode-btn' + (mode === 'preview' ? ' active' : '')}
-                onClick={() => setMode('preview')}
-              >
-                Preview
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'edit'}
-                className={'ft-mode-btn' + (mode === 'edit' ? ' active' : '')}
-                onClick={() => setMode('edit')}
-              >
-                Edit
-                {dirty && <span className="ft-dirty" title="Unsaved changes">●</span>}
-              </button>
+        <div className="ft-toolbar">
+          <span className="ft-path" title={path}>{path}</span>
+          {!isImage && !isBinary && (
+            <div className="ft-actions">
+              <div className="ft-mode-toggle" role="tablist" aria-label="File view mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'preview'}
+                  className={'ft-mode-btn' + (mode === 'preview' ? ' active' : '')}
+                  onClick={() => setMode('preview')}
+                >
+                  Preview
+                </button>
+                {isMarkdown && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === 'split'}
+                    className={'ft-mode-btn' + (mode === 'split' ? ' active' : '')}
+                    onClick={() => setMode('split')}
+                  >
+                    Split
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'edit'}
+                  className={'ft-mode-btn' + (mode === 'edit' ? ' active' : '')}
+                  onClick={() => setMode('edit')}
+                >
+                  Edit
+                  {dirty && <span className="ft-dirty" role="img" aria-label="Unsaved changes" title="Unsaved changes"><Circle size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" /></span>}
+                </button>
+              </div>
+              {mode !== 'preview' && (
+                <button
+                  type="button"
+                  className="ft-save"
+                  disabled={!dirty || saving}
+                  onClick={save}
+                  title={dirty ? 'Save (⌘S)' : 'Saved'}
+                  aria-label={saving ? 'Saving' : dirty ? 'Save file' : 'Saved'}
+                >
+                  <Save size={13} aria-hidden="true" />
+                </button>
+              )}
             </div>
-            {mode === 'edit' && (
-              <button
-                type="button"
-                className="ft-save"
-                disabled={!dirty || saving}
-                onClick={save}
-                title={dirty ? 'Save (⌘S)' : 'Saved'}
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            )}
-          </div>
-        )}
-        {mode === 'preview' && previewNode}
-        {mode === 'edit' && (
-          <>
-            {error && <div className="ft-placeholder err">Can't read: {error}</div>}
-            {!error && (
-              <Suspense fallback={<div className="ft-placeholder">Loading editor…</div>}>
-                <CodeEditor
-                  path={path}
-                  value={content}
-                  onChange={setContent}
-                />
-              </Suspense>
-            )}
-          </>
-        )}
+          )}
+        </div>
+        <div className="ft-content">
+          {mode === 'preview' && previewNode}
+          {mode === 'edit' && (
+            <div className="ft-editor-pane">{editorNode}</div>
+          )}
+          {mode === 'split' && (
+            <div className="ft-split">
+              <div className="ft-editor-pane">{editorNode}</div>
+              {previewNode}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

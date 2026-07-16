@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { Menu } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Toast } from './components/Toast';
 import { NotifyStack } from './components/NotifyStack';
@@ -15,7 +16,7 @@ export function App() {
   return (
     <>
       <button className="mobile-nav-toggle" aria-label="Toggle navigation" onClick={() => setNavOpen((v) => !v)}>
-        ☰
+        <Menu size={20} aria-hidden="true" />
       </button>
       <div className={`sb-drawer${navOpen ? ' open' : ''}`}>
         <Sidebar />

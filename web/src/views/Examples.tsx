@@ -4,15 +4,16 @@
 // on /w/<project>, where Workspace's auto-draft picks the seed up and
 // Session's isNew branch auto-sends it.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, ArrowRight, BarChart3, Calendar, Compass, FolderTree, Moon, Palette, PenLine, Settings } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Workspace } from '@macaron/shared';
 import { setPendingPrompt } from '../lib/newSession';
 
 type Example = {
   id: string;
-  emoji: string;
+  icon: ReactNode;
   title: string;
   blurb: string;
   category: 'interactive' | 'preview' | 'data';
@@ -23,7 +24,7 @@ const EXAMPLES: Example[] = [
   // ---- Interactive (asks the user something → click to answer) ----
   {
     id: 'framework-picker',
-    emoji: '🧭',
+    icon: <Compass size={20} aria-hidden="true" />,
     title: 'Pick a framework',
     blurb: 'A/B/C decision as clickable cards — no typing back.',
     category: 'interactive',
@@ -36,7 +37,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'config-wizard',
-    emoji: '⚙️',
+    icon: <Settings size={20} aria-hidden="true" />,
     title: 'Service config wizard',
     blurb: 'Structured form → posts a JSON payload back.',
     category: 'interactive',
@@ -49,7 +50,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'destructive-confirm',
-    emoji: '⚠️',
+    icon: <AlertTriangle size={20} aria-hidden="true" />,
     title: 'Destructive confirm',
     blurb: 'Diff summary + Apply / Cancel buttons.',
     category: 'interactive',
@@ -63,7 +64,7 @@ const EXAMPLES: Example[] = [
   // ---- UI Change Previews (ui-preview skill in action) ----
   {
     id: 'redesign-statusbar',
-    emoji: '🎨',
+    icon: <Palette size={20} aria-hidden="true" />,
     title: 'Redesign StatusBar',
     blurb: 'Read source → preview redesign → Apply writes files.',
     category: 'preview',
@@ -75,7 +76,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'copy-variants',
-    emoji: '✍️',
+    icon: <PenLine size={20} aria-hidden="true" />,
     title: 'Landing copy A/B/C',
     blurb: 'Three hero variants side-by-side; click your favorite.',
     category: 'preview',
@@ -87,7 +88,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'dark-mode-preview',
-    emoji: '🌙',
+    icon: <Moon size={20} aria-hidden="true" />,
     title: 'Dark mode preview',
     blurb: 'Toggle-driven color scheme preview with Apply.',
     category: 'preview',
@@ -102,7 +103,7 @@ const EXAMPLES: Example[] = [
   // ---- Data & status ----
   {
     id: 'csv-visualize',
-    emoji: '📊',
+    icon: <BarChart3 size={20} aria-hidden="true" />,
     title: 'Visualize this CSV',
     blurb: 'Paste tabular data, get a chart + summary.',
     category: 'data',
@@ -114,7 +115,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'git-summary',
-    emoji: '📅',
+    icon: <Calendar size={20} aria-hidden="true" />,
     title: 'This week in commits',
     blurb: 'git log → dashboard: commits, files, contributors.',
     category: 'data',
@@ -128,7 +129,7 @@ const EXAMPLES: Example[] = [
   },
   {
     id: 'file-explorer',
-    emoji: '🗂',
+    icon: <FolderTree size={20} aria-hidden="true" />,
     title: 'Project file map',
     blurb: 'Read the workspace tree into a visual explorer.',
     category: 'data',
@@ -199,7 +200,7 @@ export function Examples() {
             <div className="examples-grid">
               {items.map((ex) => (
                 <article className="example-card" key={ex.id}>
-                  <div className="example-card-emoji">{ex.emoji}</div>
+                  <div className="example-card-emoji">{ex.icon}</div>
                   <div className="example-card-body">
                     <h3 className="example-card-title">{ex.title}</h3>
                     <p className="example-card-blurb">{ex.blurb}</p>
@@ -214,7 +215,7 @@ export function Examples() {
                     disabled={!target}
                     title={target ? `Try in ${target}` : 'Pick a workspace first'}
                   >
-                    Try →
+                    Try <ArrowRight size={14} aria-hidden="true" />
                   </button>
                 </article>
               ))}

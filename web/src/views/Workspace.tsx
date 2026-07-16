@@ -14,6 +14,18 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import {
+  Copy,
+  FileText,
+  FolderOpen,
+  GitBranch,
+  GripVertical,
+  Plus,
+  RefreshCw,
+  SquareTerminal,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { api, basename, type SessionListItem, type Workspace as Wk } from '../lib/api';
 import {
   useCanvas,
@@ -76,6 +88,7 @@ export function Workspace() {
       .then((d) => {
         setWorkspace(d.workspace);
         setSessions(d.sessions);
+        setError('');
       })
       .catch((e) => setError((e as Error).message));
   }, [project]);
@@ -261,17 +274,21 @@ export function Workspace() {
           </span>
         </div>
         <div className="ws-canvas-actions">
-          <button className="ghost small" onClick={() => setGitOpen(true)}>
-            Git
+          <button className="ghost small ws-canvas-action" onClick={() => setGitOpen(true)} title="Source control">
+            <GitBranch size={14} aria-hidden="true" />
+            <span>Git</span>
           </button>
-          <button className="ghost small" onClick={() => canvas.addTerminal()}>
-            + Terminal
+          <button className="ghost small ws-canvas-action" onClick={() => canvas.addTerminal()} title="Open terminal">
+            <SquareTerminal size={14} aria-hidden="true" />
+            <span>Terminal</span>
           </button>
-          <button className="ghost small" onClick={() => setFilesOpen(true)}>
-            Files
+          <button className="ghost small ws-canvas-action" onClick={() => setFilesOpen(true)} title="Browse files">
+            <FolderOpen size={14} aria-hidden="true" />
+            <span>Files</span>
           </button>
-          <button className="ghost small" onClick={handleNewSession}>
-            + New Session
+          <button className="ghost small ws-canvas-action" onClick={handleNewSession} title="New session">
+            <Plus size={14} aria-hidden="true" />
+            <span>Session</span>
           </button>
         </div>
       </header>
@@ -286,7 +303,8 @@ export function Workspace() {
             focusedPath={canvas.focusedSid && isFileSid(canvas.focusedSid) ? filePath(canvas.focusedSid) : ''}
             onOpen={(p) => {
               canvas.addFile(p);
-              // Keep the panel open so the user can browse more files.
+              // A phone-sized canvas needs the full width for the artifact.
+              if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches) setFilesOpen(false);
             }}
           />
         )}
@@ -476,7 +494,13 @@ function SortableTile({
       ref={setRef}
       className={`ws-tile${isFocused ? ' focused' : ''}${isDragging ? ' dragging' : ''}${isRunning ? ' running' : ''}`}
       style={style}
+      role="group"
+      tabIndex={0}
+      aria-label={`${isFile ? 'File' : isTerminal ? 'Terminal' : 'Session'}: ${label}`}
       onClick={() => {
+        if (!isFocused) onFocus();
+      }}
+      onFocus={() => {
         if (!isFocused) onFocus();
       }}
     >
@@ -488,8 +512,12 @@ function SortableTile({
         </div>
       )}
       <div className="ws-tile-grip" {...attributes} {...listeners} title="Drag to reorder">
-        <span className="ws-tile-grip-dots">⋮⋮</span>
-        <span className="ws-tile-grip-label">{label}</span>
+        <span className="ws-tile-grip-dots" aria-hidden="true"><GripVertical size={14} /></span>
+        <span className="ws-tile-grip-label">
+          {isFile ? (
+            <span className="ws-tile-kind"><FileText size={13} aria-hidden="true" /> File</span>
+          ) : label}
+        </span>
         {!isDraft && !isTerminal && !isFile && (
         <button
           className="ws-tile-action"
@@ -501,10 +529,7 @@ function SortableTile({
           title="Copy claude --resume command"
           aria-label="Copy resume command"
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
+          <Copy size={13} strokeWidth={2} aria-hidden="true" />
         </button>
         )}
         {!isDraft && !isTerminal && !isFile && (
@@ -513,17 +538,14 @@ function SortableTile({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
+            if (isRunning) return;
             setRefreshKey((k) => k + 1);
           }}
           title="Refresh"
           aria-label="Refresh"
+          disabled={isRunning}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />
-            <path d="M3 12a9 9 0 0 1 15.36-6.36L21 8" />
-            <polyline points="21 3 21 8 16 8" />
-            <polyline points="3 21 3 16 8 16" />
-          </svg>
+          <RefreshCw size={13} strokeWidth={2} aria-hidden="true" />
         </button>
         )}
         {onDelete && (
@@ -549,13 +571,7 @@ function SortableTile({
             title="Delete session (removes jsonl on disk)"
             aria-label="Delete session"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-              <path d="M10 11v6" />
-              <path d="M14 11v6" />
-              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
-            </svg>
+            <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
           </button>
         )}
         <button
@@ -568,7 +584,7 @@ function SortableTile({
           title="Remove from canvas (does not delete the session)"
           aria-label="Remove from canvas"
         >
-          ×
+          <X size={13} aria-hidden="true" />
         </button>
       </div>
       <div className="ws-tile-body">

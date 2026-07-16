@@ -83,6 +83,12 @@ export default function Home() {
             >
               Quick Start
             </Link>
+            <Link
+              className="text-sm border rounded-full font-medium px-5 py-2.5 transition-colors hovered:bg-fd-accent hovered:text-fd-accent-foreground"
+              to="/connect"
+            >
+              Connect a Server
+            </Link>
           </div>
         </section>
 

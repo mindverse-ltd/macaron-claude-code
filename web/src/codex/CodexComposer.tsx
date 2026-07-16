@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Paperclip, X, Square, ArrowUp } from 'lucide-react';
 import { CodexProviderPicker } from './CodexProviderPicker';
 import { CodexRuntimePicker } from './CodexRuntimePicker';
 import type { CodexRuntimeOverride } from './api';
@@ -86,7 +87,7 @@ export function CodexComposer({
                   className="cx-img-chip-x"
                   onClick={() => onImagesChange(images.filter((c) => c.id !== img.id))}
                   aria-label="Remove image"
-                >×</button>
+                ><X size={14} aria-hidden="true" /></button>
               </div>
             ))}
           </div>
@@ -107,9 +108,7 @@ export function CodexComposer({
             title="Attach image"
             aria-label="Attach image"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
+            <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
           </button>
           <textarea
             ref={ref}
@@ -130,7 +129,7 @@ export function CodexComposer({
             rows={1}
           />
           {running && onStop ? (
-            <button className="cx-send stop" onClick={onStop} title="Stop">■</button>
+            <button className="cx-send stop" onClick={onStop} title="Stop"><Square size={14} fill="currentColor" aria-hidden="true" /></button>
           ) : (
             <button
               className="cx-send"
@@ -138,7 +137,7 @@ export function CodexComposer({
               onClick={onSubmit}
               title="Send (Enter)"
               aria-label="Send"
-            >↑</button>
+            ><ArrowUp size={16} aria-hidden="true" /></button>
           )}
         </div>
       </div>

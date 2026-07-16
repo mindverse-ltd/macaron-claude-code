@@ -1,3 +1,4 @@
+import { LayoutGrid, MessageSquare, Pencil, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SEARCH_HL_CLOSE, SEARCH_HL_OPEN } from '@macaron/shared';
@@ -350,7 +351,7 @@ export function CommandPalette() {
                   onClick={() => runItem(it)}
                 >
                   <span className={'cmdk-kind cmdk-kind-' + it.kind}>
-                    {it.kind === 'command' ? '⚡' : it.kind === 'session' ? '◈' : it.kind === 'workspace' ? '▤' : '✎'}
+                    {it.kind === 'command' ? <Zap size={14} aria-hidden="true" /> : it.kind === 'session' ? <MessageSquare size={14} aria-hidden="true" /> : it.kind === 'workspace' ? <LayoutGrid size={14} aria-hidden="true" /> : <Pencil size={14} aria-hidden="true" />}
                   </span>
                   <span className="cmdk-text">
                     <span className="cmdk-title">{it.title}</span>

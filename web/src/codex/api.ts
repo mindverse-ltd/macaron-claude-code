@@ -120,7 +120,7 @@ export const codexApi = {
       body: JSON.stringify(patch),
     }),
   deleteProvider: async (id: string): Promise<PublicCodexSettings> => {
-    const r = await fetch(`/api/codex/config/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const r = await authedFetch(`/api/codex/config/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
     if (!r.ok) throw new Error(`http ${r.status}`);
     return r.json();
   },

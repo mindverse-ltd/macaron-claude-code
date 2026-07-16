@@ -4,10 +4,10 @@
 // output stream is a sibling SSE endpoint (see Terminal.tsx).
 //
 // /api/terminal/* is auth-gated (server/src/lib/auth.ts): POSTs ride the token
-// via authedFetch's Authorization header, and the stream — a browser
-// EventSource, which can't set headers — carries it as a `?token=` query param,
-// the other credential the server accepts.
-import { authedFetch, getToken } from './auth';
+// via authedFetch's Authorization header, and the output stream is read with
+// fetch()+getReader() (see openEventStream) so its token rides a header too —
+// never a `?token=` query param that would leak into logs/referrers.
+import { authedFetch } from './auth';
 
 const TERMINAL_PREFIX = 'term:';
 
@@ -32,9 +32,9 @@ function base(project: string, sid: string): string {
 }
 
 export function terminalStreamUrl(project: string, sid: string, cols: number, rows: number): string {
-  const url = `${base(project, sid)}/stream?cols=${cols}&rows=${rows}`;
-  const t = getToken();
-  return t ? `${url}&token=${encodeURIComponent(t)}` : url;
+  // Path only — openEventStream's authedFetch retargets /api paths at the
+  // configured server, so resolution happens in exactly one place.
+  return `${base(project, sid)}/stream?cols=${cols}&rows=${rows}`;
 }
 
 // Keystrokes must arrive in order. Chain each input POST behind the previous

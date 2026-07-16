@@ -7,6 +7,7 @@
 // → the returned promise resolves with the sessionId so Workspace can navigate.
 // Session subscribes and gets the current buffer + live updates.
 
+import type { Message } from '@macaron/shared';
 import { extractPartialCode } from './partialJson';
 import { authedFetch } from './auth';
 
@@ -41,6 +42,9 @@ export type LiveTurnItem =
 export type LiveUserImage = { mimeType: string; dataUrl: string };
 export type LiveState = {
   cwd: string;
+  // Server timestamp for this specific runner invocation. Snapshot handoff
+  // uses it to distinguish a newly-persisted turn from an older identical one.
+  startedAt: number;
   userText: string;
   // Attachments on the in-flight user turn. Kept in the module store so
   // they survive a component remount (e.g. Workspace promotes a draft
@@ -58,8 +62,124 @@ export type LiveState = {
   // len/4 estimate). Reset to -1 at the start of each new turn.
   outputTokens: number;
   done: boolean;
+  // True only after the server's explicit terminal event. Transport EOF is
+  // not proof that the runner stopped and must never authorize a handoff.
+  terminalSeen: boolean;
   error?: string;
 };
+
+export type LiveTurnFingerprint = {
+  startedAt: number;
+  userText: string;
+  userImages: LiveUserImage[];
+  assistantText: string;
+  toolUseIds: string[];
+  resolvedToolUseIds: string[];
+  terminalSeen: boolean;
+};
+
+const SNAPSHOT_CLOCK_SKEW_MS = 2_000;
+
+function imagePayload(dataUrl: string): { mimeType: string; data: string } {
+  const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  return { mimeType: match?.[1] || '', data: match?.[2] || '' };
+}
+
+/** Freeze the terminal live state before the module store is consumed. */
+export function fingerprintLiveTurn(state: LiveState): LiveTurnFingerprint {
+  const toolUseIds: string[] = [];
+  const resolvedToolUseIds: string[] = [];
+  let assistantText = '';
+  for (const item of state.timeline) {
+    if (item.kind === 'text') {
+      assistantText += item.text;
+      continue;
+    }
+    if (item.kind === 'permission') continue;
+    const toolUseId = item.kind === 'genui'
+      ? item.toolUseId
+      : item.id.startsWith('live-')
+        ? item.id.slice('live-'.length)
+        : item.id;
+    toolUseIds.push(toolUseId);
+    if ((item.kind === 'tool' && item.result !== undefined)
+      || (item.kind === 'genui' && item.status !== 'pending')) {
+      resolvedToolUseIds.push(toolUseId);
+    }
+  }
+  return {
+    startedAt: state.startedAt,
+    userText: state.userText,
+    userImages: state.userImages.map((image) => ({ ...image })),
+    assistantText,
+    toolUseIds,
+    resolvedToolUseIds,
+    terminalSeen: state.terminalSeen,
+  };
+}
+
+function matchesLiveUser(message: Message, turn: LiveTurnFingerprint): boolean {
+  if (message.role !== 'user') return false;
+  const timestamp = Date.parse(message.timestamp || '');
+  if (!Number.isFinite(timestamp) || timestamp < turn.startedAt - SNAPSHOT_CLOCK_SKEW_MS) return false;
+  const text = message.blocks
+    .filter((block) => block.kind === 'text')
+    .map((block) => block.text)
+    .join('')
+    .trim();
+  if (text !== turn.userText.trim()) return false;
+  const images = message.blocks
+    .filter((block) => block.kind === 'image')
+    .map((block) => ({ mimeType: block.mimeType, data: block.data }));
+  const expectedImages = turn.userImages.map((image) => imagePayload(image.dataUrl));
+  return images.length === expectedImages.length
+    && images.every((image, index) => image.mimeType === expectedImages[index]?.mimeType
+      && image.data === expectedImages[index]?.data);
+}
+
+function persistedAssistantText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').trimEnd();
+}
+
+/**
+ * True only when the persisted transcript contains the complete live turn.
+ * A message count cannot prove this: JSONL may expose an old history or only
+ * the new user record while the assistant record is still being flushed.
+ */
+export function snapshotCoversLiveTurn(messages: Message[], turn: LiveTurnFingerprint): boolean {
+  if (!turn.terminalSeen) return false;
+
+  let userIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (matchesLiveUser(messages[index]!, turn)) {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex < 0) return false;
+
+  let assistantText = '';
+  const toolUseIds = new Set<string>();
+  const resolvedToolUseIds = new Set<string>();
+  for (let index = userIndex + 1; index < messages.length; index++) {
+    const message = messages[index]!;
+    // A later visible user prompt belongs to the next logical turn. Tool-result
+    // user records carry no text/image blocks and remain part of this segment.
+    if (message.role === 'user' && message.blocks.some((block) => block.kind === 'text' || block.kind === 'image')) break;
+    for (const block of message.blocks) {
+      if (message.role === 'assistant' && block.kind === 'text') assistantText += block.text;
+      else if (block.kind === 'tool_use') toolUseIds.add(block.id);
+      else if (block.kind === 'tool_result' && block.toolUseId) resolvedToolUseIds.add(block.toolUseId);
+    }
+  }
+
+  // An explicitly terminal empty/error turn is complete once its current user
+  // record is present. Non-empty turns still require every visible assistant
+  // fragment and resolved tool result below.
+  return persistedAssistantText(assistantText) === persistedAssistantText(turn.assistantText)
+    && turn.toolUseIds.every((id) => toolUseIds.has(id))
+    && turn.resolvedToolUseIds.every((id) => resolvedToolUseIds.has(id));
+}
 
 let liveTextIdSeq = 0;
 function appendText(items: LiveTurnItem[], text: string): void {
@@ -78,10 +198,25 @@ function appendText(items: LiveTurnItem[], text: string): void {
 function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown }): void {
   if (p.type === 'meta') {
     const s = states.get(sid);
-    if (s && typeof p.cwd === 'string') s.cwd = p.cwd;
+    if (s) {
+      if (typeof p.cwd === 'string') s.cwd = p.cwd;
+      if (typeof p.startedAt === 'number') s.startedAt = p.startedAt;
+    }
   } else if (p.type === 'user-text') {
     const s = states.get(sid);
-    if (s) { s.userText = String(p.text || ''); notify(sid); }
+    if (s) {
+      s.userText = String(p.text || '');
+      if (Array.isArray(p.images)) {
+        s.userImages = p.images.flatMap((image) => {
+          if (!image || typeof image !== 'object') return [];
+          const value = image as { mimeType?: unknown; dataUrl?: unknown };
+          return typeof value.mimeType === 'string' && typeof value.dataUrl === 'string'
+            ? [{ mimeType: value.mimeType, dataUrl: value.dataUrl }]
+            : [];
+        });
+      }
+      notify(sid);
+    }
   } else if (p.type === 'delta') {
     const s = states.get(sid);
     if (s) { appendText(s.timeline, String(p.text || '')); notify(sid); }
@@ -187,7 +322,7 @@ function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown })
     followupWatchers.get(sid)?.forEach((cb) => cb(String(p.text || '')));
   } else if (p.type === 'done') {
     const s = states.get(sid);
-    if (s) { s.done = true; notify(sid); }
+    if (s) { s.done = true; s.terminalSeen = true; notify(sid); }
   } else if (p.type === 'error') {
     const s = states.get(sid);
     if (s) { s.error = String(p.error || ''); notify(sid); }
@@ -196,6 +331,9 @@ function applyLiveEvent(sid: string, p: { type?: string; [k: string]: unknown })
 
 const states = new Map<string, LiveState>();
 const watchers = new Map<string, Set<(s: LiveState) => void>>();
+type ConsumedLive = { startedAt: number; expiresAt: number };
+const consumedLive = new Map<string, ConsumedLive>();
+const CONSUMED_LIVE_TTL_MS = 60_000;
 type AttachResult = 'attached' | 'not-live';
 type LiveAttachment = { ready: Promise<AttachResult> };
 // A reattach reader stays alive after `ready` resolves. Keep it registered
@@ -233,9 +371,35 @@ function notify(sid: string): void {
 
 // Discard buffered state once the consumer has merged it into the canonical
 // jsonl-derived data (Session.tsx calls this after load()).
-export function clearLive(sid: string): void {
+export function clearLive(sid: string, startedAt?: number): void {
+  const consumedStartedAt = startedAt ?? states.get(sid)?.startedAt;
   states.delete(sid);
   watchers.delete(sid);
+  // The server retains an ended replay ring for 60s. Remember that this exact
+  // ring was consumed so a remount cannot replay the completed turn on top of
+  // the JSONL snapshot during the handoff window.
+  if (typeof consumedStartedAt === 'number') {
+    consumedLive.set(sid, {
+      startedAt: consumedStartedAt,
+      expiresAt: Date.now() + CONSUMED_LIVE_TTL_MS,
+    });
+  }
+}
+
+/** Drop a broken transport buffer without marking its server turn consumed. */
+export function discardLive(sid: string): void {
+  states.delete(sid);
+  watchers.delete(sid);
+}
+
+function liveWasConsumed(sid: string, startedAt: number): boolean {
+  const consumed = consumedLive.get(sid);
+  if (!consumed) return false;
+  if (consumed.expiresAt <= Date.now()) {
+    consumedLive.delete(sid);
+    return false;
+  }
+  return consumed.startedAt === startedAt;
 }
 
 // Subscribe to the add-on follow-up stream for a session. Callback fires per
@@ -320,6 +484,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                 if (!states.has(sid)) {
                   states.set(sid, {
                     cwd: p.cwd || '',
+                    startedAt: typeof p.startedAt === 'number' ? p.startedAt : Date.now(),
                     userText: text,
                     // Carry the user's attachments so a draft→real remount
                     // in the Workspace canvas doesn't lose the image chips
@@ -331,6 +496,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                     timeline: [],
                     outputTokens: -1,
                     done: false,
+                    terminalSeen: false,
                   });
                 }
                 notify(sid);
@@ -446,6 +612,7 @@ export function startNewSession(project: string, opts: NewSessionOptions): Promi
                 const s = states.get(sid);
                 if (s) {
                   s.done = true;
+                  s.terminalSeen = true;
                   notify(sid);
                 }
               } else if (sid && p.type === 'error') {
@@ -495,6 +662,12 @@ export function attachLive(project: string, sid: string): Promise<AttachResult> 
   const settle = (result: AttachResult) => {
     if (readySettled) return;
     readySettled = true;
+    // A negative probe has no reader for later callers to share. Remove it
+    // before resolving so an immediate new turn on the same sid cannot inherit
+    // this already-settled `not-live` result.
+    if (result === 'not-live' && liveAttachments.get(sid) === attachment) {
+      liveAttachments.delete(sid);
+    }
     settleReady(result);
   };
   liveAttachments.set(sid, attachment);
@@ -536,14 +709,23 @@ export function attachLive(project: string, sid: string): Promise<AttachResult> 
               return;
             }
             if (!seenAnyEvent) {
+              if (p.type === 'meta'
+                && typeof p.startedAt === 'number'
+                && liveWasConsumed(sid, p.startedAt)) {
+                settle('not-live');
+                await reader.cancel();
+                return;
+              }
               seenAnyEvent = true;
               states.set(sid, {
                 cwd: p.type === 'meta' && typeof p.cwd === 'string' ? p.cwd : '',
+                startedAt: p.type === 'meta' && typeof p.startedAt === 'number' ? p.startedAt : Date.now(),
                 userText: '',
                 userImages: [],
                 timeline: [],
                 outputTokens: -1,
                 done: false,
+                terminalSeen: false,
               });
               settle('attached');
             }

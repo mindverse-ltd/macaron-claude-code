@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "react-router build",
+    "build": "react-router build && node host-webui.mjs",
     "dev": "react-router dev",
     "start": "serve ./build/client --config ../../serve.json",
     "typecheck": "react-router typegen && fumadocs-mdx && tsc --noEmit",

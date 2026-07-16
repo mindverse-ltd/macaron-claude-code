@@ -71,26 +71,32 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--cx-text);
+  color: inherit;
   text-decoration: none;
-  padding: 2px 4px 4px;
+  padding: 10px 12px;
+  background: #F2F2F0;
+  border-radius: 10px;
 }
+:root[data-theme="dark"] .cx-sb-brand { background: #35332C; }
+:root[data-theme="dark"] .cx-sb-brand-name { color: #7C97FF; }
 .cx-sb-logo {
-  width: 30px;
-  height: 30px;
-  opacity: 0.92;
+  width: 26px;
+  height: 26px;
+  opacity: 1;
   flex-shrink: 0;
 }
 .cx-sb-brand-name {
-  font-weight: 600;
-  font-size: 14.5px;
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 500;
+  font-size: 17.5px;
   line-height: 1.15;
-  letter-spacing: -0.1px;
+  letter-spacing: -0.045em;
+  color: #002BFF;
 }
 .cx-sb-brand-sub {
   font-size: 11px;
-  color: var(--cx-muted);
-  margin-top: 3px;
+  color: #6B7280;
+  margin-top: -2px;
   letter-spacing: 0.1px;
 }
 
@@ -253,16 +259,14 @@ body {
   color: var(--cx-muted);
   font-size: 11.5px;
 }
-.cx-sb-status::before {
-  content: '●';
-  display: inline-block;
-  margin-right: 6px;
-  color: var(--cx-muted-2);
-  font-size: 8px;
-  vertical-align: 2px;
+.cx-sb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.cx-sb-status-ok::before { color: var(--cx-good); }
-.cx-sb-status-bad::before { color: var(--cx-bad); }
+.cx-sb-status-dot { color: var(--cx-muted-2); flex-shrink: 0; }
+.cx-sb-status-ok .cx-sb-status-dot { color: var(--cx-good); }
+.cx-sb-status-bad .cx-sb-status-dot { color: var(--cx-bad); }
 
 /* ---------- Main ---------- */
 
@@ -307,6 +311,9 @@ body {
   font-size: 12px;
 }
 .cx-main-head-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--cx-muted);
   font-size: 12px;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -388,7 +395,7 @@ body {
 .cx-msg-text.md li > p { margin: 0; }
 .cx-msg-text.md pre {
   background: var(--cx-code);
-  border: 1px solid var(--cx-border);
+  border: 0;
   border-radius: 8px;
   padding: 10px 12px;
   margin: 8px 0 12px;

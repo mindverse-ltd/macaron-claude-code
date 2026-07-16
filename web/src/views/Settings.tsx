@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type TunnelProvider, type TunnelState, type ConfigFileMeta, type DefaultPermissionMode } from '../lib/api';
@@ -363,13 +364,7 @@ export function Settings() {
                       picker, so the two controls read as siblings. */}
                   <div className={`provider-chip${busy ? ' disabled' : ''}`} title={`Default · ${active.label}`}>
                     <span className="provider-chip-label">{active.label}</span>
-                    <svg
-                      className="provider-chip-caret"
-                      width="8" height="8" viewBox="0 0 24 24"
-                      fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
+                    <ChevronDown className="provider-chip-caret" size={8} strokeWidth={2.5} aria-hidden="true" />
                     <select
                       className="provider-chip-select"
                       value={settings.defaultPermissionMode}
@@ -538,11 +533,10 @@ function RemoteAccess() {
   const status = state?.status ?? 'stopped';
   const live = status === 'running' && state?.url;
   const starting = status === 'starting';
-  // The tunnel arms an access token; fold it into the shared URL as ?token= so
-  // the first load unlocks itself (consumeTokenFromUrl strips it after storing).
-  const shareUrl = live && state?.url
-    ? (state.token ? `${state.url}/?token=${encodeURIComponent(state.token)}` : state.url)
-    : '';
+  // The share URL carries NO token — a URL leaks via history/referrer/proxy logs.
+  // Opening it lands on the AuthGate login screen; the operator pastes the token
+  // (shown below) there. Never fold the credential into the link.
+  const shareUrl = (live && state?.url) || '';
 
   return (
     <div className="settings-section">
@@ -604,7 +598,7 @@ function RemoteAccess() {
               </div>
               <div className="settings-hint">
                 {state.token
-                  ? <><strong>This link embeds an access token</strong> — anyone you share it with can drive your Claude Code sessions. Share it only with people you trust, and stop the tunnel when you're done.</>
+                  ? <>This server requires an access token: <code>{state.token}</code>. Share it <strong>separately</strong> from the URL (never in the link) with people you trust, and stop the tunnel when you're done.</>
                   : <><strong>This server already requires its access token.</strong> Share the URL together with that token, and stop the tunnel when you're done.</>}
               </div>
             </div>

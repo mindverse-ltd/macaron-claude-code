@@ -8,6 +8,16 @@ export const HOST = process.env.MACARON_HOST || '127.0.0.1';
 // the network. Empty = auth off (the default for loopback-only binds).
 export const AUTH_TOKEN = process.env.MACARON_AUTH_TOKEN || '';
 
+// Origins allowed to reach the API cross-origin (comma-separated). Empty = the
+// UI is same-origin (the default) and no CORS headers are emitted. Set this to
+// the hosted docs origin (e.g. https://artifacts.macaron.im) to let a hosted
+// WebUI drive this server. Use `*` to reflect any origin (dev only — combined
+// with a bearer/`?token=` secret, but still avoid on shared machines).
+export const ALLOWED_ORIGINS = (process.env.MACARON_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 // Optional env overrides. Users normally set the Macaron API key via the
 // Settings page (persisted to ~/.claude/macaron-config.json); env vars still
 // win for ops-driven / one-shot invocations.
