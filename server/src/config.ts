@@ -34,6 +34,10 @@ export const CLAUDE_AGENTS = path.join(HOME, '.claude', 'agents');
 // invoked as `/<filename-stem>` in any session.
 export const CLAUDE_COMMANDS = path.join(HOME, '.claude', 'commands');
 export const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
+// Kimi Code data root ($KIMI_CODE_HOME or ~/.kimi-code). Sessions live in
+// sessions/<workDirKey>/<sessionId>/ with a session_index.jsonl fast path.
+export const KIMI_HOME = process.env.KIMI_CODE_HOME || path.join(HOME, '.kimi-code');
+export const KIMI_SESSIONS = path.join(KIMI_HOME, 'sessions');
 
 // Root for the "New Project" wizard — freshly created dirs and `git clone`
 // targets land here. Overridable so ops can point it at a mounted volume.

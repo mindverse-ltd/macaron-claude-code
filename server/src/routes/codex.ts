@@ -352,8 +352,6 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(await readPublicCodexSettings());
   });
 
-  // --- Engine banner -----------------------------------------------------
-
   function pickCustomProviderPatch(b: Partial<CodexCustomProvider>): Partial<CodexCustomProvider> {
     const patch: Partial<CodexCustomProvider> = {};
     if (typeof b.name === 'string') patch.name = b.name;
@@ -369,9 +367,4 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     if (typeof b.autoCompactTokenLimit === 'number') patch.autoCompactTokenLimit = b.autoCompactTokenLimit;
     return patch;
   }
-
-
-  app.get('/api/engine', async () => ({
-    engine: process.env.MACARON_ENGINE === 'codex' ? 'codex' : 'claude',
-  }));
 }

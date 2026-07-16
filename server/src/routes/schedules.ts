@@ -26,7 +26,7 @@ function normalizeInput(b: Body): ScheduleInput | null {
   const prompt = String(b.prompt || '').trim();
   const cwd = String(b.cwd || '').trim();
   const pattern = String(b.pattern || '').trim();
-  const engine: SessionKind = b.engine === 'codex' ? 'codex' : 'claude';
+  const engine: SessionKind = b.engine === 'codex' || b.engine === 'kimi' ? b.engine : 'claude';
   if (!name || !prompt || !cwd || !pattern) return null;
   return { name, prompt, cwd, pattern, engine, oneShot: Boolean(b.oneShot) };
 }
@@ -70,7 +70,7 @@ export async function registerScheduleRoutes(app: FastifyInstance): Promise<void
       patch.pattern = b.pattern.trim();
       if (!patch.pattern) return reply.status(400).send({ error: 'pattern required' });
     }
-    if (b.engine === 'claude' || b.engine === 'codex') patch.engine = b.engine;
+    if (b.engine === 'claude' || b.engine === 'codex' || b.engine === 'kimi') patch.engine = b.engine;
     if (typeof b.oneShot === 'boolean') patch.oneShot = b.oneShot;
     try {
       if (patch.cwd !== undefined) await assertRunnableCwd(patch.cwd);
