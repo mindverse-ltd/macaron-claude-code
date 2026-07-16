@@ -12,6 +12,7 @@ import {
 import { subscribeSystemEvents } from '../lib/systemEvents';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
+import { sessionTitle } from '../lib/api';
 
 type WsData = CodexWorkspace & { sessions: CodexThread[] };
 
@@ -179,7 +180,7 @@ export function CodexSidebar({ onNavigate }: {
                 <div className="cx-sb-ws-sessions">
                   {w.sessions.map((s) => {
                     const pinned = (canvasBy[w.project] || []).includes(s.sessionId);
-                    const label = s.title || s.preview || s.sessionId.slice(0, 8);
+                    const label = sessionTitle(s);
                     return (
                       <div
                         key={s.sessionId}

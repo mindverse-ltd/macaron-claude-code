@@ -18,7 +18,7 @@ import {
   Unlink,
   X,
 } from 'lucide-react';
-import { api, basename, HttpError, type Workspace, type SessionListItem, type WorktreeInfo } from '../lib/api';
+import { api, basename, sessionTitle, HttpError, type Workspace, type SessionListItem, type WorktreeInfo } from '../lib/api';
 import { useToast } from './Toast';
 import { useConfirm } from './Confirm';
 import { ContextMenu, type MenuItem } from './ContextMenu';
@@ -197,7 +197,9 @@ export function Sidebar({ onNavigate }: {
   const startRename = (s: SessionListItem) => {
     renameDoneRef.current = false;
     setRenamingSid(s.sessionId);
-    setRenameDraft(s.label || '');
+    // Prefill with the current override (manual label or native title) so an
+    // edit tweaks the existing name rather than starting blank.
+    setRenameDraft(s.label || s.title || '');
   };
 
   const commitRename = async (project: string, sid: string) => {
@@ -489,7 +491,7 @@ export function Sidebar({ onNavigate }: {
                           >
                             <span className={'sb-sess-dot sb-sess-dot-' + st} />
                             <span className="sb-sess-name">
-                              {s.label || s.preview || s.sessionId.slice(0, 8)}
+                              {sessionTitle(s)}
                             </span>
                           </button>
                         )}
@@ -505,7 +507,7 @@ export function Sidebar({ onNavigate }: {
                             onNavigate?.();
                           }}
                           title={pinned ? 'Remove from canvas' : 'Add to canvas'}
-                          aria-label={`${pinned ? 'Remove' : 'Add'} ${s.label || s.preview || s.sessionId.slice(0, 8)} ${pinned ? 'from' : 'to'} canvas`}
+                          aria-label={`${pinned ? 'Remove' : 'Add'} ${sessionTitle(s)} ${pinned ? 'from' : 'to'} canvas`}
                         >
                           {pinned ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                         </button>

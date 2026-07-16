@@ -7,13 +7,14 @@ import {
   readSessionMessages,
   resolveProjectCwd,
   readSubagentMessages,
+  renameSession,
   resolveSessionCwd,
   rewindSession,
   searchMessages,
   writeCompactedSession,
 } from '../lib/session-store.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
-import { setLabel, deleteLabel } from '../lib/label-store.js';
+import { deleteLabel } from '../lib/label-store.js';
 import { liveGet, liveStart, livePush, liveEnd } from '../lib/live-registry.js';
 import { runClaude, runFollowup, type AttachedImage, type RunOptions, type RunnerEvent } from '../lib/claude-runner.js';
 import { getActiveProviderEnv, getActiveProviderRaw, getFollowupSuggestionsEnabled } from '../lib/settings-store.js';
@@ -104,13 +105,19 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
     }
   });
 
-  // Rename: set (or clear, when blank) a human label for this session. The
-  // label lives in a macaron sidecar, not the Claude-owned jsonl.
+  // Rename: append a native `custom-title` record to the Claude-owned jsonl,
+  // the same way the CLI's `/rename` does — so the new name shows in both
+  // macaron's sidebar and `claude --resume`, instead of diverging into a
+  // separate label sidecar. A blank name clears the override.
   app.patch<{ Params: Params; Body: { name?: string } }>(
     '/api/sessions/claude/:project/:sid/label',
     async (req, reply) => {
-      const label = await setLabel(req.params.sid, String(req.body?.name ?? ''));
-      return reply.send({ ok: true, label });
+      try {
+        const label = await renameSession(req.params.project, req.params.sid, String(req.body?.name ?? ''));
+        return reply.send({ ok: true, label });
+      } catch (e) {
+        return reply.status(404).send({ error: (e as Error).message });
+      }
     },
   );
 

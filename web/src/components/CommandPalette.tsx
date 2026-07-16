@@ -2,7 +2,7 @@ import { LayoutGrid, MessageSquare, Pencil, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SEARCH_HL_CLOSE, SEARCH_HL_OPEN } from '@macaron/shared';
-import { api, basename, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
+import { api, basename, sessionTitle, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
 import { addDraftSid } from '../lib/canvas';
 import { hasActiveModal } from '../lib/modal';
 
@@ -238,7 +238,7 @@ export function CommandPalette() {
           kind: 'session',
           project: w.project,
           sid: s.sessionId,
-          title: s.preview || s.sessionId.slice(0, 8),
+          title: sessionTitle(s),
           subtitle: `${name} · ${fmtAgo(s.mtime)}`,
           mtime: s.mtime,
         });

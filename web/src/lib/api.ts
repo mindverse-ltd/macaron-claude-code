@@ -559,6 +559,15 @@ export function basename(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
+// Single source of truth for a session row's display name, shared by the
+// sidebar, dashboard, workspace tiles and command palette so every surface
+// agrees. Priority: user/native title (`label` for a manual rename, `title` for
+// the native ai-title/custom-title the server resolved) > first-prompt preview >
+// short sid. Both Claude and Codex populate `title`, so this is provider-neutral.
+export function sessionTitle(s: { label?: string; title?: string; preview?: string; sessionId: string }): string {
+  return s.label || s.title || s.preview || s.sessionId.slice(0, 8);
+}
+
 // Trigger a client-side download of `text` as a file named `name`. Used by the
 // session Markdown export — no server round-trip since the WebUI already holds
 // the parsed transcript.
