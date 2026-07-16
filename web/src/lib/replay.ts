@@ -33,8 +33,8 @@ export function createReplayTimeline(messages: Message[], timing: ReplayTiming =
       const current = timestamp(message);
       const previous = timestamp(messages[index - 1]!);
       const gap = current === undefined || previous === undefined ? 250 : compressReplayGap(Math.max(0, current - previous), timing);
-      const streamDuration = textLength ? Math.min(MAX_STREAM_MS, Math.max(MIN_STREAM_MS, textLength * MS_PER_CHARACTER)) : 0;
-      elapsed += Math.max(gap, streamDuration);
+      const streamDuration = textLength ? Math.min(gap, MAX_STREAM_MS, Math.max(MIN_STREAM_MS, textLength * MS_PER_CHARACTER)) : 0;
+      elapsed += gap;
       return { message, end: elapsed, revealStart: elapsed - streamDuration, textLength };
     }
     return { message, end: 0, revealStart: 0, textLength };

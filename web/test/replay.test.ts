@@ -16,6 +16,17 @@ test('smoothly reveals assistant text inside its replay interval', () => {
   assert.deepEqual(replayFrame(timeline, 1_000), timeline.map((entry) => entry.message));
 });
 
+test('finishes intermediate and final streaming text at their recorded event times', () => {
+  const messages = [user('go', '2026-01-01T00:00:00.000Z'), assistant('intermediate text', '2026-01-01T00:00:00.100Z'), assistant('final response', '2026-01-01T00:00:01.000Z')];
+  const timeline = createReplayTimeline(messages, 'exact');
+  assert.equal(timeline[1]!.revealStart, 0);
+  assert.equal(timeline[1]!.end, 100);
+  assert.equal(timeline[2]!.end, 1_000);
+  assert.equal(replayFrame(timeline, 99).length, 2);
+  assert.deepEqual(replayFrame(timeline, 100).slice(0, 2), messages.slice(0, 2));
+  assert.deepEqual(replayFrame(timeline, 1_000), messages);
+});
+
 test('offers exact, logarithmic, and compact replay timing', () => {
   assert.equal(compressReplayGap(60_000, 'exact'), 60_000);
   assert.equal(compressReplayGap(60_000, 'compact'), 2_000);
