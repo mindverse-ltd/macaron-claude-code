@@ -603,6 +603,7 @@ textarea:focus, select:focus, input:focus {
 .replay-button:hover { background: var(--surface-2); color: var(--text); }
 .replay-controls input[type='range'] { width: clamp(72px, 12vw, 150px); accent-color: var(--accent); }
 .replay-count { color: var(--muted); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.session-replay-bar { display: flex; justify-content: flex-end; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .replay-speed { width: 34px; font-size: 11px; }
 .load-earlier {
   align-self: center;

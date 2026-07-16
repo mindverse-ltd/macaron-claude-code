@@ -2636,6 +2636,7 @@ export function Session(props: SessionProps = {}) {
           </div>
         </div>
       )}
+      {hideBar && replay.controls && <div className="session-replay-bar">{replay.controls}</div>}
 
       {/*
         flex-direction: column-reverse on .thread. DOM order must be newest →
