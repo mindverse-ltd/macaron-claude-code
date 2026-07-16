@@ -86,11 +86,10 @@ body {
   flex-shrink: 0;
 }
 .cx-sb-brand-name {
-  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-weight: 500;
-  font-size: 17.5px;
+  font-size: 14.5px;
   line-height: 1.15;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.1px;
   color: #002BFF;
 }
 .cx-sb-brand-sub {

@@ -3483,11 +3483,10 @@ textarea:focus, select:focus, input:focus {
 :root[data-theme="dark"] .sb-brand-name { color: #7C97FF; }
 .sb-logo { width: 26px; height: 26px; display: block; flex-shrink: 0; }
 .sb-brand-name {
-  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 18px;
+  font-family: var(--font-serif);
+  font-size: 15px;
   font-weight: 500;
   color: #002BFF;
-  letter-spacing: -0.045em;
 }
 .sb-brand-sub { font-size: 10px; color: #6B7280; margin-top: -2px; }
 .sb-label {
