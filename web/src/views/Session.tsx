@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Circle, CircleDot, ClipboardList, GitBranch, GitFork, Info, Lock, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Square, Undo2, X } from 'lucide-react';
+import { useReplay } from '../components/ReplayControls';
 import { sessionToMarkdown } from '@macaron/shared';
 import {
   api,
@@ -1927,7 +1928,8 @@ export function Session(props: SessionProps = {}) {
     };
   }, [commitSnapshot, fetchSnapshot, isPending, liveSubscriptionGen, sid, onPendingConsumed]);
 
-  const rawItems = useMemo(() => (data ? flatten(data.messages) : []), [data]);
+  const replay = useReplay(data?.replayMessages ?? data?.messages ?? [], isNew || sending || polling || handoffPending);
+  const rawItems = useMemo(() => flatten(replay.messages), [replay.messages]);
   // Collapse consecutive read-only tool operations (Read / Grep / Glob /
   // cat / grep / ls / …) into a single summary badge, mirroring Claude
   // Code CLI's `⏺ Searching for N patterns, reading M files, listing K
@@ -2609,6 +2611,7 @@ export function Session(props: SessionProps = {}) {
             {data?.gitBranch && <span className="sess-branch">{data.gitBranch}</span>}
           </div>
           <div className="session-bar-right">
+            {replay.controls}
             {!isNew && (
               <button
                 className="ghost small"

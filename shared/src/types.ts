@@ -57,6 +57,7 @@ export type Message = {
   model?: string;
   timestamp?: string;
   uuid?: string;
+  sourceLine?: number;
 };
 
 // Token usage snapshot taken from the last assistant message's `usage`
@@ -91,6 +92,7 @@ export type SessionDetail = {
   cwd: string;
   gitBranch?: string;
   messages: Message[];
+  replayMessages?: Message[];
   truncated?: boolean;
   totalBytes?: number;
   latestUsage?: UsageSnapshot;

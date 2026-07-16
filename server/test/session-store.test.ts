@@ -68,6 +68,14 @@ test('tail-truncated sessions keep the flat context bar instead of estimating a 
   assert.equal(detail.contextBreakdown, undefined);
 });
 
+test('messages preserve jsonl source order for stable replay', async () => {
+  await writeSession('replay', [stringUserLine, assistantLine]);
+  const detail = await readSessionMessages(PROJECT, 'replay');
+  assert.deepEqual(detail.messages.map((message) => message.sourceLine), [1, 2]);
+  assert.deepEqual(detail.messages.map((message) => message.timestamp), ['2026-07-07T00:00:00Z', '2026-07-07T00:00:01Z']);
+  assert.equal(detail.replayMessages, detail.messages);
+});
+
 test('project cwd resolution prefers a live session and otherwise uses the trusted registry fallback', async () => {
   const cwdProject = 'cwd-resolution';
   const cwdProjectDir = path.join(CLAUDE_PROJECTS, cwdProject);

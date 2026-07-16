@@ -594,7 +594,9 @@ async function parseTranscriptFile(filePath: string): Promise<{
   let thinkChars = 0;
   let toolCallChars = 0;
   let toolResultChars = 0;
+  let sourceLine = 0;
   for (const line of raw.split('\n')) {
+    sourceLine++;
     if (!line.trim()) continue;
     try {
       const o = JSON.parse(line);
@@ -609,6 +611,7 @@ async function parseTranscriptFile(filePath: string): Promise<{
           blocks: [{ kind: 'system_event', eventType: 'summary', text: o.summary }],
           timestamp: o.timestamp,
           uuid: o.uuid,
+          sourceLine,
         });
         continue;
       }
@@ -636,6 +639,7 @@ async function parseTranscriptFile(filePath: string): Promise<{
                 blocks: [{ kind: 'system_event', eventType: 'resume', text: t }],
                 timestamp: o.timestamp,
                 uuid: o.uuid,
+                sourceLine,
               });
             }
           }
@@ -685,6 +689,7 @@ async function parseTranscriptFile(filePath: string): Promise<{
           model: o.message?.model,
           timestamp: o.timestamp,
           uuid: o.uuid,
+          sourceLine,
         });
         if (o.type === 'assistant' && o.message?.usage) {
           const u = o.message.usage;
@@ -758,6 +763,7 @@ export async function readSessionMessages(project: string, sid: string): Promise
     cwd,
     gitBranch,
     messages,
+    replayMessages: messages,
     truncated,
     totalBytes,
     latestUsage,

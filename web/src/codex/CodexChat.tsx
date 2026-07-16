@@ -15,6 +15,7 @@ import type { CodexRuntimeOverride } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLive, type CodexStreamEvent } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
+import { useReplay } from '../components/ReplayControls';
 
 // GenuiPreview + its vendored runtime (~500KB gzip) is behind a lazy
 // import so the default codex bundle stays small. First render_ui in a
@@ -486,7 +487,8 @@ export function CodexChat(props: CodexChatProps = {}) {
     };
   }, [sid, isNew, refreshKey]);
 
-  const diskHistory = useMemo(() => (detail ? historyToItems(detail) : []), [detail]);
+  const replay = useReplay(detail?.replayMessages ?? detail?.messages ?? [], isNew || sending);
+  const diskHistory = useMemo(() => detail ? historyToItems({ ...detail, messages: replay.messages }) : [], [detail, replay.messages]);
   const history = useMemo(
     () => reconcileHistoryWithLive(diskHistory, live),
     [diskHistory, live],
@@ -618,6 +620,7 @@ export function CodexChat(props: CodexChatProps = {}) {
       {!hideBar && (
         <div className="cx-main-head">
           <div className="cx-main-head-title">{title}</div>
+          <div className="cx-main-head-replay">{replay.controls}</div>
           {!isNew && (
             <>
               <span className="cx-main-head-dot">·</span>

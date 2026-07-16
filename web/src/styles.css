@@ -598,6 +598,12 @@ textarea:focus, select:focus, input:focus {
   font-size: 11.5px;
   color: var(--muted);
 }
+.replay-controls { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.replay-button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.replay-button:hover { background: var(--surface-2); color: var(--text); }
+.replay-controls input[type='range'] { width: clamp(72px, 12vw, 150px); accent-color: var(--accent); }
+.replay-count { color: var(--muted); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.replay-speed { width: 34px; font-size: 11px; }
 .load-earlier {
   align-self: center;
   padding: 6px 14px;
