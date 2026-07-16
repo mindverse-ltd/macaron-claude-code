@@ -11,12 +11,12 @@ The core tunables (port, host, auth token, default model) live in `server/src/co
 
 | name | source | default | meaning |
 | --- | --- | --- | --- |
-| `PORT` | `MACARON_PORT` | `7878` | Listen port — Claude default; mcx uses `7979`. |
+| `PORT` | `MACARON_PORT` | `7878` | Listen port — Claude default; mcx uses `7979`, mkx uses `7980`. |
 | `HOST` | `MACARON_HOST` | `127.0.0.1` | Bind address. A non-loopback host auto-arms auth. |
 | `AUTH_TOKEN` | `MACARON_AUTH_TOKEN` | `""` | Shared token gating the API when reachable off-box. |
 | `MACARON_MODEL` | `MACARON_MODEL` | `macaron-0.6` | Default model id for the Macaron provider. |
 
-`CLAUDE_PROJECTS` (`~/.claude/projects`) and `CODEX_SESSIONS` (`~/.codex/sessions`) are **not** environment tunables — they are fixed paths derived from `$HOME` in `config.ts`, pointing at where Claude Code and Codex already write their transcripts and rollouts. The store layer reads them; nothing overrides them.
+`CLAUDE_PROJECTS` (`~/.claude/projects`) and `CODEX_SESSIONS` (`~/.codex/sessions`) are **not** environment tunables — they are fixed paths derived from `$HOME` in `config.ts`, pointing at where Claude Code and Codex already write their transcripts and rollouts. `KIMI_SESSIONS` (`~/.kimi-code/sessions`) works the same way, except its root honors `$KIMI_CODE_HOME` like the Kimi CLI itself. The store layer reads them; nothing overrides them.
 
 ## Boot Sequence
 
@@ -96,6 +96,6 @@ A separate `SystemEvent` stream (`GET /api/events`) pushes a debounced `sessions
 
 ## Reading Sessions From Disk
 
-The WebUI does not own a database. `session-store.ts` reads the JSONL transcripts Claude Code already writes under `~/.claude/projects/**/*.jsonl`, while `codex-store.ts` parses the Codex rollouts under `~/.codex/sessions/**`; both project into the shared session/turn types, and a `session-watcher` tails the trees for changes. This is why the WebUI shows sessions you started outside the browser.
+The WebUI does not own a database. `session-store.ts` reads the JSONL transcripts Claude Code already writes under `~/.claude/projects/**/*.jsonl`, `codex-store.ts` parses the Codex rollouts under `~/.codex/sessions/**`, and `kimi-store.ts` reads the Kimi Code `wire.jsonl` + `state.json` under `~/.kimi-code/sessions/**` (via `session_index.jsonl` when present); all three project into the shared session/turn types, and a `session-watcher` tails the trees for changes. This is why the WebUI shows sessions you started outside the browser.
 
 Next: the [web front end](/docs/architecture/web).

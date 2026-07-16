@@ -24,7 +24,7 @@ The server picks which one is `/` at boot (see [Overview](/docs/architecture/ove
 
 ## Runtime Bootstrap
 
-The two entries bootstrap GenUI differently. The **Claude** entry (`web/src/main.tsx`) stands up the whole GenUI runtime *before* the app renders — model-authored TSX previews are core to that UI, so the globals must exist up front. The **Codex** entry (`web/src/codex/main.tsx`) deliberately does not: it stays a small chat-focused bundle and **lazy-loads** the GenUI runtime (`React.lazy` + `Suspense` in `CodexChat.tsx`, ~500 KB gzip) only when a `render_ui` card actually needs to render.
+The three entries bootstrap GenUI differently. The **Claude** entry (`web/src/main.tsx`) stands up the whole GenUI runtime *before* the app renders — model-authored TSX previews are core to that UI, so the globals must exist up front. The **Codex** and **Kimi** entries (`web/src/codex/main.tsx`, `web/src/kimi/main.tsx`) deliberately do not: they stay small chat-focused bundles and **lazy-load** the GenUI runtime (`React.lazy` + `Suspense` in their chat views, ~500 KB gzip) only when a `render_ui` card actually needs to render.
 
 The steps below describe the Claude bootstrap:
 
