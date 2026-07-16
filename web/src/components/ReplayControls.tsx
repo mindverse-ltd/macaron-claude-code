@@ -1,50 +1,56 @@
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Message } from '@macaron/shared';
+import { createReplayTimeline, replayFrame } from '../lib/replay';
 
 const SPEEDS = [1, 2, 5] as const;
-const MAX_DELAY_MS = 2_000;
-
-function eventTime(message: Message, fallback: number): number {
-  const timestamp = message.timestamp ? new Date(message.timestamp).getTime() : NaN;
-  return Number.isFinite(timestamp) ? timestamp : fallback;
-}
 
 export function useReplay(messages: Message[], disabled = false) {
   const [active, setActive] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [cursor, setCursor] = useState(messages.length);
+  const [position, setPosition] = useState(0);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const signature = `${messages.length}:${messages.at(-1)?.sourceLine ?? ''}:${messages.at(-1)?.timestamp ?? ''}`;
-  const timeline = useMemo(() => messages.map((message, index) => ({ message, time: eventTime(message, index) })), [signature]);
+  const timeline = useMemo(() => createReplayTimeline(messages), [signature]);
+  const duration = timeline.at(-1)?.end ?? 0;
+  const visibleMessages = useMemo(() => active ? replayFrame(timeline, position) : messages, [active, messages, position, timeline]);
 
   useEffect(() => {
     setActive(false);
     setPlaying(false);
-    setCursor(messages.length);
+    setPosition(0);
   }, [signature]);
 
   useEffect(() => {
     if (!active || !playing) return;
-    if (cursor >= timeline.length) { setPlaying(false); return; }
-    const previous = cursor > 0 ? timeline[cursor - 1]!.time : timeline[cursor]!.time;
-    const delay = Math.min(MAX_DELAY_MS, Math.max(0, timeline[cursor]!.time - previous)) / speed;
-    const timer = window.setTimeout(() => setCursor((value) => value + 1), delay);
-    return () => window.clearTimeout(timer);
-  }, [active, cursor, playing, speed, timeline]);
+    let animationFrame = 0;
+    let previous = performance.now();
+    const tick = (now: number) => {
+      const delta = now - previous;
+      previous = now;
+      setPosition((value) => Math.min(duration, value + delta * speed));
+      animationFrame = window.requestAnimationFrame(tick);
+    };
+    animationFrame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [active, duration, playing, speed]);
 
-  const start = () => { setActive(true); setCursor(0); setPlaying(true); };
-  const stop = () => { setActive(false); setPlaying(false); setCursor(messages.length); };
+  useEffect(() => {
+    if (active && playing && position >= duration) setPlaying(false);
+  }, [active, duration, playing, position]);
+
+  const start = () => { setActive(true); setPosition(0); setPlaying(true); };
+  const stop = () => { setActive(false); setPlaying(false); setPosition(0); };
   return {
-    messages: active ? messages.slice(0, cursor) : messages,
+    messages: visibleMessages,
     controls: disabled || messages.length < 2 ? null : (
       <div className="replay-controls" role="group" aria-label="Session replay">
         <button className="replay-button" onClick={active ? () => setPlaying((value) => !value) : start} title={active && playing ? 'Pause replay' : 'Play replay'} aria-label={active && playing ? 'Pause replay' : 'Play replay'}>
           {active && playing ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
         </button>
         {active && <button className="replay-button" onClick={stop} title="Exit replay" aria-label="Exit replay"><RotateCcw size={14} aria-hidden="true" /></button>}
-        <input type="range" min={0} max={messages.length} value={active ? cursor : messages.length} onChange={(event) => { setActive(true); setPlaying(false); setCursor(Number(event.target.value)); }} aria-label="Replay position" />
-        <span className="replay-count">{active ? cursor : messages.length}/{messages.length}</span>
+        <input type="range" min={0} max={Math.max(1, duration)} value={active ? position : duration} onChange={(event) => { setActive(true); setPlaying(false); setPosition(Number(event.target.value)); }} aria-label="Replay position" />
+        <span className="replay-count">{visibleMessages.length}/{messages.length}</span>
         <button className="replay-button replay-speed" onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]!)} title="Replay speed">{speed}×</button>
       </div>
     ),
