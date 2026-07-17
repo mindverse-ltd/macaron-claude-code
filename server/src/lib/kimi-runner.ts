@@ -39,16 +39,27 @@ function detectKimiBinary(): string | undefined {
   if (process.env.MACARON_KIMI_PATH && existsSync(process.env.MACARON_KIMI_PATH)) {
     return process.env.MACARON_KIMI_PATH;
   }
-  for (const p of ['/opt/homebrew/bin/kimi', '/usr/local/bin/kimi', '/usr/bin/kimi']) {
+  const bunGlobal = process.env.HOME ? [path.join(process.env.HOME, '.bun/bin/kimi')] : [];
+  for (const p of ['/opt/homebrew/bin/kimi', '/usr/local/bin/kimi', '/usr/bin/kimi', ...bunGlobal]) {
     if (existsSync(p)) return p;
   }
   try {
     const which = execSync('which kimi', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    if (which) return which;
+    // `which` happily prints a dangling symlink (e.g. a pruned bun global
+    // install) — verify the target actually exists before trusting it.
+    if (which && existsSync(which)) return which;
   } catch { /* not on PATH */ }
   return undefined;
 }
-export const KIMI_BINARY = detectKimiBinary();
+
+// Cache only on success: a server booted before the CLI was installed (or
+// before its dir landed on PATH) must recover on the next run instead of
+// serving "kimi CLI not found" until restart.
+let cachedKimiBinary: string | undefined;
+function kimiBinary(): string | undefined {
+  if (!cachedKimiBinary || !existsSync(cachedKimiBinary)) cachedKimiBinary = detectKimiBinary();
+  return cachedKimiBinary;
+}
 
 export type KimiRunOptions = {
   prompt: string;
@@ -138,7 +149,8 @@ export async function* runKimi(opts: KimiRunOptions): AsyncGenerator<RunnerEvent
   };
 
   void (async () => {
-    if (!KIMI_BINARY) {
+    const binary = kimiBinary();
+    if (!binary) {
       push({ kind: 'error', error: 'kimi CLI not found — install Kimi Code or set MACARON_KIMI_PATH' });
       push({ kind: 'done', exitCode: -1 });
       finish();
@@ -149,7 +161,7 @@ export async function* runKimi(opts: KimiRunOptions): AsyncGenerator<RunnerEvent
     console.log(
       `[kimi-runner] starting  model=${providerEnv.KIMI_MODEL_NAME || '(system)'}  base=${providerEnv.KIMI_MODEL_BASE_URL || '(ambient)'}  resume=${opts.resume ? opts.resume.slice(0, 8) : '(new)'}  cwd=${opts.cwd}`,
     );
-    const child = spawn(KIMI_BINARY, ['acp'], {
+    const child = spawn(binary, ['acp'], {
       cwd: opts.cwd,
       env: { ...process.env, ...providerEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
