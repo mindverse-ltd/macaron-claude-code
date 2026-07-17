@@ -12,10 +12,11 @@ export type Workspace = {
 
 // Which agent engine produced this session. `claude` = claude-agent-sdk
 // jsonl under ~/.claude/projects. `codex` = @openai/codex-sdk rollout files
-// under ~/.codex/sessions. Both are grouped by cwd into the same
-// Workspace list; the tile UI dispatches to the appropriate backend
-// route based on this discriminator.
-export type SessionKind = 'claude' | 'codex';
+// under ~/.codex/sessions. `kimi` = Kimi Code wire.jsonl + state.json under
+// ~/.kimi-code/sessions. All are grouped by cwd into the same Workspace
+// list; the tile UI dispatches to the appropriate backend route based on
+// this discriminator.
+export type SessionKind = 'claude' | 'codex' | 'kimi';
 
 export type SessionListItem = {
   kind: SessionKind;
@@ -27,8 +28,9 @@ export type SessionListItem = {
   // User-assigned human label, stored in a macaron sidecar (not in the
   // Claude-owned jsonl). Takes display precedence over `preview` when set.
   label?: string;
-  // Generated human-readable label. Codex-only for now (see codex-title.ts);
-  // the sidebar prefers it over `preview` when present.
+  // Native/generated human-readable title. Claude reads ai-title/custom-title
+  // records; Codex uses its persisted generated title; Kimi reads state.json.
+  // The UI prefers it over `preview` when present.
   title?: string;
   messageCount: number;
   messageCountSuffix?: string;
@@ -90,6 +92,13 @@ export type SessionDetail = {
   project: string;
   cwd: string;
   gitBranch?: string;
+  // Legacy Macaron sidecar label, retained only so older renamed sessions
+  // display consistently until their next native rename migrates them.
+  label?: string;
+  // Native session title (custom-title / ai-title / lastPrompt / summary)
+  // resolved server-side, so the session header can show the same name the
+  // sidebar does. Undefined when the session has none.
+  title?: string;
   messages: Message[];
   truncated?: boolean;
   totalBytes?: number;

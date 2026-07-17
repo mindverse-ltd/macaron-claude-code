@@ -9,6 +9,7 @@ import {
   api,
   basename,
   downloadTextFile,
+  sessionTitle,
   type Message,
   type SessionDetail,
   type PrContext,
@@ -2605,7 +2606,7 @@ export function Session(props: SessionProps = {}) {
             <span className="sep">›</span>
             <Link to={`/w/${encodeURIComponent(project)}`} className="crumb-link">{name}</Link>
             <span className="sep">›</span>
-            <span className="sess-id-crumb">{isNew ? 'new' : sid.slice(0, 8)}</span>
+            <span className="sess-id-crumb" title={isNew ? undefined : sid}>{isNew ? 'new' : (data ? sessionTitle(data) : sid.slice(0, 8))}</span>
             {data?.gitBranch && <span className="sess-branch">{data.gitBranch}</span>}
           </div>
           <div className="session-bar-right">

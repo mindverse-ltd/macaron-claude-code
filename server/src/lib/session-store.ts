@@ -14,7 +14,7 @@ import type {
   Workspace,
 } from '@macaron/shared';
 import { CLAUDE_PROJECTS, HOME } from '../config.js';
-import { getLabels } from './label-store.js';
+import { deleteLabel, getLabels } from './label-store.js';
 
 export function basename(p: string): string {
   if (!p) return '';
@@ -27,6 +27,11 @@ export function decodeClaudeProjectName(encoded: string): string {
 
 type SessionSummary = {
   firstUserText: string;
+  // Claude-native session title, resolved with the same priority the CLI and
+  // the official Agent SDK use for `/resume`'s list: customTitle > aiTitle >
+  // lastPrompt > summary. Empty when the session has none of them (falls back
+  // to firstUserText downstream). See resolveNativeTitle.
+  title: string;
   cwd: string;
   gitBranch: string;
   headLines: number;
@@ -34,6 +39,36 @@ type SessionSummary = {
   mtime: number;
   size: number;
 };
+
+// Native title fields harvested from a session's jsonl, last-occurrence-wins
+// per field (the CLI appends `ai-title` / `custom-title` / updates lastPrompt
+// over the session's life). Kept as a struct so the head scan and the tail
+// scan can feed the same resolver.
+export type NativeTitleFields = {
+  customTitle?: string;
+  aiTitle?: string;
+  lastPrompt?: string;
+  summary?: string;
+};
+
+// Priority mirrors the official Agent SDK's list_sessions:
+// customTitle > aiTitle > lastPrompt > summary. firstPrompt is intentionally
+// NOT here — callers use it as the preview-level fallback instead.
+export function resolveNativeTitle(f: NativeTitleFields): string {
+  return f.customTitle || f.aiTitle || f.lastPrompt || f.summary || '';
+}
+
+// Fold one parsed jsonl entry into the accumulating title fields. Last write
+// wins, so calling this over head then tail yields the CLI's tail-preferred,
+// head-fallback semantics for free.
+function foldTitleFields(o: Record<string, unknown>, f: NativeTitleFields): void {
+  // A custom-title record with an empty string is an explicit clear tombstone
+  // (macaron's blank rename): reset the override so it falls back to ai-title.
+  if (o.type === 'custom-title' && typeof o.customTitle === 'string') f.customTitle = o.customTitle.trim() || undefined;
+  else if (o.type === 'ai-title' && typeof o.aiTitle === 'string' && o.aiTitle.trim()) f.aiTitle = o.aiTitle.trim();
+  if (typeof o.lastPrompt === 'string' && o.lastPrompt.trim()) f.lastPrompt = o.lastPrompt.trim();
+  if (o.type === 'summary' && typeof o.summary === 'string' && o.summary.trim()) f.summary = o.summary.trim();
+}
 
 type CacheEntry = { mtimeMs: number; size: number; summary: SessionSummary };
 
@@ -46,6 +81,30 @@ export async function deleteSession(project: string, sid: string): Promise<void>
   const filePath = path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`);
   await fs.unlink(filePath);
   summaryCache.delete(filePath);
+}
+
+// Rename a Claude session the native way: append a `custom-title` record to the
+// jsonl, exactly like the CLI's `/rename` does. Because resolveNativeTitle reads
+// customTitle first and foldTitleFields is last-write-wins, this both surfaces
+// in macaron's sidebar and is what `claude --resume` shows — the two stay in
+// sync instead of diverging into a separate label sidecar. A blank name appends
+// an empty customTitle, which clears the override (falling back to ai-title /
+// preview). Returns the trimmed title.
+export async function renameSession(project: string, sid: string, name: string): Promise<string> {
+  const base = path.resolve(CLAUDE_PROJECTS);
+  const filePath = path.resolve(base, project, `${sid}.jsonl`);
+  if (!(filePath + path.sep).startsWith(base + path.sep)) throw new Error('invalid session path');
+  const st = await fs.stat(filePath);
+  if (!st.isFile()) throw new Error('session is not a file');
+  const trimmed = name.trim();
+  const record = JSON.stringify({ type: 'custom-title', customTitle: trimmed, sessionId: sid, timestamp: new Date().toISOString() }) + '\n';
+  await fs.appendFile(filePath, record, 'utf8');
+  summaryCache.delete(filePath);
+  // Older Macaron releases stored labels in a sidecar. Remove that legacy
+  // override once the user renames natively, otherwise it would keep winning
+  // in the UI even though Claude now has a newer custom-title record.
+  await deleteLabel(sid);
+  return trimmed;
 }
 
 // Duplicate a claude session as a brand-new sid so both can be resumed
@@ -256,6 +315,7 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
 
   const summary: SessionSummary = {
     firstUserText: '',
+    title: '',
     cwd: '',
     gitBranch: '',
     headLines: 0,
@@ -263,6 +323,10 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
     mtime: st.mtimeMs,
     size: st.size,
   };
+
+  // Native title fields, folded head-first then tail-last so the tail's
+  // freshest ai-title/custom-title/lastPrompt win over any head occurrence.
+  const titleFields: NativeTitleFields = {};
 
   try {
     const fh = await fs.open(filePath, 'r');
@@ -277,9 +341,10 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
         const line = lines[i]!;
         if (!line.trim()) continue;
         summary.headLines++;
-        if (summary.firstUserText && summary.cwd) continue;
         try {
           const o = JSON.parse(line);
+          foldTitleFields(o, titleFields);
+          if (summary.firstUserText && summary.cwd) continue;
           if (!summary.cwd && o.cwd) summary.cwd = o.cwd;
           if (!summary.gitBranch && o.gitBranch) summary.gitBranch = o.gitBranch;
           if (!summary.firstUserText && o.type === 'user' && o.message?.content) {
@@ -306,9 +371,10 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
   // cwd sits at the END of each jsonl line (after `message`), so a huge first
   // paste can push the head's only cwd-bearing line past HEAD_BYTES, truncating
   // it unparseably. The same cwd repeats on every later line, and trailing lines
-  // are usually small — so when the head read came up empty on a truncated file,
-  // recover cwd (and gitBranch) from a tail read instead.
-  if (summary.truncated && !summary.cwd) {
+  // are usually small — so on a truncated file, tail-scan to recover cwd and to
+  // pick up the native title records (ai-title / custom-title / lastPrompt) the
+  // CLI appends near the end, which live past HEAD_BYTES.
+  if (summary.truncated) {
     try {
       const fh = await fs.open(filePath, 'r');
       try {
@@ -323,6 +389,7 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
           if (!line.trim()) continue;
           try {
             const o = JSON.parse(line);
+            foldTitleFields(o, titleFields);
             if (o.cwd) summary.cwd = o.cwd;
             if (!summary.gitBranch && o.gitBranch) summary.gitBranch = o.gitBranch;
           } catch {
@@ -337,6 +404,7 @@ export async function readSessionSummary(filePath: string): Promise<SessionSumma
     }
   }
 
+  summary.title = resolveNativeTitle(titleFields);
   summaryCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, summary });
   return summary;
 }
@@ -497,6 +565,7 @@ export async function listAllSessions(): Promise<SessionListItem[]> {
       sessionId: t.sid,
       preview: (meta.firstUserText || '').slice(0, 220),
       label: labels[t.sid],
+      title: meta.title || undefined,
       messageCount: meta.headLines,
       messageCountSuffix: meta.truncated ? '+' : '',
       mtime: meta.mtime,
@@ -736,10 +805,15 @@ export async function readSessionMessages(project: string, sid: string): Promise
   } =
     await parseTranscriptFile(filePath);
 
-  const [claudeMdCount, mcpCount] = await Promise.all([
+  const [claudeMdCount, mcpCount, labels] = await Promise.all([
     countClaudeMd(cwd),
     countMcpServers(),
+    getLabels(),
   ]);
+
+  // Reuse the (cached) head/tail scan for the native title so the session
+  // header names the session the same way the sidebar does.
+  const title = (await readSessionSummary(filePath))?.title || undefined;
 
   // Tail reads intentionally drop the oldest bytes, so the measured visible
   // transcript can no longer explain the aggregate usage. Keep the accurate
@@ -757,6 +831,8 @@ export async function readSessionMessages(project: string, sid: string): Promise
     project,
     cwd,
     gitBranch,
+    label: labels[sid],
+    title,
     messages,
     truncated,
     totalBytes,

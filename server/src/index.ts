@@ -9,6 +9,7 @@ import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
 import { warmCodexConfigCache } from './lib/codex-config.js';
+import { warmKimiConfigCache } from './lib/kimi-config.js';
 import { warmLabelsCache } from './lib/label-store.js';
 import { warmSchedulesCache } from './lib/schedule-store.js';
 import { startScheduler } from './lib/scheduler.js';
@@ -34,6 +35,7 @@ import { registerMcpRoutes } from './routes/mcp.js';
 import { registerConfigFileRoutes } from './routes/config-files.js';
 import { registerRelayRoutes } from './routes/relay.js';
 import { registerCodexRoutes } from './routes/codex.js';
+import { registerKimiRoutes } from './routes/kimi.js';
 import { registerGitRoutes } from './routes/git.js';
 import { registerShareRoutes } from './routes/share.js';
 import { registerSearchRoutes } from './routes/search.js';
@@ -129,6 +131,7 @@ await app.register(async (instance) => {
   await registerSessionRoutes(instance);
   await registerWorktreeRoutes(instance);
   await registerCodexRoutes(instance);
+  await registerKimiRoutes(instance);
   await registerGitRoutes(instance);
   await registerShareRoutes(instance);
   await registerSearchRoutes(instance);
@@ -148,12 +151,15 @@ if (existsSync(WEB_DIST)) {
     // MACARON_ENGINE=codex can steer `/` to codex.html instead.
     index: false,
   });
-  // Two SPA entries live side-by-side in web/dist: index.html (claude) and
-  // codex.html. The env decides which one is the SPA fallback for `/` and
-  // any deep-link URL, so `mcc` boots the claude UI and `mcx` boots codex
-  // from the same server binary. Static assets (JS/CSS/wasm chunks) come
-  // from the shared /assets/ folder and are shared between entries.
-  const spaEntry = process.env.MACARON_ENGINE === 'codex' ? 'codex.html' : 'index.html';
+  // Three SPA entries live side-by-side in web/dist: index.html (claude),
+  // codex.html and kimi.html. The env decides which one is the SPA fallback
+  // for `/` and any deep-link URL, so `mcc` boots the claude UI, `mcx` boots
+  // codex and `mkx` boots kimi from the same server binary. Static assets
+  // (JS/CSS/wasm chunks) come from the shared /assets/ folder and are shared
+  // between entries.
+  const spaEntry =
+    process.env.MACARON_ENGINE === 'kimi' ? 'kimi.html' :
+    process.env.MACARON_ENGINE === 'codex' ? 'codex.html' : 'index.html';
   // Explicit root — fastify-static's `index: false` refuses `/`, so own it here.
   app.get('/', (_req, reply) => reply.sendFile(spaEntry));
   app.setNotFoundHandler((req, reply) => {
@@ -175,6 +181,7 @@ try {
   await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
+  await warmKimiConfigCache();
   await warmLabelsCache();
   await warmSchedulesCache();
   await warmCodexTitlesCache();

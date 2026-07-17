@@ -55,15 +55,15 @@ export default function Connect() {
           </p>
 
           <label className="block text-sm font-medium mb-1">Interface</label>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            {(['claude', 'codex'] as const).map((e) => (
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {(['claude', 'codex', 'kimi'] as const).map((e) => (
               <button
                 key={e}
                 type="button"
                 onClick={() => setEngine(e)}
                 className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${engine === e ? 'border-fd-primary bg-fd-primary/10 text-fd-primary' : 'border-fd-border text-fd-muted-foreground hovered:bg-fd-accent'}`}
               >
-                {e === 'claude' ? 'Claude Code' : 'Codex'}
+                {e === 'claude' ? 'Claude Code' : e === 'codex' ? 'Codex' : 'Kimi Code'}
               </button>
             ))}
           </div>
@@ -78,7 +78,7 @@ export default function Connect() {
             autoFocus
           />
           <p className="text-xs text-fd-muted-foreground mb-4">
-            Local server defaults: Claude on <code>localhost:7878</code>, Codex on <code>localhost:7979</code>.
+            Local server defaults: Claude on <code>localhost:7878</code>, Codex on <code>localhost:7979</code>, Kimi on <code>localhost:7980</code>.
           </p>
 
           <label className="block text-sm font-medium mb-1">Access token <span className="text-fd-muted-foreground font-normal">(optional if the link already has one)</span></label>

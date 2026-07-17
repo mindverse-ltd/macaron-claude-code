@@ -70,7 +70,7 @@ export async function sendPush(payload: PushNotifyPayload): Promise<void> {
   if (s.subscriptions.length === 0) return;
   // A VAPID subject must be a resolvable https:// or mailto: with a real domain;
   // some push services reject a non-routable one like `.local`.
-  webpush.setVapidDetails('https://github.com/mindverse-ltd/macaron-artifacts', s.vapid.publicKey, s.vapid.privateKey);
+  webpush.setVapidDetails('https://github.com/MindLab-Research/macaron-artifacts', s.vapid.publicKey, s.vapid.privateKey);
   const body = JSON.stringify(payload);
   // Snapshot before the multi-second await: a concurrent /unsubscribe can
   // reassign s.subscriptions, which would misalign these indices and prune the

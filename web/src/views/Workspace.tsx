@@ -26,7 +26,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { api, basename, type SessionListItem, type Workspace as Wk } from '../lib/api';
+import { api, basename, sessionTitle, type SessionListItem, type Workspace as Wk } from '../lib/api';
 import {
   useCanvas,
   CANVAS_COLS,
@@ -344,7 +344,7 @@ export function Workspace() {
                     ? 'Terminal'
                     : file
                       ? filePath(tile.sid).split('/').pop() || 'File'
-                      : meta?.label || meta?.preview?.slice(0, 60) || tile.sid.slice(0, 8);
+                      : meta ? sessionTitle(meta) : tile.sid.slice(0, 8);
                 return (
                   <SortableTile
                     key={tile.sid}

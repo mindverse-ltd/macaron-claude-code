@@ -32,6 +32,7 @@ import {
   type TileGeom,
 } from '../lib/canvas';
 import { subscribeSystemEvents } from '../lib/systemEvents';
+import { sessionTitle } from '../lib/api';
 
 const ROW_UNIT_PX = 48;
 
@@ -187,7 +188,7 @@ export function CodexWorkspace() {
                   <SortableTile
                     key={tile.sid}
                     tile={tile}
-                    label={meta?.preview?.slice(0, 60) || tile.sid.slice(0, 8)}
+                    label={meta ? sessionTitle(meta) : tile.sid.slice(0, 8)}
                     isFocused={isFocused}
                     onFocus={() => canvas.focus(tile.sid)}
                     onRemove={() => canvas.remove(tile.sid)}

@@ -23,7 +23,6 @@
 import { execSync } from 'node:child_process';
 import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,44 +37,11 @@ import type {
 import { getActiveCodexProvider, getCodexConfig, type CodexRuntimeOverride } from './codex-config.js';
 import type { RunnerEvent, AttachedImage } from './claude-runner.js';
 
-// Absolute path + command for the standalone stdio MCP server that exposes
-// render_ui to the codex CLI (see server/src/macaron-mcp-stdio.ts).
-// Resolved relative to THIS file so the same lookup works whether the
-// server is running from src/ (tsx dev) or dist/ (built).
-//
-// Production: `server/dist/lib/codex-runner.js` → sibling
-//   `server/dist/macaron-mcp-stdio.js` → spawn `node <path>`.
-// Dev: `server/src/lib/codex-runner.ts` → sibling
-//   `server/src/macaron-mcp-stdio.ts` → spawn `tsx <path>` (via
-//   node_modules/.bin/tsx so we don't need a global tsx).
-const { command: MACARON_MCP_CMD, args: MACARON_MCP_ARGS } = (() => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const jsPath = path.join(here, '..', 'macaron-mcp-stdio.js');
-  if (existsSync(jsPath)) {
-    return { command: 'node', args: [jsPath] };
-  }
-  const tsPath = path.join(here, '..', 'macaron-mcp-stdio.ts');
-  // Walk up until we find a runnable tsx binary. Under pnpm, dev bins
-  // are NOT hoisted to `<repo>/node_modules/.bin/`; they live under
-  // `<repo>/node_modules/.pnpm/node_modules/.bin/`. Also check the
-  // classic hoisted path for npm/yarn / server workspace bin.
-  let dir = here;
-  for (let i = 0; i < 6; i++) {
-    for (const rel of [
-      ['node_modules', '.bin', 'tsx'],
-      ['node_modules', '.pnpm', 'node_modules', '.bin', 'tsx'],
-    ]) {
-      const candidate = path.join(dir, ...rel);
-      if (existsSync(candidate)) return { command: candidate, args: [tsPath] };
-    }
-    dir = path.dirname(dir);
-  }
-  // Last resort: hope `tsx` is on PATH.
-  return { command: 'tsx', args: [tsPath] };
-})();
-
+// The Macaron stdio MCP path resolution now lives in macaron-mcp-path.ts so
+// kimi-runner can inject the same bridge without pulling in the codex SDK.
 // Re-exported for the app-server runner (codex-app-server.ts), which injects
 // the same Macaron stdio MCP into its thread/start config.
+import { MACARON_MCP_CMD, MACARON_MCP_ARGS } from './macaron-mcp-path.js';
 export { MACARON_MCP_CMD, MACARON_MCP_ARGS };
 
 // @openai/codex-sdk ships the `codex` binary via platform-specific optional

@@ -44,7 +44,7 @@ export const ALLOWED_ORIGINS = buildAllowedOrigins(EXPLICIT_ORIGINS, /^(1|true|y
 // win for ops-driven / one-shot invocations.
 export const MACARON_API_BASE = process.env.MACARON_API_BASE || '';
 export const MACARON_API_KEY = process.env.MACARON_API_KEY || '';
-export const MACARON_MODEL = process.env.MACARON_MODEL || 'macaron-0.6';
+export const MACARON_MODEL = process.env.MACARON_MODEL || '';
 
 export const HOME = os.homedir();
 export const CLAUDE_PROJECTS = path.join(HOME, '.claude', 'projects');
@@ -55,6 +55,10 @@ export const CLAUDE_AGENTS = path.join(HOME, '.claude', 'agents');
 // invoked as `/<filename-stem>` in any session.
 export const CLAUDE_COMMANDS = path.join(HOME, '.claude', 'commands');
 export const CODEX_SESSIONS = path.join(HOME, '.codex', 'sessions');
+// Kimi Code data root ($KIMI_CODE_HOME or ~/.kimi-code). Sessions live in
+// sessions/<workDirKey>/<sessionId>/ with a session_index.jsonl fast path.
+export const KIMI_HOME = process.env.KIMI_CODE_HOME || path.join(HOME, '.kimi-code');
+export const KIMI_SESSIONS = path.join(KIMI_HOME, 'sessions');
 
 // Root for the "New Project" wizard — freshly created dirs and `git clone`
 // targets land here. Overridable so ops can point it at a mounted volume.

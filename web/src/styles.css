@@ -101,7 +101,7 @@
 html, body, #root { height: 100%; margin: 0; }
 #root {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
 }
 body {
   font-family: var(--font-sans);
@@ -185,7 +185,7 @@ body {
 .status.bad::before { color: var(--bad); }
 
 /* ---------- main ---------- */
-main { background: var(--bg); overflow: auto; height: 100vh; }
+main { min-width: 0; background: var(--bg); overflow: auto; height: 100vh; }
 .view {
   max-width: 1080px;
   margin: 0 auto;
@@ -1121,6 +1121,7 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap; /* narrow screens: whole tags drop to the next line instead of squeezing the name */
   margin-bottom: 3px;
 }
 .prov-name { font-weight: 600; }
@@ -1133,6 +1134,7 @@ textarea:focus, select:focus, input:focus {
   color: var(--muted);
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  white-space: nowrap; /* never split a badge mid-word (e.g. "BUILT-IN") */
 }
 .prov-tag.ok { color: #3a7; background: rgba(76, 175, 80, 0.12); }
 .prov-tag.bad { color: #c65; background: rgba(198, 92, 82, 0.12); }
@@ -4417,10 +4419,45 @@ textarea:focus, select:focus, input:focus {
 .sb-drawer { display: contents; }
 .mobile-nav-toggle { display: none; }
 .sb-backdrop { display: none; }
+.mobile-nav-close { display: none; }
+
+/* The V2 rows use semantic buttons for keyboard and touch access. Keep the
+   buttons visually identical to the old row treatment while preserving the
+   row's flex geometry. */
+.sb-ws-main,
+.sb-sess-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 8px;
+  border: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-ws-main {
+  padding: 0;
+  background: transparent;
+}
+.sb-sess-main {
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.sb-ws-main:focus-visible,
+.sb-sess-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 5px;
+}
+.sb-sess-main .sb-sess-name { flex: 1; min-width: 0; }
 
 @media (max-width: 768px) {
   /* Single column: the sidebar leaves the flow and slides in as an overlay. */
-  #root { grid-template-columns: 1fr; }
+  #root { grid-template-columns: minmax(0, 1fr); }
 
   .mobile-nav-toggle {
     display: flex;
@@ -4558,6 +4595,135 @@ textarea:focus, select:focus, input:focus {
   }
   .ws-tile-grip { min-height: 48px; padding-top: 4px; padding-bottom: 4px; }
   .ws-tile-grip-dots { opacity: 0.72; }
+}
+
+/* ---------- responsive refinements ----------
+   Several legacy views share these primitives; the mobile canvas also needs
+   to override inline grid spans without changing JS resize math. */
+@media (max-width: 768px) {
+  .mobile-nav-toggle {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+  }
+
+  .sb-drawer {
+    width: min(86vw, 320px);
+    max-width: 100vw;
+  }
+  .mobile-nav-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top));
+    right: 10px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    z-index: 1;
+  }
+  .mobile-nav-close:focus-visible,
+  .mobile-nav-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .sb-drawer .sb-brand { margin-right: 58px; }
+  .sb-backdrop {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+  }
+
+  .sb-ws-head {
+    gap: 6px;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .sb-ws-main,
+  .sb-sess-main {
+    min-height: 44px;
+  }
+  .sb-ws-main { padding: 0 0 0 16px; }
+  .sb-dots,
+  .sb-sess-pin {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    opacity: 1;
+  }
+  .sb-dots { margin-right: 8px; }
+  .sb-sess {
+    gap: 6px;
+    padding-left: 0;
+    padding-right: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .sb-sess-main { padding-left: 32px; }
+  .sb-search,
+  .sb-nav-link,
+  .sb-settings-link {
+    min-height: 44px;
+  }
+  .sb-new-project { min-height: 40px; }
+
+  .ws-canvas-grid-v2 {
+    grid-auto-rows: auto !important;
+  }
+  .ws-tile {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    min-height: min(440px, calc(100dvh - 132px));
+    height: min(680px, calc(100dvh - 132px));
+  }
+
+  .session-input textarea,
+  .ws-tile-body .session-input textarea {
+    font-size: 16px;
+  }
+  .icon-btn,
+  .send-btn,
+  .send-now-btn,
+  .queue-btn,
+  .stop-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .home-ws-chip,
+  .home-target,
+  .home-target select,
+  .provider-chip-label {
+    min-width: 0;
+  }
+
+  .confirm-backdrop {
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .confirm-dialog,
+  .pr-dialog,
+  .np-dialog,
+  .dir-picker,
+  .shortcuts-dialog {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
 }
 
 /* ---------- git panel ---------- */
@@ -4790,6 +4956,19 @@ textarea:focus, select:focus, input:focus {
   padding: 40px;
   text-align: center;
 }
+@media (max-width: 768px) {
+  /* Stack tree above editor: a fixed 280px tree would squeeze the editor to
+     an unusable sliver on phones. */
+  .fx-body { flex-direction: column; }
+  .fx-tree {
+    width: 100%;
+    max-height: 45%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  /* Clear the fixed hamburger (same 60px offset .view uses). */
+  .fx-head { padding-left: 60px; }
+}
 
 /* ---------- demos gallery ---------- */
 .examples-view {
@@ -4843,6 +5022,15 @@ textarea:focus, select:focus, input:focus {
   font-size: 13px;
   min-width: 220px;
   cursor: pointer;
+}
+@media (max-width: 768px) {
+  /* Side-by-side head leaves the intro a ~90px column once the 220px select
+     takes its share — stack instead and let the picker span full width.
+     Top padding mirrors .view's mobile rule to clear the fixed hamburger. */
+  .examples-view { padding: 60px 18px calc(40px + env(safe-area-inset-bottom)); }
+  .examples-head { flex-direction: column; }
+  .examples-target { width: 100%; }
+  .examples-target select { min-width: 0; width: 100%; }
 }
 .examples-section { margin-top: 28px; }
 .examples-section-title {
@@ -5519,4 +5707,16 @@ textarea:focus, select:focus, input:focus {
 @media (max-width: 420px) {
   .ft-mode-btn { padding-left: 8px; padding-right: 8px; }
   .ws-canvas-action { gap: 4px; font-size: 11px; }
+}
+
+@media (max-width: 768px) {
+  /* This view is declared after the shared responsive block above. Repeat its
+     viewport-safe sizing here so the later home rules cannot restore 100vh. */
+  .home-view {
+    min-height: 100dvh;
+    height: 100dvh;
+    padding: calc(24px + env(safe-area-inset-top))
+      16px calc(24px + env(safe-area-inset-bottom));
+  }
+  .home-inner { min-width: 0; margin: auto 0; }
 }

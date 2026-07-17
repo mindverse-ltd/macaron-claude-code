@@ -7,16 +7,16 @@ The server is a single Fastify app (`server/src/index.ts`). It owns the agent ru
 
 ## Configuration
 
-The core tunables (port, host, auth token, default model) live in `server/src/config.ts` and read from the environment, so the launchers and `start.sh` can steer behaviour without touching code. A handful of others are read directly where they're used rather than centralized here — e.g. `MACARON_LOG_LEVEL`, `MACARON_ENGINE`, and `MACARON_CODEX_TRANSPORT`.
+The core tunables (port, host, auth token, and optional custom provider settings) live in `server/src/config.ts` and read from the environment, so the launchers and `start.sh` can steer behaviour without touching code. A handful of others are read directly where they're used rather than centralized here — e.g. `MACARON_LOG_LEVEL`, `MACARON_ENGINE`, and `MACARON_CODEX_TRANSPORT`.
 
 | name | source | default | meaning |
 | --- | --- | --- | --- |
-| `PORT` | `MACARON_PORT` | `7878` | Listen port — Claude default; mcx uses `7979`. |
+| `PORT` | `MACARON_PORT` | `7878` | Listen port — Claude default; mcx uses `7979`, mkx uses `7980`. |
 | `HOST` | `MACARON_HOST` | `127.0.0.1` | Bind address. A non-loopback host auto-arms auth. |
 | `AUTH_TOKEN` | `MACARON_AUTH_TOKEN` | `""` | Shared token gating the API when reachable off-box. |
-| `MACARON_MODEL` | `MACARON_MODEL` | `macaron-0.6` | Default model id for the Macaron provider. |
+| `MACARON_MODEL` | `MACARON_MODEL` | `""` | Optional model id for a custom provider. |
 
-`CLAUDE_PROJECTS` (`~/.claude/projects`) and `CODEX_SESSIONS` (`~/.codex/sessions`) are **not** environment tunables — they are fixed paths derived from `$HOME` in `config.ts`, pointing at where Claude Code and Codex already write their transcripts and rollouts. The store layer reads them; nothing overrides them.
+`CLAUDE_PROJECTS` (`~/.claude/projects`) and `CODEX_SESSIONS` (`~/.codex/sessions`) are **not** environment tunables — they are fixed paths derived from `$HOME` in `config.ts`, pointing at where Claude Code and Codex already write their transcripts and rollouts. `KIMI_SESSIONS` (`~/.kimi-code/sessions`) works the same way, except its root honors `$KIMI_CODE_HOME` like the Kimi CLI itself. The store layer reads them; nothing overrides them.
 
 ## Boot Sequence
 
@@ -69,10 +69,10 @@ Tool permissions flow through a `canUseTool` callback: when the SDK wants to run
 
 ## The Provider Relay
 
-The Claude CLI expects an Anthropic-shaped API. To point it at a third-party provider (Macaron, OpenRouter, LiteLLM…) the server runs a reverse proxy at `/relay/anthropic/:providerId/v1/...` (`server/src/routes/relay.ts`).
+The Claude CLI expects an Anthropic-shaped API. To point it at a third-party provider, the server runs a reverse proxy at `/relay/anthropic/:providerId/v1/...` (`server/src/routes/relay.ts`).
 
 <Callout type="info" title="Why a relay and not just a base URL swap">
-  The CLI probes several `/v1/` endpoints at startup (models, org) to validate the session. If those 404, it aborts with a misleading "issue with the selected model" error — even when `/v1/messages` would work. So the relay **synthesizes** `/v1/models` and `/v1/models/<name>` from the active provider config. `/v1/messages` is **not** forwarded verbatim: the relay rewrites `model` to the provider's id and lifts any `messages[i].role === 'system'` entries into the top-level `system` field (Macaron's sglang backend rejects inline system turns), then streams the response back. Every other probe returns an empty `{}` 200.
+  The CLI probes several `/v1/` endpoints at startup (models, org) to validate the session. If those 404, it aborts with a misleading "issue with the selected model" error — even when `/v1/messages` would work. So the relay **synthesizes** `/v1/models` and `/v1/models/<name>` from the active provider config. `/v1/messages` is **not** forwarded verbatim: the relay rewrites `model` to the provider's id and lifts any `messages[i].role === 'system'` entries into the top-level `system` field for compatibility, then streams the response back. Every other probe returns an empty `{}` 200.
 </Callout>
 
 Active provider config is persisted to `~/.claude/macaron-config.json` via `settings-store.ts` and edited from the Settings page.
@@ -96,6 +96,6 @@ A separate `SystemEvent` stream (`GET /api/events`) pushes a debounced `sessions
 
 ## Reading Sessions From Disk
 
-The WebUI does not own a database. `session-store.ts` reads the JSONL transcripts Claude Code already writes under `~/.claude/projects/**/*.jsonl`, while `codex-store.ts` parses the Codex rollouts under `~/.codex/sessions/**`; both project into the shared session/turn types, and a `session-watcher` tails the trees for changes. This is why the WebUI shows sessions you started outside the browser.
+The WebUI does not own a database. `session-store.ts` reads the JSONL transcripts Claude Code already writes under `~/.claude/projects/**/*.jsonl`, `codex-store.ts` parses the Codex rollouts under `~/.codex/sessions/**`, and `kimi-store.ts` reads the Kimi Code `wire.jsonl` + `state.json` under `~/.kimi-code/sessions/**` (via `session_index.jsonl` when present); all three project into the shared session/turn types, and a `session-watcher` tails the trees for changes. This is why the WebUI shows sessions you started outside the browser.
 
 Next: the [web front end](/docs/architecture/web).

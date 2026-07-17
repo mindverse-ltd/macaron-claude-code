@@ -30,7 +30,8 @@ jobs:
       # web/dist and run without Vite at runtime — no separate build step needed.
       # Force long-form URLs because compact URLs require npm repository metadata;
       # these are only published through pkg.pr.new, and --bin shows a CLI command.
-      # Publish both `mcc` (root, `.`, Claude) and `mcx` (Codex) — two independent,
-      # self-contained packages, each with its own bundle. `npx mcx@…` works bare
-      # (bin name = package name) and pulls in only mcx.
-      - run: pnpm exec pkg-pr-new publish --no-compact --bin . ./mcx
+      # Publish `mcc` (root, `.`, Claude), `mcx` (Codex) and `mkx` (Kimi) — three
+      # independent, self-contained packages, each with its own bundle.
+      # `npx mcx@…` / `npx mkx@…` work bare (bin name = package name) and pull
+      # in only that package.
+      - run: pnpm exec pkg-pr-new publish --no-compact --bin . ./mcx ./mkx

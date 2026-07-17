@@ -4,7 +4,7 @@ export const docsImageRoute = '/og/docs';
 export const docsContentRoute = '/llms.mdx/docs';
 
 export const gitConfig = {
-  user: 'mindverse-ltd',
+  user: 'MindLab-Research',
   repo: 'macaron-artifacts',
   branch: 'main',
 };

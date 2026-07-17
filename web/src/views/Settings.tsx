@@ -652,7 +652,7 @@ function ProviderForm({
           id="p-model"
           className="settings-input"
           value={draft.model}
-          placeholder="e.g. macaron-0.6, claude-opus-4-7"
+          placeholder="e.g. provider-model-id"
           onChange={(e) => onChange({ model: e.target.value })}
         />
       </div>

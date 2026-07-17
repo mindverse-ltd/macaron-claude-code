@@ -9,6 +9,7 @@ import { Link } from 'react-router';
 import { Check, Clipboard, MonitorPlay, MessagesSquare, SlidersHorizontal, Wand2, Puzzle, Terminal } from 'lucide-react';
 import ClaudeCode from '@lobehub/icons/es/ClaudeCode/components/Mono';
 import Codex from '@lobehub/icons/es/Codex/components/Mono';
+import Kimi from '@lobehub/icons/es/Kimi/components/Mono';
 import { baseOptions } from '@/lib/layout.shared';
 import ChatShowcase from '@/components/chat-showcase';
 
@@ -49,13 +50,14 @@ function Command({ code }: { code: string }) {
 export function meta({}: Route.MetaArgs) {
   return [
     { title: 'Macaron Artifacts' },
-    { name: 'description', content: 'The local WebUI, GenUI tooling, and plugin manifests for running Macaron with Claude Code and Codex.' },
+    { name: 'description', content: 'The local WebUI, GenUI tooling, and plugin manifests for running Macaron with Claude Code, Codex, and Kimi Code.' },
   ];
 }
 
 // pkg.pr.new ships prebuilt tarballs per commit; __COMMIT_SHA__ is injected at build time (falls back to `<sha>`).
-const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
-const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
+const PKG = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
+const PKG_MCX = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
+const PKG_MKX = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mkx@${__COMMIT_SHA__}`;
 
 export default function Home() {
   return (
@@ -63,11 +65,11 @@ export default function Home() {
       <div className="flex flex-col items-center flex-1 px-4">
         <section className="flex flex-col items-center text-center max-w-2xl pt-20 pb-16">
           <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-fd-muted-foreground mb-6">
-            <Terminal className="size-3.5" /> Claude Code &amp; Codex
+            <Terminal className="size-3.5" /> Claude Code &amp; Codex &amp; Kimi Code
           </span>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">Macaron Artifacts</h1>
           <p className="text-fd-muted-foreground text-lg mb-8">
-            The local WebUI, GenUI tooling, and plugin manifests for running Macaron with Claude Code and Codex — visual
+            The local WebUI, GenUI tooling, and plugin manifests for running Macaron with Claude Code, Codex, and Kimi Code — visual
             sessions, live chat, and generated UI, straight from your terminal.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -113,12 +115,15 @@ export default function Home() {
               <TabsTrigger value="codex" className="gap-2">
                 <Codex size={16} /> Codex
               </TabsTrigger>
+              <TabsTrigger value="kimi-code" className="gap-2">
+                <Kimi size={16} /> Kimi Code
+              </TabsTrigger>
             </TabsList>
             <Tab value="claude-code">
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
+                  <Command code="claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Install the Plugin</p>
@@ -138,7 +143,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
+                  <Command code="codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Add the Plugin</p>
@@ -153,13 +158,33 @@ export default function Home() {
                 </Step>
               </Steps>
             </Tab>
+            <Tab value="kimi-code">
+              <Steps>
+                <Step>
+                  <p className="font-medium">Install from GitHub</p>
+                  <Command code="/plugins install https://github.com/MindLab-Research/macaron-artifacts" />
+                  <p className="text-sm text-fd-muted-foreground">
+                    Run it in a Kimi Code session, then <code className="text-fd-foreground">/reload</code> to activate.
+                  </p>
+                </Step>
+                <Step>
+                  <p className="font-medium">Run It and Open the WebUI</p>
+                  <Command code="/macaron:macaron" />
+                  <p className="text-sm text-fd-muted-foreground">
+                    The WebUI opens on{' '}
+                    <a className="text-fd-foreground underline underline-offset-4" href="http://localhost:7980">http://localhost:7980</a>.
+                  </p>
+                </Step>
+              </Steps>
+            </Tab>
           </Tabs>
 
           <div className="mt-8 mb-4 text-sm font-medium text-fd-muted-foreground">Run Without Installing</div>
           <p className="mb-3 text-sm text-fd-muted-foreground">
-            The <code className="text-fd-foreground">pkg.pr.new</code> tarball ships prebuilt bundles and two bins —{' '}
-            <code className="text-fd-foreground">mcc</code> (Claude, port 7878) and{' '}
-            <code className="text-fd-foreground">mcx</code> (Codex, port 7979). The commands are pinned to this
+            The <code className="text-fd-foreground">pkg.pr.new</code> tarball ships prebuilt bundles and three bins —{' '}
+            <code className="text-fd-foreground">mcc</code> (Claude, port 7878),{' '}
+            <code className="text-fd-foreground">mcx</code> (Codex, port 7979) and{' '}
+            <code className="text-fd-foreground">mkx</code> (Kimi, port 7980). The commands are pinned to this
             build's commit; swap in any other commit on <code className="text-fd-foreground">main</code> to pull that build.
           </p>
           <Tabs items={['bun', 'npm']}>
@@ -177,6 +202,12 @@ export default function Home() {
                   </div>
                   <Command code={`bunx mcx@${PKG_MCX}`} />
                 </div>
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <Kimi size={15} /> Kimi — <code className="text-fd-muted-foreground">mkx</code>
+                  </div>
+                  <Command code={`bunx mkx@${PKG_MKX}`} />
+                </div>
               </div>
             </Tab>
             <Tab value="npm">
@@ -192,6 +223,12 @@ export default function Home() {
                     <Codex size={15} /> Codex — <code className="text-fd-muted-foreground">mcx</code>
                   </div>
                   <Command code={`npx mcx@${PKG_MCX}`} />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                    <Kimi size={15} /> Kimi — <code className="text-fd-muted-foreground">mkx</code>
+                  </div>
+                  <Command code={`npx mkx@${PKG_MKX}`} />
                 </div>
               </div>
             </Tab>
@@ -224,7 +261,7 @@ export default function Home() {
               The bundled skill lets supported agents produce GenUI TSX from the command line.
             </Card>
             <Card icon={<Puzzle />} title="Plugin Manifests" href="/docs">
-              Ship the manifests that register Macaron Artifacts with Claude Code and Codex.
+              Ship the manifests that register Macaron Artifacts with Claude Code, Codex, and Kimi Code.
             </Card>
           </Cards>
         </section>
