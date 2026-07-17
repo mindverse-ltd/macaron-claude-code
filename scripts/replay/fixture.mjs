@@ -62,13 +62,12 @@ export function expandReplayFixture(fixture) {
 
     const renderUi = entry.renderUi;
     const code = renderCode(renderUi);
-    let previousLength = 0;
-    for (let index = 1; index <= renderUi.chunks; index += 1) {
-      const length = Math.max(previousLength + 1, Math.floor((code.length * index) / renderUi.chunks));
-      previousLength = Math.min(code.length, length);
-      const partialCode = code.slice(0, previousLength);
+    const lineEnds = [...code.matchAll(/\n/g), { index: code.length - 1 }].map((match) => match.index + 1);
+    const chunkCount = Math.min(renderUi.chunks, lineEnds.length);
+    for (let index = 1; index <= chunkCount; index += 1) {
+      const partialCode = code.slice(0, lineEnds[Math.ceil((lineEnds.length * index) / chunkCount) - 1]);
       schedule.push({
-        at: entry.at + (renderUi.duration * index) / renderUi.chunks,
+        at: entry.at + (renderUi.duration * index) / chunkCount,
         sequence: sequence++,
         event: {
           type: 'tool_input_delta',

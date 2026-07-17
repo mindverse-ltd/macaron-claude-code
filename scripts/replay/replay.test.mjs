@@ -18,6 +18,10 @@ test('expands render_ui descriptors into monotonic production SSE events', () =>
   const chunks = schedule.filter((item) => item.event.type === 'tool_input_delta');
   assert.ok(chunks.length > 20);
   assert.ok(chunks.every((item) => item.event.name === RENDER_UI_TOOL));
+  assert.ok(chunks.every((item) => {
+    const code = JSON.parse(item.event.accumulated).code;
+    return code.endsWith('\n') || code.endsWith('}');
+  }));
   for (const id of ['ui-baseline', 'ui-verified']) {
     const lengths = chunks
       .filter((item) => item.event.id === id)

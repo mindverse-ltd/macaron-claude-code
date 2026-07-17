@@ -88,6 +88,7 @@ async function main() {
     });
     const page = await context.newPage();
     const pageErrors = [];
+    const consoleErrors = new Set();
     const responseErrors = new Set();
     page.on('pageerror', (error) => pageErrors.push(error));
     page.on('response', (response) => {
@@ -98,6 +99,7 @@ async function main() {
     });
     page.on('console', (message) => {
       if (message.type() === 'error' && !message.text().includes('Failed to load resource')) {
+        consoleErrors.add(message.text());
         process.stderr.write(`[browser] ${message.text()}\n`);
       }
     });
@@ -140,6 +142,7 @@ async function main() {
 
     await page.screenshot({ path: options.proof, type: 'png' });
     if (pageErrors.length > 0) throw new AggregateError(pageErrors, 'The production web app raised browser errors during replay');
+    if (consoleErrors.size > 0) throw new Error(`The production web app logged browser errors during replay:\n${[...consoleErrors].join('\n')}`);
     const localResponseErrors = [...responseErrors].filter((failure) => failure.includes(origin));
     if (localResponseErrors.length > 0) {
       throw new Error(`The production web app requested missing replay resources:\n${localResponseErrors.join('\n')}`);
