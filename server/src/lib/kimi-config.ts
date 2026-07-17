@@ -45,9 +45,9 @@ const CONFIG_PATH = path.join(KIMI_HOME, 'macaron-kimi-config.json');
 function seededCustomProvider(): KimiCustomProvider {
   return {
     id: randomUUID(),
-    name: 'Macaron',
-    model: 'macaron-0.6',
-    baseUrl: 'https://pi-api-cn.macaron.xin',
+    name: 'Custom provider',
+    model: process.env.MACARON_KIMI_MODEL || '',
+    baseUrl: process.env.MACARON_KIMI_API_BASE || '',
     apiKey: process.env.MACARON_KIMI_API_KEY || '',
     providerType: 'anthropic',
   };

@@ -368,7 +368,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       const { project, sid } = req.params;
       const text = String(req.body?.text || '').trim();
       const images = Array.isArray(req.body?.images) ? req.body!.images! : [];
-      const model = req.body?.model || 'claude-opus-4-7';
+      const model = req.body?.model || undefined;
       const permissionMode = req.body?.permissionMode || 'default';
       if (!text && images.length === 0) {
         return reply.status(400).send({ error: 'text or images required' });

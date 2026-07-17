@@ -77,7 +77,7 @@ export async function registerRelayRoutes(app: FastifyInstance): Promise<void> {
       //   - model  →  provider's canonical name
       //   - Any `messages[i].role === 'system'` entries get lifted into
       //     the top-level `system` field. Real Anthropic accepts either
-      //     shape, but Macaron's sglang backend rejects `system` inside
+      //     shape, but some Anthropic-compatible backends reject `system` inside
       //     `messages` with a 400 literal_error.
       let body: Record<string, unknown> = {};
       if (req.body && typeof req.body === 'object') {

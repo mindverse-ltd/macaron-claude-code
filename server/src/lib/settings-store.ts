@@ -12,22 +12,16 @@ import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync, rmSync }
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME, HOST, PORT, MACARON_API_BASE, MACARON_API_KEY } from '../config.js';
+import { HOME, HOST, PORT, MACARON_API_BASE, MACARON_API_KEY, MACARON_MODEL } from '../config.js';
 
 // The built-in pass-through provider. Never touches the SDK subprocess env —
 // it inherits process.env unchanged. Whatever ANTHROPIC_BASE_URL /
-// ANTHROPIC_AUTH_TOKEN the user has in their shell (Claude Code login,
-// a GLM relay, LiteLLM, Bedrock, …) is exactly what runs.
+// ANTHROPIC_AUTH_TOKEN the user has in their shell is exactly what runs.
 export const SYSTEM_PROVIDER_ID = 'system';
 // Legacy id kept for one-shot migration only.
 const LEGACY_ANTHROPIC_ID = 'anthropic';
 
-// b200 endpoint used to seed the built-in Macaron provider template on a
-// first-run install. Users can edit/delete it like any other custom entry.
-const DEFAULT_MACARON_BASE =
-  'https://b200-glm51-global-0615-exhrgwayh0b2hkac.z03.azurefd.net/v1';
-const DEFAULT_MACARON_MODEL = 'macaron-0.6';
-const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-7';
+const DEFAULT_PROVIDER_NAME = 'Custom provider';
 
 export type CustomProvider = {
   id: string;
@@ -95,9 +89,9 @@ let cache: Settings | null = null;
 function seedMacaronProvider(): CustomProvider {
   return {
     id: randomUUID(),
-    name: 'Macaron',
-    endpoint: MACARON_API_BASE || DEFAULT_MACARON_BASE,
-    model: DEFAULT_MACARON_MODEL,
+    name: DEFAULT_PROVIDER_NAME,
+    endpoint: MACARON_API_BASE,
+    model: MACARON_MODEL,
     // Seed from env var so old .env-based setups keep working without a
     // WebUI save. Blank if no env var.
     apiKey: MACARON_API_KEY || '',
@@ -107,8 +101,8 @@ function seedMacaronProvider(): CustomProvider {
 function makeDefaults(): Settings {
   return {
     activeProviderId: SYSTEM_PROVIDER_ID,
-    // Ship one seeded Macaron entry — users see it in the list, can add key,
-    // switch to it, or delete it. Same UX as any other custom provider.
+    // Ship one editable custom entry — users can fill it in, switch to it,
+    // or delete it. Same UX as any other custom provider.
     customProviders: [seedMacaronProvider()],
     // WebUI defaults to fully unattended: every tool call auto-approves
     // without a permission prompt. Users who want the safer per-tool ask
@@ -169,9 +163,9 @@ function migrateIfLegacy(raw: unknown): Settings {
   // Legacy: rebuild
   const macaron: CustomProvider = {
     id: randomUUID(),
-    name: 'Macaron',
-    endpoint: MACARON_API_BASE || DEFAULT_MACARON_BASE,
-    model: DEFAULT_MACARON_MODEL,
+    name: DEFAULT_PROVIDER_NAME,
+    endpoint: MACARON_API_BASE,
+    model: MACARON_MODEL,
     apiKey: legacy?.providers?.macaron?.apiKey || MACARON_API_KEY || '',
   };
   const wasMacaronActive = legacy?.provider === 'macaron';
@@ -390,36 +384,29 @@ export function getActiveProviderEnv(): {
 } {
   const s = cache ?? makeDefaults();
   if (s.activeProviderId === SYSTEM_PROVIDER_ID) {
-    return { model: DEFAULT_ANTHROPIC_MODEL, env: null };
+    return { model: undefined, env: null };
   }
   const p = s.customProviders.find((x) => x.id === s.activeProviderId);
-  if (!p) return { model: DEFAULT_ANTHROPIC_MODEL, env: null };
+  if (!p) return { model: undefined, env: null };
   const isolatedDir = ensureIsolatedDir();
   // Point the SDK subprocess at our local Anthropic-compatible relay rather
   // than at the provider directly. The relay stubs the /v1/ endpoints the
-  // CLI probes at startup (models, org, telemetry) that Macaron doesn't
-  // implement, and forwards /v1/messages verbatim after rewriting body.model
-  // to the provider's canonical name. This way the CLI's startup checks
-  // pass and requests actually reach the provider.
+  // CLI probes at startup (models, org, telemetry), and forwards /v1/messages
+  // after rewriting body.model to the provider's configured model id.
   const relayBase = `http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}/relay/anthropic/${p.id}`;
-  return {
-    // Pass the provider's model name to SDK (best-effort — relay rewrites
-    // anyway). Keeping a valid Anthropic name here also placates SDK
-    // client-side model validation.
-    model: p.model || DEFAULT_ANTHROPIC_MODEL,
-    env: {
-      ...process.env as Record<string, string>,
-      // Isolate from user's OAuth session so env-based auth wins.
-      CLAUDE_CONFIG_DIR: isolatedDir,
-      // Clear any stale OAuth token that might be passed through.
-      CLAUDE_CODE_OAUTH_TOKEN: '',
-      // Point SDK subprocess at our local relay (see relay.ts).
-      ANTHROPIC_BASE_URL: relayBase,
-      // Relay uses the provider's key server-side; we still set the env
-      // token so the SDK considers itself "authenticated" and skips OAuth.
-      ANTHROPIC_AUTH_TOKEN: p.apiKey,
-      ANTHROPIC_API_KEY: p.apiKey,
-      ANTHROPIC_MODEL: p.model || DEFAULT_ANTHROPIC_MODEL,
-    },
+  const env: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    // Isolate from user's OAuth session so env-based auth wins.
+    CLAUDE_CONFIG_DIR: isolatedDir,
+    // Clear any stale OAuth token that might be passed through.
+    CLAUDE_CODE_OAUTH_TOKEN: '',
+    // Point SDK subprocess at our local relay (see relay.ts).
+    ANTHROPIC_BASE_URL: relayBase,
+    // Relay uses the provider's key server-side; we still set the env
+    // token so the SDK considers itself "authenticated" and skips OAuth.
+    ANTHROPIC_AUTH_TOKEN: p.apiKey,
+    ANTHROPIC_API_KEY: p.apiKey,
   };
+  if (p.model) env.ANTHROPIC_MODEL = p.model;
+  return { model: p.model || undefined, env };
 }

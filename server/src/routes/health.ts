@@ -9,7 +9,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     const { model } = getActiveProviderEnv();
     return {
       ok: true,
-      model: model || 'claude-opus-4-7',
+      model: model || null,
       search: isSearchEnabled() ? indexStats() : null,
     };
   });

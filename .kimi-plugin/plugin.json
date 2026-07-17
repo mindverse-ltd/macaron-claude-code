@@ -7,7 +7,7 @@
     "url": "https://macaron.im"
   },
   "homepage": "https://macaron.im",
-  "repository": "https://github.com/mindverse-ltd/macaron-artifacts",
+  "repository": "https://github.com/MindLab-Research/macaron-artifacts",
   "license": "MIT",
   "keywords": ["macaron", "genui", "webui", "session-manager", "kimi"],
   "skills": "./skills/",

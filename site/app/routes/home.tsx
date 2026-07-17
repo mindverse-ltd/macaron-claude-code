@@ -55,9 +55,9 @@ export function meta({}: Route.MetaArgs) {
 }
 
 // pkg.pr.new ships prebuilt tarballs per commit; __COMMIT_SHA__ is injected at build time (falls back to `<sha>`).
-const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
-const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
-const PKG_MKX = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mkx@${__COMMIT_SHA__}`;
+const PKG = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
+const PKG_MCX = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
+const PKG_MKX = `https://pkg.pr.new/MindLab-Research/macaron-artifacts/mkx@${__COMMIT_SHA__}`;
 
 export default function Home() {
   return (
@@ -123,7 +123,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
+                  <Command code="claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Install the Plugin</p>
@@ -143,7 +143,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
+                  <Command code="codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Add the Plugin</p>
@@ -162,7 +162,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Install from GitHub</p>
-                  <Command code="/plugins install https://github.com/mindverse-ltd/macaron-artifacts" />
+                  <Command code="/plugins install https://github.com/MindLab-Research/macaron-artifacts" />
                   <p className="text-sm text-fd-muted-foreground">
                     Run it in a Kimi Code session, then <code className="text-fd-foreground">/reload</code> to activate.
                   </p>

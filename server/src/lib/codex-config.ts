@@ -2,7 +2,7 @@
 //
 // Data model mirrors the Claude side: a `system` built-in that passes through
 // to the user's ~/.codex/config.toml unchanged, plus an arbitrary list of
-// custom providers (OpenAI, Macaron, OpenRouter, self-hosted, …). One is
+// custom providers (OpenAI-compatible, self-hosted, …). One is
 // active. Fallback flow when the active custom provider goes 503 is to switch
 // to system default in Settings and keep working.
 //
@@ -77,10 +77,10 @@ const CONFIG_PATH = path.join(HOME, '.claude', 'macaron-codex-config.json');
 function seededCustomProvider(): CodexCustomProvider {
   return {
     id: randomUUID(),
-    name: 'Macaron GLM',
-    baseUrl: 'https://pi-api-cn.macaron.xin/v1',
+    name: 'Custom provider',
+    baseUrl: process.env.MACARON_CODEX_API_BASE || '',
     apiKey: process.env.MACARON_CODEX_API_KEY || '',
-    model: 'gpt-5.5',
+    model: process.env.MACARON_CODEX_MODEL || '',
     wireApi: 'responses',
     modelProvider: 'OpenAI',
     reasoningEffort: 'high',
@@ -129,7 +129,7 @@ function migrateIfLegacy(raw: unknown): CodexSettings {
     name: String(legacy.name || 'Legacy provider'),
     baseUrl: String(legacy.baseUrl || ''),
     apiKey: String(legacy.apiKey || ''),
-    model: String(legacy.model || 'gpt-5.5'),
+    model: String(legacy.model || ''),
     wireApi: (legacy.wireApi === 'chat' ? 'chat' : 'responses'),
     modelProvider: String(legacy.modelProvider || 'OpenAI'),
     reasoningEffort: legacy.reasoningEffort || 'high',
@@ -156,7 +156,7 @@ function sanitize(p: CodexCustomProvider): CodexCustomProvider {
     name: String(p.name || 'Unnamed provider').trim(),
     baseUrl: String(p.baseUrl || '').trim(),
     apiKey: String(p.apiKey || ''),
-    model: String(p.model || 'gpt-5.5').trim(),
+    model: String(p.model || '').trim(),
     wireApi: p.wireApi === 'chat' ? 'chat' : 'responses',
     modelProvider: String(p.modelProvider || 'OpenAI').trim(),
     reasoningEffort: (p.reasoningEffort || 'high') as ModelReasoningEffort,
