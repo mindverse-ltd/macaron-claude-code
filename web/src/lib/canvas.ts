@@ -8,11 +8,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newTerminalSid } from './terminal';
+import { newFileSid } from './fileTile';
 
 export type TileGeom = { sid: string; colSpan: number; rowSpan: number };
 
 export const CANVAS_COLS = 12;
-export const DEFAULT_COL_SPAN = 6;   // half-width by default
+// New tiles fill the canvas end-to-end by default; users resize down when
+// they want two tiles side-by-side. Persisted layouts keep their per-tile
+// colSpan from localStorage, so this only affects freshly added tiles.
+export const DEFAULT_COL_SPAN = 12;
 export const DEFAULT_ROW_SPAN = 10;  // ~480px tall by default
 export const MIN_COL_SPAN = 3;
 export const MAX_COL_SPAN = 12;
@@ -180,6 +184,7 @@ export function useCanvas(project: string): {
   focus: (sid: string) => void;
   addDraft: () => void;
   addTerminal: () => void;
+  addFile: (path: string) => void;
   promoteDraft: (realSid: string) => void;
 } {
   const [state, setState] = useState<CanvasState>(() => loadCanvas(project));
@@ -348,6 +353,25 @@ export function useCanvas(project: string): {
     }));
   }, [update]);
 
+  // Add a file tile at the front (or refocus if already on canvas). The
+  // sid is `file:<encoded path>`; Workspace routes it to <FileTile>.
+  const addFile = useCallback(
+    (path: string) => {
+      if (!path) return;
+      const sid = newFileSid(path);
+      update((cur) => {
+        if (cur.tiles.some((t) => t.sid === sid)) {
+          return cur.focusedSid === sid ? cur : { ...cur, focusedSid: sid };
+        }
+        return {
+          tiles: [{ sid, colSpan: DEFAULT_COL_SPAN, rowSpan: DEFAULT_ROW_SPAN }, ...cur.tiles],
+          focusedSid: sid,
+        };
+      });
+    },
+    [update],
+  );
+
   // Swap the draft sentinel for the real sessionId in place — keeps grid
   // position + focus intact so the tile the user was typing in stays put.
   const promoteDraft = useCallback(
@@ -384,6 +408,7 @@ export function useCanvas(project: string): {
     focus,
     addDraft,
     addTerminal,
+    addFile,
     promoteDraft,
   };
 }

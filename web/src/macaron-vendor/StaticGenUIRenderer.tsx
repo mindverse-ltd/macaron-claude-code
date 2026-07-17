@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, type RefOb
 import { GenUIRenderer, type GenUIRendererFlushMode, type GenUIRenderPhase } from "partial-react";
 import { createImportMapResolver, esmShFallback, extractBareModuleSpecifiers, hasImportMapEntry, literalImportMap, prepareRendererImportMap } from "partial-react/import-map";
 import { createTsxCompiler } from "partial-react/compiler";
+import { assetUrl } from "../lib/assetBase";
 
 // --- stubs replacing @/components/GenUIStyleScope and useAppStoreBridge ---
 // Our preview doesn't use UnoCSS scope isolation (we use UnoCSS runtime globally)
@@ -35,15 +36,19 @@ const GENUI_RENDERER_CROSSFADE_MS = 200;
 const localNodeModulePackageCache = new Map<string, Promise<boolean>>();
 type RenderedNotification = { renderer: GenerativeUIRendererType; code: string; serial: number };
 
-// 远程 esm.sh fallback 包内的 React 要通过页面 importmap 解析回本地 React，否则第三方组件会带出第二份 React。
+// React inside remote esm.sh fallback packages must resolve back to the host's
+// React via a page-level importmap, otherwise third-party components pull in a
+// second React copy.
 let nativeReactImportMapPromise: Promise<void> | null = null;
 const NATIVE_REACT_SPECIFIERS = ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime", "scheduler"] as const;
 const ensureNativeReactImportMap = (imports: Record<string, string>) =>
   (nativeReactImportMapPromise ??= (async () => {
-    // 已存在 importmap（host 页面自带的）就不重复注入，避免覆盖别人的映射
+    // Skip if the host page already has an importmap — don't clobber theirs.
     if (typeof document === "undefined" || document.querySelector('script[type="importmap"]')) return;
     const reactImports = Object.fromEntries(NATIVE_REACT_SPECIFIERS.flatMap((specifier) => (imports[specifier] ? [[specifier, new URL(imports[specifier], location.href).href]] : [])));
-    // imports 里缺 react 时 (A) 实际没成功，注入一个不含 react 的 importmap 反而会让 esm.sh external 的裸 react 报错；让上游 fallback 到 bundled 路径
+    // If the caller's imports don't include react at all, injecting a
+    // react-less importmap would make bare `react` from esm.sh externals
+    // fail — let it fall through to the bundled path instead.
     if (!reactImports["react"]) return;
     const script = document.createElement("script");
     script.type = "importmap";
@@ -81,19 +86,22 @@ const hasLocalNodeModulePackage = (packageName: string) => {
 // files re-export from window.__macaron_* globals (set in main.tsx), so user
 // code, our vendored components, and partial-react all share one React.
 const BASE_IMPORTS: Record<string, string> = (() => {
+  // origin + Vite base (via assetUrl), so shims resolve under /app/ when
+  // hosted and at root locally. The import map needs absolute URLs.
   const origin = typeof location !== 'undefined' ? location.origin : '';
+  const prefix = origin + assetUrl('');
   return {
-    react: origin + '/genui-shim/react.mjs',
-    'react/jsx-runtime': origin + '/genui-shim/react-jsx-runtime.mjs',
-    'react/jsx-dev-runtime': origin + '/genui-shim/react-jsx-dev-runtime.mjs',
-    'react-dom': origin + '/genui-shim/react-dom.mjs',
-    '$macaron/ui': origin + '/genui-shim/ui.mjs',
-    '$macaron/ui/charts': origin + '/genui-shim/charts.mjs',
-    'lucide-react': origin + '/genui-shim/lucide.mjs',
-    'framer-motion': origin + '/genui-shim/motion.mjs',
-    motion: origin + '/genui-shim/motion.mjs',
-    'motion/react': origin + '/genui-shim/motion.mjs',
-    '$macaron/chat': origin + '/genui-shim/chat.mjs',
+    react: prefix + '/genui-shim/react.mjs',
+    'react/jsx-runtime': prefix + '/genui-shim/react-jsx-runtime.mjs',
+    'react/jsx-dev-runtime': prefix + '/genui-shim/react-jsx-dev-runtime.mjs',
+    'react-dom': prefix + '/genui-shim/react-dom.mjs',
+    '$macaron/ui': prefix + '/genui-shim/ui.mjs',
+    '$macaron/ui/charts': prefix + '/genui-shim/charts.mjs',
+    'lucide-react': prefix + '/genui-shim/lucide.mjs',
+    'framer-motion': prefix + '/genui-shim/motion.mjs',
+    motion: prefix + '/genui-shim/motion.mjs',
+    'motion/react': prefix + '/genui-shim/motion.mjs',
+    '$macaron/chat': prefix + '/genui-shim/chat.mjs',
   };
 })();
 
@@ -231,8 +239,10 @@ export default function StaticGenUIRenderer({ code, active = true, className, ex
 
   useEffect(() => {
     extraImportMapEntriesRef.current = mergedImportMapEntries ?? undefined;
-    // 已经活着的 renderer 保留着旧 entries 编进的 import map；reference 变化时把它丢掉，
-    // 下一次 ensureRenderer 会从最新的 ref 重建。初次 mount 时 rendererRef 是空，无需处理。
+    // A live renderer still holds the import map built from the previous
+    // entries. When the reference changes, drop it so the next
+    // ensureRenderer rebuilds from the latest ref. First mount has an empty
+    // rendererRef, so nothing to do there.
     if (mergedImportMapEntries === null) return;
     if (rendererRef.current) disposeRenderer(false);
     if (shouldRequestRenderForImportMapEntries(mergedImportMapEntries, activeRef.current)) requestRenderEvent();
@@ -291,7 +301,8 @@ export default function StaticGenUIRenderer({ code, active = true, className, ex
   const stageCrossfadeSnapshot = () => {
     const shell = hostShellRef.current;
     const currentHost = visibleHostRef.current;
-    // Renderer rebuild 会清掉 live root；先保留一份视觉快照，等新 DOM 确认可见后再淡出。
+    // A renderer rebuild wipes the live root; take a visual snapshot first
+    // and fade it out only once the new DOM is confirmed visible.
     if (crossfadeSnapshotRef.current || !shell || !currentHost?.innerHTML.trim() || currentHost.parentNode !== shell) return;
     const snapshot = currentHost.cloneNode(true) as HTMLDivElement;
     snapshot.setAttribute("aria-hidden", "true");
@@ -371,8 +382,11 @@ export default function StaticGenUIRenderer({ code, active = true, className, ex
     const nextError = normalizeError(error);
     clearRenderedNotification();
     if (streamingRef.current) {
-      // 流式 buffer 在 `export default function App()` 之前会让 stream-compiler 抛 "No default export found in compiled module."；
-      // 半截 TSX 也常因 Record 等 TS 残留触发 ReferenceError。这些都是瞬态，等下一轮 chunk + 编译就好——别给宿主吐黑屏。
+      // While the stream buffer is still short of `export default function
+      // App()`, the stream-compiler throws "No default export found in
+      // compiled module."; half-written TSX also often trips ReferenceError
+      // on TS-residual identifiers like `Record`. Both are transient — the
+      // next chunk + compile fixes them. Don't hand the host a black screen.
       notifyStreamingRendererError(callbacksRef.current, pendingCodeRef.current, nextError, phase);
       return;
     }

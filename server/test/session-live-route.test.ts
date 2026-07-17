@@ -48,6 +48,7 @@ test('resumed bypass turn survives original SSE disconnect and replays through /
   let finishRun!: () => void;
   const continueGate = new Promise<void>((resolve) => { continueRun = resolve; });
   const finishGate = new Promise<void>((resolve) => { finishRun = resolve; });
+  const attachedImages = [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }];
   let observedOptions: RunOptions | undefined;
 
   async function* fakeRunClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> {
@@ -75,18 +76,20 @@ test('resumed bypass turn survives original SSE disconnect and replays through /
   const original = await fetch(`${base}${sessionPath}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: 'keep working', permissionMode: 'bypassPermissions' }),
+    body: JSON.stringify({ text: 'keep working', permissionMode: 'bypassPermissions', images: attachedImages }),
   });
   assert.equal(original.status, 200);
   assert.ok(original.body);
   const originalReader = original.body.getReader();
   const originalText = await readUntil(originalReader, 'before refresh');
   assert.match(originalText, /"type":"meta"/);
+  assert.match(originalText, /"startedAt":\d+/);
   assert.match(originalText, /before refresh/);
   await originalReader.cancel();
 
   assert.equal(observedOptions?.resume, sid);
   assert.equal(observedOptions?.permissionMode, 'bypassPermissions');
+  assert.deepEqual(observedOptions?.images, attachedImages);
   assert.equal(observedOptions?.abortController?.signal.aborted, false);
 
   const duplicate = await fetch(`${base}${sessionPath}/message`, {
@@ -105,7 +108,8 @@ test('resumed bypass turn survives original SSE disconnect and replays through /
   const liveReader = reattached.body.getReader();
   let liveText = await readUntil(liveReader, 'before refresh');
   assert.match(liveText, /"type":"meta"/);
-  assert.match(liveText, /"type":"user-text","text":"keep working"/);
+  assert.match(liveText, /"startedAt":\d+/);
+  assert.ok(liveText.includes(JSON.stringify({ type: 'user-text', text: 'keep working', images: attachedImages })));
 
   continueRun();
   liveText = await readUntil(liveReader, 'after refresh', liveText);

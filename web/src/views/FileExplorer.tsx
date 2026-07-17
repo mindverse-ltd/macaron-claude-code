@@ -1,30 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import CodeMirror, { type Extension } from '@uiw/react-codemirror';
-import { oneDark } from '@codemirror/theme-one-dark';
-import { javascript } from '@codemirror/lang-javascript';
-import { python } from '@codemirror/lang-python';
-import { html } from '@codemirror/lang-html';
-import { css as cssLang } from '@codemirror/lang-css';
-import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
+import { ArrowLeft, ChevronDown, ChevronRight, Circle, File, Folder } from 'lucide-react';
 import { api, type FileEntry } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useConfirm } from '../components/Confirm';
 
-// Pick a CodeMirror language by file extension; unknown types get plain text.
-function langFor(name: string): Extension[] {
-  const ext = name.toLowerCase().split('.').pop() || '';
-  switch (ext) {
-    case 'js': case 'jsx': case 'mjs': case 'cjs': return [javascript({ jsx: true })];
-    case 'ts': case 'tsx': return [javascript({ jsx: true, typescript: true })];
-    case 'py': return [python()];
-    case 'html': case 'htm': case 'vue': case 'svelte': return [html()];
-    case 'css': case 'scss': case 'less': return [cssLang()];
-    case 'json': return [json()];
-    case 'md': case 'markdown': return [markdown()];
-    default: return [];
-  }
-}
+// Monaco is heavy — only load it once a file is actually opened.
+const CodeEditor = lazy(() => import('../components/CodeEditor'));
 
 // One node in the lazy file tree. Directories fetch their children the first
 // time they're expanded; files just report clicks up to the editor pane.
@@ -70,8 +52,8 @@ function TreeNode({
         onClick={toggle}
         title={entry.path}
       >
-        <span className="fx-caret">{isDir ? (open ? '▾' : '▸') : ''}</span>
-        <span className="fx-icon">{isDir ? '📁' : '📄'}</span>
+        <span className="fx-caret">{isDir ? (open ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />) : ''}</span>
+        <span className="fx-icon">{isDir ? <Folder size={14} aria-hidden="true" /> : <File size={14} aria-hidden="true" />}</span>
         <span className="fx-name">{entry.name}</span>
       </button>
       {isDir && open && (
@@ -100,6 +82,7 @@ function TreeNode({
 export function FileExplorer() {
   const { project = '' } = useParams();
   const toast = useToast();
+  const confirm = useConfirm();
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [rootError, setRootError] = useState('');
 
@@ -120,9 +103,17 @@ export function FileExplorer() {
   }, [project]);
 
   const openFile = useCallback(
-    (path: string) => {
+    async (path: string) => {
       if (path === openPath) return;
-      if (dirty && !window.confirm('Discard unsaved changes?')) return;
+      if (dirty) {
+        const ok = await confirm({
+          title: 'Discard unsaved changes?',
+          body: 'You have edits in the current file that haven\'t been saved. Opening a new file will drop them.',
+          confirmLabel: 'Discard',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
       setOpenPath(path);
       setLoadingFile(true);
       setOpenError('');
@@ -139,7 +130,7 @@ export function FileExplorer() {
         })
         .finally(() => setLoadingFile(false));
     },
-    [project, openPath, dirty],
+    [project, openPath, dirty, confirm],
   );
 
   const save = useCallback(() => {
@@ -174,10 +165,10 @@ export function FileExplorer() {
     <section className="fx">
       <header className="fx-head">
         <Link className="ghost small" to={`/w/${encodeURIComponent(project)}`}>
-          ← Workspace
+          <ArrowLeft size={14} aria-hidden="true" /> Workspace
         </Link>
         <span className="fx-path">{openPath || 'Files'}</span>
-        {dirty && <span className="fx-dirty" title="Unsaved changes">●</span>}
+        {dirty && <span className="fx-dirty" title="Unsaved changes"><Circle size={8} fill="currentColor" aria-hidden="true" /></span>}
         <div className="fx-head-actions">
           <button className="ghost small" disabled={!dirty || saving} onClick={save}>
             {saving ? 'Saving…' : 'Save'}
@@ -206,15 +197,9 @@ export function FileExplorer() {
             <div className="fx-placeholder">Can’t open this file: {openError}</div>
           )}
           {openPath && !loadingFile && !openError && (
-            <CodeMirror
-              value={content}
-              onChange={setContent}
-              extensions={langFor(openPath)}
-              theme={oneDark}
-              height="100%"
-              style={{ height: '100%' }}
-              basicSetup={{ lineNumbers: true, highlightActiveLine: true }}
-            />
+            <Suspense fallback={<div className="fx-placeholder">Loading editor…</div>}>
+              <CodeEditor value={content} onChange={setContent} path={openPath} />
+            </Suspense>
           )}
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode, type CSSProperties } from 'react';
 import type { AuthStatusResponse } from '@macaron/shared';
-import { getToken, setToken } from '../lib/auth';
+import { authedFetch, getToken, setToken } from '../lib/auth';
 
 // Gates the app behind the server's shared token when it's reachable from the
 // network. On mount it asks the server whether this caller must authenticate;
@@ -18,7 +18,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   async function check() {
     try {
-      const r = await fetch('/api/auth/status', { headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {} });
+      const r = await authedFetch('/api/auth/status');
       const j = (await r.json()) as AuthStatusResponse;
       setPhase(j.required ? 'needed' : 'ok');
     } catch {
@@ -42,7 +42,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setBusy(true);
     setError('');
     try {
-      const r = await fetch('/api/auth/login', {
+      const r = await authedFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: token.trim() }),

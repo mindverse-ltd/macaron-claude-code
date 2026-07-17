@@ -19,7 +19,7 @@ The repo doubles as its own plugin marketplace. Use the full https URL — the `
 In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
-/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+/plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 ```
 
 ```
@@ -29,7 +29,7 @@ In a Claude Code session, run each command separately (pasting both lines at onc
 or from the shell:
 
 ```bash
-claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 claude plugin install macaron@macaron
 ```
 
@@ -38,7 +38,7 @@ For local development, install your checkout directly: `claude plugin install /p
 ### Codex
 
 ```bash
-codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 codex plugin add macaron@macaron
 ```
 
@@ -47,18 +47,18 @@ codex plugin add macaron@macaron
 Two independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Install one, get only that one. Launch either in one command, no plugin install needed:
 
 ```bash
-bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
-bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
 ```
 
 `npx` works the same way — bin name = package name for both:
 
 ```bash
-npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@<sha>   # Claude → http://localhost:7878
-npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@<sha>   # Codex  → http://localhost:7979
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
 ```
 
-Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-claude-code/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
+Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-artifacts/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
 
 Verify:
 

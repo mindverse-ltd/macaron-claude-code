@@ -150,7 +150,7 @@ if [ "$needs_install" = 1 ]; then
 [macaron] pnpm install failed.
 [macaron] fix: cd "$DIR" && rm -rf node_modules && $_PNPM install
 [macaron] if that still fails, the pnpm-lock.yaml may be corrupt; open
-[macaron] an issue at https://github.com/MindLab-Research/macaron-artifacts/issues
+[macaron] an issue at https://github.com/mindverse-ltd/macaron-artifacts/issues
 EOF
       exit 1
     fi

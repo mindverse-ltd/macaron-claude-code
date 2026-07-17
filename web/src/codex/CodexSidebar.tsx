@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Check, Circle, Plus, X, Settings } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { assetUrl } from '../lib/assetBase';
 import { codexApi, type CodexThread, type CodexWorkspace } from './api';
 import {
   getCanvasSids,
@@ -8,6 +10,9 @@ import {
   subscribeCanvas,
 } from '../lib/canvas';
 import { subscribeSystemEvents } from '../lib/systemEvents';
+import { useConfirm } from '../components/Confirm';
+import { useToast } from '../components/Toast';
+import { sessionTitle } from '../lib/api';
 
 type WsData = CodexWorkspace & { sessions: CodexThread[] };
 
@@ -17,12 +22,16 @@ function basename(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
-export function CodexSidebar() {
+export function CodexSidebar({ onNavigate }: {
+  onNavigate?: () => void;
+} = {}) {
   const [workspaces, setWorkspaces] = useState<WsData[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
   const [providerLabel, setProviderLabel] = useState('');
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
+  const confirm = useConfirm();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const activeProject = /^\/w\/([^/]+)/.exec(location.pathname)?.[1] ? decodeURIComponent(/^\/w\/([^/]+)/.exec(location.pathname)![1]!) : '';
@@ -106,28 +115,39 @@ export function CodexSidebar() {
 
   const del = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
-    if (!confirm('Delete this thread? The rollout file under ~/.codex/sessions will be removed.')) return;
+    const ok = await confirm({
+      title: 'Delete thread?',
+      body: (
+        <>
+          The rollout file under <code>~/.codex/sessions</code> will be
+          removed. This can't be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await codexApi.deleteThread(sid);
       await load();
       if (activeSid === sid) navigate('/');
     } catch (err) {
-      alert(`delete failed: ${(err as Error).message}`);
+      toast(`Delete failed: ${(err as Error).message}`);
     }
   };
 
   return (
     <aside className="cx-sidebar">
-      <Link className="cx-sb-brand" to="/">
-        <img className="cx-sb-logo" src="/mindlab-symbol.svg" alt="" />
+      <Link className="cx-sb-brand" to="/" onClick={onNavigate}>
+        <img className="cx-sb-logo" src={assetUrl('/mindlab-symbol.svg')} alt="" />
         <div>
-          <div className="cx-sb-brand-name">Macaron</div>
-          <div className="cx-sb-brand-sub">Codex plugin</div>
+          <div className="cx-sb-brand-name">Macaron Artifacts</div>
+          <div className="cx-sb-brand-sub">Presented by Mind Lab</div>
         </div>
       </Link>
 
-      <button className="cx-sb-new" onClick={() => navigate('/')}>
-        <span>＋</span>
+      <button className="cx-sb-new" onClick={() => { navigate('/'); onNavigate?.(); }}>
+        <Plus size={14} aria-hidden="true" />
         <span>New thread</span>
       </button>
 
@@ -142,38 +162,46 @@ export function CodexSidebar() {
           const name = w.name || basename(w.cwd) || w.project;
           return (
             <div key={w.project} className={'cx-sb-ws' + (isExpanded ? ' open' : '')}>
-              <div
+              <button
+                type="button"
                 className={'cx-sb-ws-head' + (w.project === activeProject ? ' active' : '')}
+                aria-expanded={isExpanded}
                 onClick={() => {
                   toggle(w.project);
-                  navigate(`/w/${encodeURIComponent(w.project)}`);
+                  const target = `/w/${encodeURIComponent(w.project)}`;
+                  navigate(target, { state: { keepCodexDrawerOpen: true } });
                 }}
               >
-                <span className="cx-sb-ws-arrow">{isExpanded ? '▾' : '▸'}</span>
+                <span className="cx-sb-ws-arrow">{isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
                 <span className="cx-sb-ws-name">{name}</span>
                 <span className="cx-sb-ws-count">{w.sessionCount}</span>
-              </div>
+              </button>
               {isExpanded && (
                 <div className="cx-sb-ws-sessions">
                   {w.sessions.map((s) => {
                     const pinned = (canvasBy[w.project] || []).includes(s.sessionId);
+                    const label = sessionTitle(s);
                     return (
                       <div
                         key={s.sessionId}
                         className={'cx-sb-thread' + (pinned ? ' pinned' : '')}
-                        onClick={() => {
-                          // Click to add to canvas; re-click on pinned focuses it.
-                          if (!pinned) toggleCanvasSid(w.project, s.sessionId);
-                          else focusCanvasSid(w.project, s.sessionId);
-                          if (activeProject !== w.project) {
-                            navigate(`/w/${encodeURIComponent(w.project)}`);
-                          }
-                        }}
-                        title={s.cwd}
                       >
-                        <span className="cx-sb-thread-title">
-                          {s.title || s.preview || s.sessionId.slice(0, 8)}
-                        </span>
+                        <button
+                          type="button"
+                          className="cx-sb-thread-main"
+                          title={s.cwd}
+                          onClick={() => {
+                            // Click to add to canvas; re-click on pinned focuses it.
+                            if (!pinned) toggleCanvasSid(w.project, s.sessionId);
+                            else focusCanvasSid(w.project, s.sessionId);
+                            if (activeProject !== w.project) {
+                              navigate(`/w/${encodeURIComponent(w.project)}`);
+                            }
+                            onNavigate?.();
+                          }}
+                        >
+                          <span className="cx-sb-thread-title">{label}</span>
+                        </button>
                         <button
                           type="button"
                           className={'cx-sb-thread-pin' + (pinned ? ' pinned' : '')}
@@ -183,14 +211,18 @@ export function CodexSidebar() {
                             if (activeProject !== w.project) {
                               navigate(`/w/${encodeURIComponent(w.project)}`);
                             }
+                            onNavigate?.();
                           }}
                           title={pinned ? 'Remove from canvas' : 'Add to canvas'}
-                        >{pinned ? '✓' : '+'}</button>
+                          aria-label={`${pinned ? 'Remove' : 'Add'} ${label} ${pinned ? 'from' : 'to'} canvas`}
+                        >{pinned ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}</button>
                         <button
+                          type="button"
                           className="cx-sb-thread-del"
                           onClick={(e) => del(e, s.sessionId)}
                           title="Delete"
-                        >×</button>
+                          aria-label={`Delete ${label}`}
+                        ><X size={14} aria-hidden="true" /></button>
                       </div>
                     );
                   })}
@@ -206,13 +238,14 @@ export function CodexSidebar() {
 
       <div className="cx-sb-grow" />
 
-      <Link className="cx-sb-settings" to="/settings">
-        <span>⚙</span>
+      <Link className="cx-sb-settings" to="/settings" onClick={onNavigate}>
+        <span><Settings size={16} aria-hidden="true" /></span>
         <span>Settings</span>
       </Link>
 
       <footer className="cx-sb-foot">
         <div className={'cx-sb-status cx-sb-status-' + status}>
+          <Circle className="cx-sb-status-dot" size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
           {status === 'ok' ? providerLabel || 'online' : status === 'bad' ? 'config missing' : 'connecting…'}
         </div>
       </footer>

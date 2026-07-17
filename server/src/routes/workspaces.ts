@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { spawn } from 'node:child_process';
 import type { FastifyInstance } from 'fastify';
 import {
   basename,
@@ -35,6 +36,64 @@ type NewSessionBody = {
 function firstQuery(v: unknown): string | undefined {
   if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
   return typeof v === 'string' ? v : undefined;
+}
+
+// grep result shape sent to the client.
+type GrepHit = { path: string; matches: { line: number; text: string }[] };
+
+// Full-text search inside a repo. Prefers `git grep` when the cwd is a
+// working tree (fast + honours .gitignore); otherwise falls back to
+// `grep -rIn` with common vendor excludes. Times out at 5s and caps
+// output so a huge repo can't OOM the response.
+async function grepInRepo(cwd: string, needle: string, limit: number): Promise<GrepHit[]> {
+  const isGit = await fs
+    .stat(cwd + '/.git')
+    .then(() => true)
+    .catch(() => false);
+  const args = isGit
+    ? ['grep', '-Iin', '--max-count=3', '-e', needle]
+    : [
+        'grep', '-rIn', '--max-count=3',
+        '--exclude-dir=node_modules', '--exclude-dir=.git',
+        '--exclude-dir=dist', '--exclude-dir=build',
+        '--exclude-dir=.next', '--exclude-dir=.turbo', '--exclude-dir=.cache',
+        '--exclude-dir=.venv', '--exclude-dir=__pycache__',
+        '--exclude=*.min.js', '--exclude=*.lock',
+        '-e', needle, '.',
+      ];
+  const bin = isGit ? 'git' : args.shift()!;
+  const stdout = await new Promise<string>((resolve) => {
+    const proc = spawn(bin, args, { cwd, shell: false });
+    let out = '';
+    let bytes = 0;
+    const cap = 1024 * 1024; // 1MB output cap
+    const timeout = setTimeout(() => { try { proc.kill('SIGTERM'); } catch { /* nop */ } }, 5000);
+    proc.stdout.on('data', (b) => {
+      if (bytes >= cap) return;
+      bytes += b.length;
+      out += b.toString('utf8', 0, Math.min(b.length, cap - (bytes - b.length)));
+    });
+    proc.on('close', () => { clearTimeout(timeout); resolve(out); });
+    proc.on('error', () => { clearTimeout(timeout); resolve(''); });
+  });
+
+  const byPath = new Map<string, { line: number; text: string }[]>();
+  for (const line of stdout.split('\n')) {
+    if (!line) continue;
+    // `git grep -n` / `grep -rn` format: `path:lineno:text` (path may contain
+    // colons on Windows, but Macaron runs on macOS/Linux where paths don't).
+    const m = /^([^:]+):(\d+):(.*)$/.exec(line);
+    if (!m) continue;
+    const [, p, lineNoStr, text] = m;
+    const rel = p!.replace(/^\.\//, '');
+    const arr = byPath.get(rel) ?? [];
+    if (arr.length < 3) {
+      arr.push({ line: Number(lineNoStr), text: text!.slice(0, 240) });
+      byPath.set(rel, arr);
+    }
+    if (byPath.size >= limit) break;
+  }
+  return Array.from(byPath, ([path, matches]) => ({ path, matches }));
 }
 
 function numberQuery(v: unknown, fallback: number): number {
@@ -80,6 +139,29 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         return await searchProjectFiles(req.params.project, firstQuery(req.query?.q) ?? '', limit);
       } catch (e) {
         return reply.status(400).send({ error: (e as Error).message });
+      }
+    },
+  );
+
+  // Full-text search across the project's tracked source files. Shells out
+  // to `git grep` when the cwd is a git repo (fast, honours .gitignore),
+  // falls back to plain `grep -r` with common vendor / build excludes.
+  // Returns `{ cwd, results: [{ path, matches: [{ line, text }] }] }`,
+  // capped at ~200 files with up to 3 hit lines each so the response
+  // stays small enough to render inline.
+  app.get<{ Params: Params; Querystring: { q?: string; limit?: string } }>(
+    '/api/workspaces/:project/files/content',
+    async (req, reply) => {
+      const q = (firstQuery(req.query?.q) ?? '').trim();
+      const limit = Math.min(Math.max(numberQuery(req.query?.limit, 100), 1), 200);
+      if (!q || q.length < 2) return { cwd: '', results: [] };
+      const cwd = await resolveProjectCwd(req.params.project);
+      if (!cwd) return reply.status(404).send({ error: 'project not found' });
+      try {
+        const results = await grepInRepo(cwd, q, limit);
+        return { cwd, results };
+      } catch (e) {
+        return reply.status(500).send({ error: (e as Error).message });
       }
     },
   );
@@ -142,6 +224,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
       // once it has a sid) can interrupt this stream. Navigating away does
       // NOT abort — only an explicit /stop does.
       const abortController = new AbortController();
+      const startedAt = Date.now();
       const stream = runClaude({ prompt: text, cwd, model, permissionMode, images, envOverrides: providerEnv, abortController });
 
       let clientGone = false;
@@ -164,11 +247,11 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         for await (const ev of stream) {
           if (ev.kind === 'session' && !capturedSid) {
             capturedSid = ev.sessionId;
-            liveStart(capturedSid, { cwd });
+            liveStart(capturedSid, { cwd, startedAt });
             registerRun(capturedSid, abortController);
             if (pendingWt) bindWorktree(capturedSid, pendingWt).catch(() => {});
-            livePush(capturedSid, { type: 'user-text', text });
-            safeSend({ type: 'meta', cwd, sessionId: capturedSid });
+            livePush(capturedSid, { type: 'user-text', text, images });
+            safeSend({ type: 'meta', cwd, sessionId: capturedSid, startedAt });
           } else if (ev.kind === 'delta') {
             safeSend({ type: 'delta', text: ev.text });
             if (capturedSid) livePush(capturedSid, { type: 'delta', text: ev.text });

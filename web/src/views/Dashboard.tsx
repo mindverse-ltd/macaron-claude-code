@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, basename, fmtAgo, type Workspace, type SessionListItem } from '../lib/api';
+import { api, basename, sessionTitle, fmtAgo, type Workspace, type SessionListItem } from '../lib/api';
 import { NewProjectModal } from '../components/NewProjectModal';
 import { subscribeSystemEvents } from '../lib/systemEvents';
 
@@ -91,7 +91,7 @@ export function Dashboard() {
                     return (
                       <div key={s.sessionId} className="wk-sess-row">
                         <span className={'wk-sess-dot wk-sess-dot-' + st} />
-                        <span className="wk-sess-name">{s.label || s.preview || s.sessionId.slice(0, 8)}</span>
+                        <span className="wk-sess-name">{sessionTitle(s)}</span>
                         <span className="wk-sess-time">{fmtAgo(s.mtime)}</span>
                       </div>
                     );

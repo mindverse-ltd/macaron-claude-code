@@ -3,6 +3,7 @@
 // Adding / editing providers still lives on the Settings page — this chip
 // only exposes the "which one runs the next turn" switch.
 
+import { ChevronDown, Monitor } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { codexApi, type PublicCodexSettings } from './api';
 
@@ -53,33 +54,9 @@ export function CodexProviderPicker() {
 
   return (
     <div className={'cx-provider-chip' + (busy ? ' busy' : '')} title={err ? `Switch failed: ${err}` : `Provider · ${activeLabel}`}>
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M8 20h8M12 16v4" />
-      </svg>
+      <Monitor size={13} strokeWidth={2} aria-hidden="true" />
       <span className="cx-provider-chip-label">{activeLabel}</span>
-      <svg
-        className="cx-provider-chip-caret"
-        width="9"
-        height="9"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
+      <ChevronDown className="cx-provider-chip-caret" size={9} strokeWidth={2.5} aria-hidden="true" />
       <select
         className="cx-provider-chip-select"
         value={activeId}

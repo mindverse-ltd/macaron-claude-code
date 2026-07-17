@@ -5,7 +5,11 @@
 // browser, an insecure origin, or an iOS Safari tab (where push needs an
 // installed PWA) degrades to "unsupported" rather than throwing.
 
-const SW_URL = '/sw.js';
+import { authedFetch } from './auth';
+import { assetUrl } from './assetBase';
+
+// Base-relative so the SW resolves under /app/ when hosted, not just at root.
+const SW_URL = assetUrl('/sw.js');
 
 export function pushSupported(): boolean {
   return (
@@ -77,7 +81,7 @@ export async function subscribeToPush(): Promise<PushState> {
   if (!pushSupported()) return 'unsupported';
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'unsubscribed';
-  const vapidRes = await fetch('/api/push/vapid-public-key');
+  const vapidRes = await authedFetch('/api/push/vapid-public-key');
   if (!vapidRes.ok) throw new Error(`vapid key fetch failed (${vapidRes.status})`);
   const { publicKey } = await vapidRes.json();
   const appServerKey = urlBase64ToUint8Array(publicKey);
@@ -92,7 +96,7 @@ export async function subscribeToPush(): Promise<PushState> {
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appServerKey });
   }
   const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
-  const res = await fetch('/api/push/subscribe', {
+  const res = await authedFetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
@@ -107,7 +111,7 @@ export async function unsubscribeFromPush(): Promise<PushState> {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) {
-      await fetch('/api/push/unsubscribe', {
+      await authedFetch('/api/push/unsubscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: sub.endpoint }),

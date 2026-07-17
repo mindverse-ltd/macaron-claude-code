@@ -147,6 +147,40 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // Serve a file's raw bytes with a best-effort Content-Type — used by
+  // <FileTile>'s image preview. Same confinement + ignore gate as /read.
+  app.get<{ Params: { project: string }; Querystring: { path?: string } }>(
+    '/api/files/:project/raw',
+    async (req, reply) => {
+      const root = await resolveProjectCwd(req.params.project);
+      if (!root) return reply.status(404).send({ error: 'unknown project' });
+      const rel = req.query.path || '';
+      if (!rel) return reply.status(400).send({ error: 'path required' });
+      const abs = await confine(root, rel);
+      if (!abs) return reply.status(403).send({ error: 'path escapes project root' });
+      if (await isIgnored(root, rel)) return reply.status(403).send({ error: 'path is ignored' });
+
+      let st;
+      try { st = await fs.stat(abs); }
+      catch (e) { return reply.status(404).send({ error: (e as Error).message }); }
+      if (!st.isFile()) return reply.status(400).send({ error: 'not a file' });
+      if (st.size > MAX_READ_BYTES) {
+        return reply.status(413).send({ error: `file too large (${st.size} bytes, max ${MAX_READ_BYTES})` });
+      }
+
+      const ext = rel.toLowerCase().split('.').pop() || '';
+      const ct: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+        webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon',
+      };
+      const buf = await fs.readFile(abs);
+      reply
+        .header('Content-Type', ct[ext] || 'application/octet-stream')
+        .header('Cache-Control', 'no-cache')
+        .send(buf);
+    },
+  );
+
   // Overwrite an existing-or-new file under the project root. The parent
   // directory must already exist (no recursive mkdir — keep writes boring).
   app.put<{ Params: { project: string }; Body: { path?: string; content?: string } }>(

@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api, fmtAgo, type SessionDetail, type Message } from '../lib/api';
 
@@ -112,7 +113,7 @@ export function SessionCard({
           if (m.kind === 'user') {
             return (
               <div key={m.id} className="sc-user-row">
-                <span className="sc-user-chevron">❯</span>
+                <span className="sc-user-chevron"><ChevronRight size={14} aria-hidden="true" /></span>
                 <span className="sc-user-text">{m.text}</span>
               </div>
             );

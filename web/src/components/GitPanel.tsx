@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, Plus, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type GitFileStatus } from '../lib/api';
 
@@ -109,7 +110,7 @@ export function GitPanel({ project, onClose }: { project: string; onClose: () =>
       <aside className="git-panel" onClick={(e) => e.stopPropagation()}>
         <header className="git-panel-head">
           <div className="git-panel-title">Source Control</div>
-          <button className="git-panel-x" onClick={onClose} aria-label="Close git panel" title="Close">×</button>
+          <button className="git-panel-x" onClick={onClose} aria-label="Close git panel" title="Close"><X size={14} aria-hidden="true" /></button>
         </header>
 
         {status && !status.isRepo ? (
@@ -128,12 +129,12 @@ export function GitPanel({ project, onClose }: { project: string; onClose: () =>
               </select>
               {status && (status.ahead > 0 || status.behind > 0) && (
                 <span className="git-aheadbehind" title="ahead / behind upstream">
-                  {status.ahead > 0 && <>↑{status.ahead}</>}
-                  {status.behind > 0 && <>↓{status.behind}</>}
+                  {status.ahead > 0 && <><ArrowUp size={12} aria-hidden="true" />{status.ahead}</>}
+                  {status.behind > 0 && <><ArrowDown size={12} aria-hidden="true" />{status.behind}</>}
                 </span>
               )}
-              <button className="git-icon-btn" title="Refresh" onClick={() => { loadStatus(); loadBranches(); }}>⟳</button>
-              <button className="git-icon-btn" title="New branch" onClick={() => setCreating((v) => !v)}>＋</button>
+              <button className="git-icon-btn" title="Refresh" onClick={() => { loadStatus(); loadBranches(); }}><RefreshCw size={14} aria-hidden="true" /></button>
+              <button className="git-icon-btn" title="New branch" onClick={() => setCreating((v) => !v)}><Plus size={14} aria-hidden="true" /></button>
             </div>
 
             {creating && (

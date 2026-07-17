@@ -1,6 +1,7 @@
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type TunnelProvider, type TunnelState, type ConfigFileMeta } from '../lib/api';
+import { api, type PublicSettings, type PublicCustomProvider, type ProviderInput, type TunnelProvider, type TunnelState, type ConfigFileMeta, type DefaultPermissionMode } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { useTheme, setTheme, type Theme } from '../lib/theme';
@@ -19,6 +20,21 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+];
+
+// Matches the per-session picker in StatusBar.tsx — same labels, same tone
+// vocabulary — so the global default reads as "the value each new session
+// starts at". `blurb` is the one-line explanation shown under the picker.
+const PERMISSION_MODE_OPTIONS: Array<{
+  value: DefaultPermissionMode;
+  label: string;
+  blurb: string;
+  tone: 'ok' | 'warn' | 'bad';
+}> = [
+  { value: 'default', label: 'Default (ask)', blurb: 'Prompt for every tool call. Safest — nothing runs without your click.', tone: 'ok' },
+  { value: 'acceptEdits', label: 'Accept edits', blurb: 'File edits auto-approve; shell + network + MCP calls still ask.', tone: 'ok' },
+  { value: 'plan', label: 'Plan mode', blurb: 'Read-only. The model plans but can\'t change anything until you accept the plan.', tone: 'ok' },
+  { value: 'bypassPermissions', label: 'Bypass all', blurb: 'All tool calls auto-approve. Same as the old YOLO — safe only when you trust the workspace.', tone: 'bad' },
 ];
 
 export function Settings() {
@@ -144,29 +160,34 @@ export function Settings() {
     }
   };
 
-  const toggleYolo = async (next: boolean) => {
-    if (next) {
+  const changeDefaultPermissionMode = async (next: DefaultPermissionMode) => {
+    if (!settings || next === settings.defaultPermissionMode) return;
+    // Only 'bypassPermissions' needs a confirm — the other three are all
+    // strictly safer than the current SDK default. Skipping the modal on those
+    // makes the picker feel like a real chip, not a landmine.
+    if (next === 'bypassPermissions') {
       const ok = await confirm({
-        title: 'Enable YOLO mode?',
+        title: 'Set default to Bypass all?',
         body: (
           <>
             <div className="confirm-sub">
-              Every SDK subprocess will run with <code>permissionMode: 'bypassPermissions'</code> — <strong>all tool calls auto-approve</strong>, no permission prompts in the WebUI. This applies to every session, regardless of the per-session permission picker.
+              Every new session will start with <code>permissionMode: 'bypassPermissions'</code> — <strong>all tool calls auto-approve</strong>. Existing sessions keep whatever mode they were on; this only sets what fresh sessions initialise to.
             </div>
             <div className="confirm-sub">
-              Recommended only when you trust the workspace and model. Turn off anytime to restore per-session control.
+              A single session can still cycle to a safer mode via its own permission chip (or <kbd>Shift</kbd>+<kbd>Tab</kbd>).
             </div>
           </>
         ),
-        confirmLabel: 'Enable',
+        confirmLabel: 'Set default',
         destructive: true,
       });
       if (!ok) return;
     }
     setBusy(true);
     try {
-      setSettings(await api.setYoloMode(next));
-      toast(next ? 'YOLO mode on — all permissions bypassed' : 'YOLO mode off');
+      setSettings(await api.setDefaultPermissionMode(next));
+      const label = PERMISSION_MODE_OPTIONS.find((o) => o.value === next)?.label ?? next;
+      toast(`Default permission mode → ${label}`);
     } catch (e) {
       toast(`error: ${(e as Error).message}`);
     } finally {
@@ -331,28 +352,43 @@ export function Settings() {
         <div className="settings-row-head">
           <h2 className="sec-title">Permissions</h2>
         </div>
-        <label className={`prov-card yolo-card${settings.yoloMode ? ' active' : ''}`}>
-          <input
-            type="checkbox"
-            checked={settings.yoloMode}
-            onChange={(e) => void toggleYolo(e.target.checked)}
-            disabled={busy}
-          />
-          <div className="prov-card-body">
-            <div className="prov-card-head">
-              <span className="prov-name">YOLO mode</span>
-              <span className={`prov-tag ${settings.yoloMode ? 'ok' : 'bad'}`}>
-                {settings.yoloMode ? 'on — all tools auto-approve' : 'off'}
-              </span>
+        {(() => {
+          const active = PERMISSION_MODE_OPTIONS.find((o) => o.value === settings.defaultPermissionMode)
+            ?? PERMISSION_MODE_OPTIONS[0]!;
+          return (
+            <div className={`prov-card perm-mode-card${settings.defaultPermissionMode === 'bypassPermissions' ? ' active' : ''}`}>
+              <div className="prov-card-body">
+                <div className="prov-card-head perm-mode-head">
+                  <span className="prov-name">Default permission mode</span>
+                  {/* Same provider-chip pill as the in-session permission
+                      picker, so the two controls read as siblings. */}
+                  <div className={`provider-chip${busy ? ' disabled' : ''}`} title={`Default · ${active.label}`}>
+                    <span className="provider-chip-label">{active.label}</span>
+                    <ChevronDown className="provider-chip-caret" size={8} strokeWidth={2.5} aria-hidden="true" />
+                    <select
+                      className="provider-chip-select"
+                      value={settings.defaultPermissionMode}
+                      disabled={busy}
+                      onChange={(e) => void changeDefaultPermissionMode(e.target.value as DefaultPermissionMode)}
+                      aria-label="Default permission mode"
+                    >
+                      {PERMISSION_MODE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <span className={`prov-tag ${active.tone}`}>{active.value === 'bypassPermissions' ? 'all tools auto-approve' : active.value}</span>
+                </div>
+                <div className="prov-card-sub">
+                  {active.blurb}
+                </div>
+                <div className="prov-card-sub">
+                  Applied to <strong>new sessions</strong>. A single session can still cycle its picker (<kbd>Shift</kbd>+<kbd>Tab</kbd> or the in-composer chip) to override for that session only.
+                </div>
+              </div>
             </div>
-            <div className="prov-card-sub">
-              Bypass <code>permissionMode</code> for every session. The SDK launches with <code>--allow-dangerously-skip-permissions</code> + <code>--permission-mode bypassPermissions</code>, so <strong>no tool call will prompt you</strong> — including file edits, shell commands, and <code>render_ui</code>.
-            </div>
-            <div className="prov-card-sub">
-              Off (default): each session's permission picker (<kbd>Shift</kbd>+<kbd>Tab</kbd>) is respected.
-            </div>
-          </div>
-        </label>
+          );
+        })()}
       </div>
 
       <ConfigFilesSection />
@@ -497,11 +533,10 @@ function RemoteAccess() {
   const status = state?.status ?? 'stopped';
   const live = status === 'running' && state?.url;
   const starting = status === 'starting';
-  // The tunnel arms an access token; fold it into the shared URL as ?token= so
-  // the first load unlocks itself (consumeTokenFromUrl strips it after storing).
-  const shareUrl = live && state?.url
-    ? (state.token ? `${state.url}/?token=${encodeURIComponent(state.token)}` : state.url)
-    : '';
+  // The share URL carries NO token — a URL leaks via history/referrer/proxy logs.
+  // Opening it lands on the AuthGate login screen; the operator pastes the token
+  // (shown below) there. Never fold the credential into the link.
+  const shareUrl = (live && state?.url) || '';
 
   return (
     <div className="settings-section">
@@ -563,7 +598,7 @@ function RemoteAccess() {
               </div>
               <div className="settings-hint">
                 {state.token
-                  ? <><strong>This link embeds an access token</strong> — anyone you share it with can drive your Claude Code sessions. Share it only with people you trust, and stop the tunnel when you're done.</>
+                  ? <>This server requires an access token: <code>{state.token}</code>. Share it <strong>separately</strong> from the URL (never in the link) with people you trust, and stop the tunnel when you're done.</>
                   : <><strong>This server already requires its access token.</strong> Share the URL together with that token, and stop the tunnel when you're done.</>}
               </div>
             </div>

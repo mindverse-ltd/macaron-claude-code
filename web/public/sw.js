@@ -6,6 +6,17 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
+// The SW is registered under the app's base path — `/` for a local mcc/mcx
+// server, `/app/` when the docs site hosts the bundle at a subpath. Derive that
+// base from the SW's own scope so icon paths and the cold-start open URL resolve
+// under the app, not the docs root (where `/icons/*` and `/` would 404 / miss).
+const BASE = new URL(self.registration.scope).pathname.replace(/\/$/, ''); // '' or '/app'
+const asset = (p) => BASE + p;
+// The server builds deep links root-relative (`/#/w/:project/s/:sid`) — it can't
+// know the client's hosted base. Rebase such a link under the app so a hosted
+// push opens `/app/#/…`, not the docs root.
+const rebase = (u) => (typeof u === 'string' && u.startsWith('/#') ? asset(u) : u);
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -27,12 +38,12 @@ self.addEventListener('push', (event) => {
       if (active && !payload.requireInteraction) return undefined;
       return self.registration.showNotification(title, {
         body: payload.body || '',
-        icon: '/icons/icon-192.png',
-        badge: '/icons/badge.png',
+        icon: asset('/icons/icon-192.png'),
+        badge: asset('/icons/badge.png'),
         tag: payload.tag,
         renotify: Boolean(payload.tag),
         requireInteraction: Boolean(payload.requireInteraction),
-        data: { url: payload.url || '/' },
+        data: { url: rebase(payload.url) || asset('/') },
       });
     }),
   );
@@ -40,7 +51,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  const url = (event.notification.data && event.notification.data.url) || asset('/');
   // The deep link is a hash route (`/#/w/:project/s/:sid`); a client already on
   // that session is the one to focus. Match its hash so a push for session C
   // doesn't yank an unrelated tab showing session B.

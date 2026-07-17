@@ -16,23 +16,32 @@ const LIVE_RING = 4000;
 const KEEP_AROUND_MS = 60_000;
 const sessions = new Map<string, LiveSession>();
 
-export function liveStart(sid: string, meta: { cwd: string }): void {
+export function liveStart(sid: string, meta: { cwd: string; startedAt?: number }): number {
   // A resume on a stable sid (the codex route) can re-liveStart while a prior
   // turn's liveEnd delete timer is still pending — clear it so the fresh entry
   // isn't reaped mid-turn.
   clearTimeout(sessions.get(sid)?.gc);
+  const startedAt = meta.startedAt ?? Date.now();
   sessions.set(sid, {
-    events: [{ type: 'meta', cwd: meta.cwd, sessionId: sid }],
+    events: [{ type: 'meta', cwd: meta.cwd, sessionId: sid, startedAt }],
     subs: new Set(),
     ended: false,
   });
+  return startedAt;
 }
 
 export function livePush(sid: string, payload: SessionStreamEvent): void {
   const ls = sessions.get(sid);
   if (!ls || ls.ended) return;
   ls.events.push(payload);
-  if (ls.events.length > LIVE_RING) ls.events.splice(0, ls.events.length - LIVE_RING);
+  if (ls.events.length > LIVE_RING) {
+    // The replay identity is not disposable ring data. A long turn can easily
+    // exceed LIVE_RING through tool_input_delta events; dropping meta/user-text
+    // would leave a reattaching client unable to match the live turn to JSONL.
+    let pinned = ls.events[0]?.type === 'meta' ? 1 : 0;
+    if (ls.events[pinned]?.type === 'user-text') pinned += 1;
+    ls.events.splice(pinned, ls.events.length - LIVE_RING);
+  }
   for (const sub of ls.subs) {
     try {
       sseSend(sub, payload);

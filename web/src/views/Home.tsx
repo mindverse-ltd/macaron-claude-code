@@ -12,7 +12,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useNavigate } from 'react-router-dom';
 import { api, type SlashCommand } from '../lib/api';
 import type { Workspace } from '@macaron/shared';
+import { ArrowUp, ChevronDown, Paperclip, X } from 'lucide-react';
 import { setPendingPrompt, type PendingImage } from '../lib/newSession';
+import { startNewSession } from '../lib/liveStore';
 import { SlashPalette } from '../components/SlashPalette';
 import { useFileMention } from '../components/MentionPopup';
 import { useToast } from '../components/Toast';
@@ -39,6 +41,18 @@ export function Home() {
   const [images, setImages] = useState<AttachedImage[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // Seed the landing's permission chip from the global default so a fresh
+  // visit reflects whatever the user set in Settings > Permissions. Guarded
+  // by a "touched" ref so an async settings load can't stomp a manual pick.
+  const permissionModeTouchedRef = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    api.settings().then((s) => {
+      if (!alive || permissionModeTouchedRef.current) return;
+      setPermissionMode(s.defaultPermissionMode);
+    }).catch(() => {/* keep 'default' */});
+    return () => { alive = false; };
+  }, []);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIdx, setSlashIdx] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
@@ -122,7 +136,7 @@ export function Home() {
     setHistoryIdx(null);
   }, []);
 
-  const submit = () => {
+  const submit = async () => {
     const t = input.trim();
     if ((!t && images.length === 0) || sending) return;
     if (!project) {
@@ -130,18 +144,39 @@ export function Home() {
       return;
     }
     setSending(true);
+    setError('');
     const seedImages: PendingImage[] = images.map((img) => ({
       id: img.id,
       name: img.name,
       mimeType: img.mimeType,
       dataUrl: img.dataUrl,
     }));
-    setPendingPrompt(project, t, {
-      auto: true,
-      images: seedImages.length ? seedImages : undefined,
-      permissionMode,
-    });
-    navigate(`/w/${encodeURIComponent(project)}`);
+    // Start the session directly from Home so we can navigate straight to
+    // the real sid — no draft-tile promote → remount flash. The POST
+    // populates the live module store; Session mounts once against the
+    // real sid and subscribeLive picks up the buffered stream.
+    try {
+      const newSid = await startNewSession(project, {
+        text: t,
+        permissionMode,
+        images: seedImages.length ? seedImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl })) : undefined,
+      });
+      navigate(
+        `/w/${encodeURIComponent(project)}/s/${encodeURIComponent(newSid)}`,
+        { state: { pending: true } },
+      );
+    } catch (e) {
+      // Fall back to the seed-prompt path so the user's typing isn't lost:
+      // stash the prompt + attachments, jump to the workspace, and let the
+      // draft tile retry from scratch.
+      setPendingPrompt(project, t, {
+        auto: true,
+        images: seedImages.length ? seedImages : undefined,
+        permissionMode,
+      });
+      navigate(`/w/${encodeURIComponent(project)}`);
+      setError((e as Error).message);
+    }
   };
 
   const handlePaletteKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
@@ -256,7 +291,9 @@ export function Home() {
                     className="img-chip-x"
                     onClick={() => setImages((cur) => cur.filter((c) => c.id !== img.id))}
                     aria-label="Remove image"
-                  >×</button>
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -319,9 +356,7 @@ export function Home() {
               aria-label="Attach image"
               onClick={() => fileInputRef.current?.click()}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
+              <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
             </button>
             {/* Workspace switcher styled as a provider-chip pill — same visual
                 vocabulary as the permission chip in the StatusBar so the two
@@ -329,13 +364,7 @@ export function Home() {
                 is enough context. */}
             <div className="provider-chip home-ws-chip" title={`Workspace · ${projectName || 'none'}`}>
               <span className="provider-chip-label">{projectName || 'No workspaces yet'}</span>
-              <svg
-                className="provider-chip-caret"
-                width="8" height="8" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              <ChevronDown className="provider-chip-caret" size={8} strokeWidth={2.5} aria-hidden="true" />
               <select
                 className="provider-chip-select"
                 value={project}
@@ -357,10 +386,7 @@ export function Home() {
               aria-label={sending ? 'Opening…' : 'Send'}
               title={sending ? 'Opening…' : 'Send (Enter)'}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 19V5" />
-                <path d="m5 12 7-7 7 7" />
-              </svg>
+              <ArrowUp size={14} strokeWidth={2.4} aria-hidden="true" />
             </button>
           </div>
         </form>
@@ -373,7 +399,7 @@ export function Home() {
         <StatusBar
           projectName={projectName}
           permissionMode={permissionMode}
-          onPermissionChange={setPermissionMode}
+          onPermissionChange={(v) => { permissionModeTouchedRef.current = true; setPermissionMode(v); }}
           sending={sending}
           currentTodo={null}
         />

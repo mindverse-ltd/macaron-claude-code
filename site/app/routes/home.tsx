@@ -10,6 +10,7 @@ import { Check, Clipboard, MonitorPlay, MessagesSquare, SlidersHorizontal, Wand2
 import ClaudeCode from '@lobehub/icons/es/ClaudeCode/components/Mono';
 import Codex from '@lobehub/icons/es/Codex/components/Mono';
 import { baseOptions } from '@/lib/layout.shared';
+import ChatShowcase from '@/components/chat-showcase';
 
 function CommandCopyButton({ code }: { code: string }) {
   const [checked, onClick] = useCopyButton(() => navigator.clipboard.writeText(code));
@@ -53,8 +54,8 @@ export function meta({}: Route.MetaArgs) {
 }
 
 // pkg.pr.new ships prebuilt tarballs per commit; __COMMIT_SHA__ is injected at build time (falls back to `<sha>`).
-const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcc@${__COMMIT_SHA__}`;
-const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-claude-code/mcx@${__COMMIT_SHA__}`;
+const PKG = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@${__COMMIT_SHA__}`;
+const PKG_MCX = `https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@${__COMMIT_SHA__}`;
 
 export default function Home() {
   return (
@@ -82,7 +83,17 @@ export default function Home() {
             >
               Quick Start
             </Link>
+            <Link
+              className="text-sm border rounded-full font-medium px-5 py-2.5 transition-colors hovered:bg-fd-accent hovered:text-fd-accent-foreground"
+              to="/connect"
+            >
+              Connect a Server
+            </Link>
           </div>
+        </section>
+
+        <section className="w-full max-w-xl pb-20">
+          <ChatShowcase />
         </section>
 
         <section className="w-full max-w-3xl pb-20">
@@ -107,7 +118,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
+                  <Command code="claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Install the Plugin</p>
@@ -127,7 +138,7 @@ export default function Home() {
               <Steps>
                 <Step>
                   <p className="font-medium">Add the Marketplace Source</p>
-                  <Command code="codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts" />
+                  <Command code="codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts" />
                 </Step>
                 <Step>
                   <p className="font-medium">Add the Plugin</p>

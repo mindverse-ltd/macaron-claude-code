@@ -343,6 +343,7 @@ export async function readCodexSessionMessages(sid: string): Promise<SessionDeta
     project: encodeCodexProjectName(cwd),
     cwd,
     gitBranch,
+    title: getCodexTitle(sid),
     messages,
     truncated: false,
     totalBytes: st.size,

@@ -1,8 +1,8 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 export type MenuItem =
-  | { icon?: string; label: string; danger?: boolean; onClick: () => void }
+  | { icon?: ReactNode; label: string; danger?: boolean; onClick: () => void }
   | 'separator';
 
 type Props = {

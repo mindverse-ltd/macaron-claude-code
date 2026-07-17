@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../components/Confirm';
 import {
   codexApi,
   type CodexApprovalPolicy,
@@ -233,6 +234,7 @@ function ProviderPane({
   const [draft, setDraft] = useState<PublicCodexProvider>(provider);
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
+  const confirm = useConfirm();
   useEffect(() => { setDraft(provider); setApiKey(''); }, [provider]);
 
   const set = <K extends keyof PublicCodexProvider>(k: K, v: PublicCodexProvider[K]) => {
@@ -274,7 +276,13 @@ function ProviderPane({
   };
 
   const del = async () => {
-    if (!confirm(`Delete provider "${provider.name}"? Cannot be undone.`)) return;
+    const ok = await confirm({
+      title: 'Delete provider?',
+      body: <>Provider <code>{provider.name}</code> will be removed. This can't be undone.</>,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await codexApi.deleteProvider(provider.id);
       onDeleted();

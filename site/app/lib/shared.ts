@@ -5,6 +5,6 @@ export const docsContentRoute = '/llms.mdx/docs';
 
 export const gitConfig = {
   user: 'mindverse-ltd',
-  repo: 'macaron-claude-code',
+  repo: 'macaron-artifacts',
   branch: 'main',
 };

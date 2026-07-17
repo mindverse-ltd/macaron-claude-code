@@ -7,7 +7,6 @@ import { query, type SDKMessage, type PermissionMode, type SDKUserMessage } from
 import { macaronMcpServer } from './macaron-mcp.js';
 import { registerPending } from './permission-registry.js';
 import { computeRuleKeys, isAllowed, rememberSession, rememberProject } from './permission-rules.js';
-import { getYoloMode } from './settings-store.js';
 import type { CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 
 export type AttachedImage = { mimeType: string; dataUrl: string };
@@ -141,12 +140,12 @@ export async function* runClaude(opts: RunOptions): AsyncGenerator<RunnerEvent> 
     // new session it's filled in once the first `session` message arrives.
     let currentSid = opts.resume ?? '';
     try {
-      // YOLO mode (global Settings toggle) forces bypassPermissions for
-      // every run, regardless of what the WebUI requested. This is the
-      // single server-side override point — route handlers stay ignorant.
-      const effectivePermissionMode: PermissionMode = getYoloMode()
-        ? 'bypassPermissions'
-        : (opts.permissionMode ?? 'default');
+      // Honor whatever the WebUI sent. The global "default permission mode"
+      // in Settings is applied client-side (Session / Home init their
+      // per-session picker from readPublicSettings().defaultPermissionMode),
+      // so by the time we get here `opts.permissionMode` already reflects
+      // the user's picked mode for this session.
+      const effectivePermissionMode: PermissionMode = opts.permissionMode ?? 'default';
       const stream = query({
         prompt: buildPromptInput(opts),
         options: {

@@ -1,7 +1,8 @@
+import { LayoutGrid, MessageSquare, Pencil, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SEARCH_HL_CLOSE, SEARCH_HL_OPEN } from '@macaron/shared';
-import { api, basename, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
+import { api, basename, sessionTitle, fmtAgo, type MessageSearchHit, type SessionListItem, type Workspace } from '../lib/api';
 import { addDraftSid } from '../lib/canvas';
 import { hasActiveModal } from '../lib/modal';
 
@@ -43,7 +44,10 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [data, setData] = useState<WsWithSessions[]>([]);
-  const [yolo, setYolo] = useState(false);
+  // Same one-shot toggle the old YOLO command used to do — bounces the global
+  // default between 'bypassPermissions' (all tools auto-approve) and 'default'
+  // (ask for every call). The full 4-way picker lives in Settings.
+  const [bypassDefault, setBypassDefault] = useState(false);
   const [msgHits, setMsgHits] = useState<MessageSearchHit[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
@@ -111,7 +115,7 @@ export function CommandPalette() {
       }
       try {
         const s = await api.settings();
-        if (!cancelled) setYolo(s.yoloMode);
+        if (!cancelled) setBypassDefault(s.defaultPermissionMode === 'bypassPermissions');
       } catch {
         /* ignore */
       }
@@ -193,13 +197,15 @@ export function CommandPalette() {
     const commands: Item[] = [
       {
         kind: 'command',
-        id: 'toggle-yolo',
-        title: yolo ? 'Disable YOLO mode' : 'Enable YOLO mode',
-        subtitle: 'Bypass all tool permission prompts',
+        id: 'toggle-bypass-default',
+        title: bypassDefault ? 'Reset default permission mode' : 'Set default to Bypass all',
+        subtitle: bypassDefault
+          ? 'New sessions will start asking for every tool call'
+          : 'New sessions will start with all tool permissions auto-approved',
         run: async () => {
           try {
-            const s = await api.setYoloMode(!yolo);
-            setYolo(s.yoloMode);
+            const s = await api.setDefaultPermissionMode(bypassDefault ? 'default' : 'bypassPermissions');
+            setBypassDefault(s.defaultPermissionMode === 'bypassPermissions');
           } catch {
             /* ignore */
           }
@@ -232,7 +238,7 @@ export function CommandPalette() {
           kind: 'session',
           project: w.project,
           sid: s.sessionId,
-          title: s.preview || s.sessionId.slice(0, 8),
+          title: sessionTitle(s),
           subtitle: `${name} · ${fmtAgo(s.mtime)}`,
           mtime: s.mtime,
         });
@@ -262,7 +268,7 @@ export function CommandPalette() {
     }));
 
     return [...cmdMatched, ...sessMatched, ...wsMatched, ...msgItems];
-  }, [query, data, yolo, msgHits, currentProject, navigate, close]);
+  }, [query, data, bypassDefault, msgHits, currentProject, navigate, close]);
 
   // Clamp the active index whenever the filtered list shrinks.
   useEffect(() => {
@@ -345,7 +351,7 @@ export function CommandPalette() {
                   onClick={() => runItem(it)}
                 >
                   <span className={'cmdk-kind cmdk-kind-' + it.kind}>
-                    {it.kind === 'command' ? '⚡' : it.kind === 'session' ? '◈' : it.kind === 'workspace' ? '▤' : '✎'}
+                    {it.kind === 'command' ? <Zap size={14} aria-hidden="true" /> : it.kind === 'session' ? <MessageSquare size={14} aria-hidden="true" /> : it.kind === 'workspace' ? <LayoutGrid size={14} aria-hidden="true" /> : <Pencil size={14} aria-hidden="true" />}
                   </span>
                   <span className="cmdk-text">
                     <span className="cmdk-title">{it.title}</span>

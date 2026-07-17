@@ -1,3 +1,4 @@
+import { CornerLeftUp, Folder } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type DirListing } from '../lib/api';
 
@@ -40,7 +41,7 @@ export function DirPicker({ onPick, onClose }: { onPick: (cwd: string) => void; 
         <div className="dir-picker-list">
           {listing?.parent && (
             <button type="button" className="dir-picker-row dir-picker-up" onClick={() => browse(listing.parent!)}>
-              <span className="dir-picker-icon">↰</span>
+              <span className="dir-picker-icon"><CornerLeftUp size={13} aria-hidden="true"/></span>
               <span className="dir-picker-name">..</span>
             </button>
           )}
@@ -53,7 +54,7 @@ export function DirPicker({ onPick, onClose }: { onPick: (cwd: string) => void; 
               onDoubleClick={() => onPick(d.path)}
               title={d.name}
             >
-              <span className="dir-picker-icon">📁</span>
+              <span className="dir-picker-icon"><Folder size={13} aria-hidden="true"/></span>
               <span className="dir-picker-name">{d.name}</span>
             </button>
           ))}

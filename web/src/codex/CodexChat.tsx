@@ -3,12 +3,15 @@
 // look. Every visual detail — background, borders, tool cards, code
 // blocks — is tuned to match the claude WebUI's palette (see styles.css).
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Terminal, Pencil, Search, Hexagon, ListTodo, Settings, ChevronDown, ChevronRight, Sparkles, Diamond, CheckSquare, CircleDot, Square, Flag, GitBranch, AlertTriangle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import type { SessionDetail, Message, Block, CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 import { codexApi, type CodexLoopSnapshot } from './api';
+import { basename } from '../lib/api';
 import type { CodexRuntimeOverride } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLoop, subscribeCodexLive, type CodexStreamEvent } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
@@ -187,7 +190,7 @@ function Reasoning({ text }: { text: string }) {  const [open, setOpen] = useSta
   return (
     <div className="cx-reasoning">
       <div className="cx-reasoning-head" onClick={() => setOpen((v) => !v)}>
-        <span className="cx-reasoning-caret">{open ? '▾' : '▸'}</span>
+        <span className="cx-reasoning-caret">{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</span>
         <span>Reasoning</span>
       </div>
       {open && <div className="cx-reasoning-body">{text}</div>}
@@ -195,13 +198,13 @@ function Reasoning({ text }: { text: string }) {  const [open, setOpen] = useSta
   );
 }
 
-function toolGlyph(name: string): string {
-  if (name === 'Bash') return '$';
-  if (name === 'Edit') return '△';
-  if (name === 'WebSearch') return '⌕';
-  if (name.startsWith('mcp:')) return '⬡';
-  if (name === 'TodoWrite') return '☰';
-  return '⚙';
+function toolGlyph(name: string): ReactNode {
+  if (name === 'Bash') return <Terminal size={14} aria-hidden="true" />;
+  if (name === 'Edit') return <Pencil size={14} aria-hidden="true" />;
+  if (name === 'WebSearch') return <Search size={14} aria-hidden="true" />;
+  if (name.startsWith('mcp:')) return <Hexagon size={14} aria-hidden="true" />;
+  if (name === 'TodoWrite') return <ListTodo size={14} aria-hidden="true" />;
+  return <Settings size={14} aria-hidden="true" />;
 }
 
 function ToolCard({ it }: { it: Extract<Item, { kind: 'tool' }> }) {
@@ -239,7 +242,7 @@ function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   return (
     <div className="cx-genui">
       <div className="cx-genui-head">
-        <span className="cx-genui-glyph">◈</span>
+        <span className="cx-genui-glyph"><Sparkles size={14} aria-hidden="true" /></span>
         <span className="cx-genui-name">Rendered UI</span>
         {it.status === 'error' && <span className="cx-genui-status err">diagnostics failed</span>}
       </div>
@@ -257,18 +260,19 @@ function GenuiCard({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
 }
 
 function PlanCard({ it }: { it: Extract<Item, { kind: 'plan' }> }) {
-  const glyph = (s: CodexPlanStatus) => (s === 'completed' ? '☑' : s === 'inProgress' ? '◐' : '☐');
+  const glyph = (s: CodexPlanStatus): ReactNode => (s === 'completed' ? <CheckSquare size={13} aria-hidden="true" /> : s === 'inProgress' ? <CircleDot size={13} aria-hidden="true" /> : <Square size={13} aria-hidden="true" />);
+  const statusLabel = (s: CodexPlanStatus): string => (s === 'completed' ? 'completed' : s === 'inProgress' ? 'in progress' : 'pending');
   return (
     <div className="cx-plan">
       <div className="cx-plan-head">
-        <span className="cx-plan-glyph">◇</span>
+        <span className="cx-plan-glyph"><Diamond size={14} aria-hidden="true" /></span>
         <span className="cx-plan-name">Plan</span>
       </div>
       {it.explanation && <div className="cx-plan-explanation">{it.explanation}</div>}
       <div className="cx-plan-steps">
         {it.steps.map((s, i) => (
           <div key={i} className={'cx-plan-step ' + s.status}>
-            <span className="cx-plan-step-glyph">{glyph(s.status)}</span>
+            <span className="cx-plan-step-glyph" role="img" aria-label={statusLabel(s.status)}>{glyph(s.status)}</span>
             <span className="cx-plan-step-text">{s.step}</span>
           </div>
         ))}
@@ -290,7 +294,7 @@ function ApprovalCard({ it, onDecide }: { it: Extract<Item, { kind: 'approval' }
   return (
     <div className={'cx-approval' + (resolved ? ' resolved' : '')}>
       <div className="cx-approval-head">
-        <span className="cx-approval-glyph">⚑</span>
+        <span className="cx-approval-glyph"><Flag size={14} aria-hidden="true" /></span>
         <span className="cx-approval-name">{title}</span>
         {resolved && <span className="cx-approval-status">{it.decision === 'stale' ? 'expired' : it.decision}</span>}
       </div>
@@ -318,7 +322,9 @@ function ApprovalCard({ it, onDecide }: { it: Extract<Item, { kind: 'approval' }
   );
 }
 
-function MessageRow({ it, onDecide }: { it: Item; onDecide?: (id: string, decision: CodexDecision) => void }) {
+const CODEX_MARKDOWN_COMPONENTS = { code: MarkdownCode, pre: MarkdownPre } as const;
+
+function MessageRow({ it, streaming = false, onDecide }: { it: Item; streaming?: boolean; onDecide?: (id: string, decision: CodexDecision) => void }) {
   if (it.kind === 'reasoning') return <Reasoning text={it.text} />;
   if (it.kind === 'tool') return <ToolCard it={it} />;
   if (it.kind === 'genui') return <GenuiCard it={it} />;
@@ -341,7 +347,9 @@ function MessageRow({ it, onDecide }: { it: Item; onDecide?: (id: string, decisi
           <div className="cx-msg-text">{it.text}</div>
         ) : (
           <div className="cx-msg-text md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{it.text}</ReactMarkdown>
+            <MarkdownCodeStreamingProvider content={it.text} streaming={streaming}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={CODEX_MARKDOWN_COMPONENTS}>{it.text}</ReactMarkdown>
+            </MarkdownCodeStreamingProvider>
           </div>
         )}
       </div>
@@ -643,7 +651,7 @@ export function CodexChat(props: CodexChatProps = {}) {
 
   const title = isNew
     ? 'New thread'
-    : detail?.cwd?.split('/').filter(Boolean).pop() || 'Thread';
+    : detail?.title || basename(detail?.cwd || '') || sid.slice(0, 8);
 
   // A loop iteration streaming counts as busy: the composer shows Stop (which
   // aborts the iteration) so the user interjects instead of racing a second
@@ -662,7 +670,7 @@ export function CodexChat(props: CodexChatProps = {}) {
               {detail?.gitBranch && (
                 <>
                   <span className="cx-main-head-dot">·</span>
-                  <span className="cx-main-head-branch">⌥ {detail.gitBranch}</span>
+                  <span className="cx-main-head-branch"><GitBranch size={13} aria-hidden="true" /> {detail.gitBranch}</span>
                 </>
               )}
             </>
@@ -682,7 +690,14 @@ export function CodexChat(props: CodexChatProps = {}) {
           </div>
         ) : (
           <div className="cx-thread-body">
-            {items.map((it) => <MessageRow key={it.id} it={it} onDecide={decideApproval} />)}
+            {items.map((it, i) => (
+              <MessageRow
+                key={it.id}
+                it={it}
+                streaming={sending && i === items.length - 1 && it.kind === 'assistant'}
+                onDecide={decideApproval}
+              />
+            ))}
             {/* Show the thinking spinner at the tail of the thread while a
                 turn is in flight. Hide it once the last item is a live
                 assistant message that has actually started emitting text —
@@ -696,7 +711,7 @@ export function CodexChat(props: CodexChatProps = {}) {
             {error && (
               <div className="cx-tool err">
                 <div className="cx-tool-head">
-                  <span className="cx-tool-glyph">!</span>
+                  <span className="cx-tool-glyph"><AlertTriangle size={14} aria-hidden="true" /></span>
                   <span className="cx-tool-name">Error</span>
                 </div>
                 <div className="cx-tool-out err">{error}</div>

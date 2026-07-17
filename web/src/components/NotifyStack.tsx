@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -111,7 +112,7 @@ export function NotifyStack() {
             }}
             aria-label="dismiss"
           >
-            ×
+            <X size={14} aria-hidden="true" />
           </span>
           <div className="notify-card-title">{it.title}</div>
           {it.body ? <div className="notify-card-body">{it.body}</div> : null}

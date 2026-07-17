@@ -43,8 +43,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               'A complete TSX module — imports + `export default function App()` — that the host mounts inline.',
           },
+          prompt: {
+            type: 'string',
+            minLength: 20,
+            description: 'DEPRECATED alias for `code`. Send TSX under `code` instead; `prompt` is accepted so legacy calls still render.',
+          },
         },
-        required: ['code'],
         additionalProperties: false,
       },
     },
@@ -55,14 +59,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name !== 'render_ui') {
     throw new Error(`unknown tool: ${request.params.name}`);
   }
-  const code = String((request.params.arguments as { code?: unknown } | undefined)?.code || '');
-  if (!code || code.length < 20) {
+  const args = request.params.arguments as { code?: unknown; prompt?: unknown } | undefined;
+  // Canonical field is `code`; `prompt` is a back-compat alias the model
+  // occasionally hallucinates. Take whichever is present.
+  const src = String((args?.code ?? args?.prompt ?? '') || '').trim();
+  if (!src || src.length < 20) {
     return {
       isError: true,
-      content: [{ type: 'text', text: 'code is required and must be at least 20 chars' }],
+      content: [{ type: 'text', text: 'render_ui failed: `code` is required (TSX module string, ≥20 chars).' }],
     };
   }
-  const { text, ok } = await handleRenderUI(code);
+  const { text, ok } = await handleRenderUI(src);
   return {
     isError: !ok,
     content: [{ type: 'text', text }],

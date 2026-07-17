@@ -8,6 +8,7 @@ import {
   sendTerminalInput,
   sendTerminalResize,
 } from '../lib/terminal';
+import { openEventStream, type EventStreamHandle } from '../lib/eventStream';
 import { useTheme, type ResolvedTheme } from '../lib/theme';
 
 // Terminal palette per resolved theme. xterm's `theme` is a plain JS object
@@ -89,7 +90,7 @@ export function Terminal({ project, sid, focused }: { project: string; sid: stri
     let disposed = false;
     let raf = 0;
     let ro: ResizeObserver | null = null;
-    let es: EventSource | null = null;
+    let es: EventStreamHandle | null = null;
     let term: XTerm | null = null;
 
     void (async () => {
@@ -117,18 +118,17 @@ export function Terminal({ project, sid, focused }: { project: string; sid: stri
 
       // history = full snapshot (reset+write, idempotent on reconnect);
       // output = incremental chunk; exit = dim footer.
-      es = new EventSource(terminalStreamUrl(project, sid, cols, rows));
-      es.onmessage = (e) => {
-        if (e.data === '[DONE]') { es?.close(); return; }
+      es = openEventStream(terminalStreamUrl(project, sid, cols, rows), (data) => {
+        if (data === '[DONE]') { es?.close(); return; }
         let msg: { type?: string; data?: string; exitCode?: number; error?: string };
-        try { msg = JSON.parse(e.data); } catch { return; }
+        try { msg = JSON.parse(data); } catch { return; }
         if (msg.type === 'history') { term?.reset(); if (msg.data) term?.write(msg.data); }
         else if (msg.type === 'output') term?.write(msg.data || '');
         else if (msg.type === 'exit') { term?.write(`\r\n\x1b[2m[process exited${msg.exitCode ? ` (${msg.exitCode})` : ''}]\x1b[0m\r\n`); es?.close(); }
         else if (msg.type === 'error') term?.write(`\r\n\x1b[31m${msg.error || 'error'}\x1b[0m\r\n`);
-      };
+      });
       // Reconnects are useful while the PTY is alive; exit/[DONE] are terminal
-      // states, so close the EventSource above to avoid respawning a shell.
+      // states, so close the stream above to avoid respawning a shell.
 
       const doFit = () => {
         cancelAnimationFrame(raf);
