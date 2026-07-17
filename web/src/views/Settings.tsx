@@ -340,10 +340,34 @@ export function Settings() {
             </label>
           ))}
 
-          {settings.customProviders.length === 0 && (
+          {settings.customProviders.length === 0 && !editing && (
             <p className="muted" style={{ padding: '10px 4px' }}>
               No custom providers yet. Click "+ Add provider" to add one.
             </p>
+          )}
+
+          {editing && (
+            <div className="prov-editor-inline">
+              <h3 className="prov-editor-title">
+                {editing.id === null ? 'Add provider' : 'Edit provider'}
+              </h3>
+              <ProviderForm
+                draft={editing.draft}
+                existingConfigured={editing.existingConfigured}
+                isNew={editing.id === null}
+                onChange={(patch) =>
+                  setEditing((cur) => (cur ? { ...cur, draft: { ...cur.draft, ...patch } } : cur))
+                }
+              />
+              <div className="settings-actions">
+                <button className="primary" onClick={save} disabled={busy}>
+                  {busy ? 'Saving…' : editing.id === null ? 'Create' : 'Save'}
+                </button>
+                <button className="ghost" onClick={() => setEditing(null)} disabled={busy}>
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -456,29 +480,6 @@ export function Settings() {
         </label>
       </div>
 
-      {editing && (
-        <div className="settings-section prov-editor">
-          <h2 className="sec-title">
-            {editing.id === null ? 'Add provider' : 'Edit provider'}
-          </h2>
-          <ProviderForm
-            draft={editing.draft}
-            existingConfigured={editing.existingConfigured}
-            isNew={editing.id === null}
-            onChange={(patch) =>
-              setEditing((cur) => (cur ? { ...cur, draft: { ...cur.draft, ...patch } } : cur))
-            }
-          />
-          <div className="settings-actions">
-            <button className="primary" onClick={save} disabled={busy}>
-              {busy ? 'Saving…' : editing.id === null ? 'Create' : 'Save'}
-            </button>
-            <button className="ghost" onClick={() => setEditing(null)} disabled={busy}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

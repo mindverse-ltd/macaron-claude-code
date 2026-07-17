@@ -469,17 +469,32 @@ export async function searchProjectFiles(project: string, needle: string, limit:
   return { cwd, results };
 }
 
-// Resolve a session's working directory. The project name IS the cwd (encoded
-// by claude-cli), so it's the safe default — the jsonl's head read is capped at
-// HEAD_BYTES and a big first-line paste can push cwd out of range, so prefer
-// the decoded name and only override with the embedded cwd when we got one.
+// Resolve a session's working directory. The URL's `project` param might not
+// match where the sid actually lives — claude-cli writes each session's jsonl
+// under a project dir derived from the run's cwd, and a session started inside
+// a subdirectory (e.g. `.../macaron-plugin/server`) lands in a different
+// project dir than the workspace the WebUI thinks it's in. So: try the URL
+// project first, then scan every project dir for `<sid>.jsonl`. Only fall back
+// to the lossy decode of the URL project when nothing on disk matches — that
+// decode turns each `-` into `/` and blows up any real path with a hyphen in
+// it (`macaron-plugin` → `/macaron/plugin`), which spawn then rejects.
 export async function resolveSessionCwd(project: string, sid: string): Promise<string> {
-  let cwd = decodeClaudeProjectName(project) || HOME || '/tmp';
+  const target = `${sid}.jsonl`;
   try {
-    const head = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, `${sid}.jsonl`));
-    if (head?.cwd) cwd = head.cwd;
-  } catch { /* fall back to decoded project name */ }
-  return cwd;
+    const primary = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, target));
+    if (primary?.cwd) return primary.cwd;
+  } catch { /* fall through to cross-project scan */ }
+  try {
+    const projectDirs = await fs.readdir(CLAUDE_PROJECTS);
+    for (const dir of projectDirs) {
+      if (dir === project) continue; // already tried
+      try {
+        const meta = await readSessionSummary(path.join(CLAUDE_PROJECTS, dir, target));
+        if (meta?.cwd) return meta.cwd;
+      } catch { /* keep looking */ }
+    }
+  } catch { /* CLAUDE_PROJECTS unreadable — fall through */ }
+  return decodeClaudeProjectName(project) || HOME || '/tmp';
 }
 
 // Resolve a claude project name to its working directory. Prefer the cwd

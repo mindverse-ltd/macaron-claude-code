@@ -1173,6 +1173,20 @@ textarea:focus, select:focus, input:focus {
   border-color: var(--accent);
   background: rgba(238, 92, 42, 0.03);
 }
+.prov-editor-inline {
+  margin-top: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(238, 92, 42, 0.04);
+}
+.prov-editor-title {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
 .settings-field {
   display: flex;
   flex-direction: column;
