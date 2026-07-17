@@ -30,7 +30,7 @@ import {
 } from '../lib/kimi-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd, liveGet } from '../lib/live-registry.js';
-import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+import { registerRun, claimRun, abortRun, endRun } from '../lib/active-runs.js';
 import type { AttachedImage } from '../lib/claude-runner.js';
 import type { SessionStreamEvent } from '@macaron/shared';
 
@@ -191,10 +191,12 @@ export async function registerKimiRoutes(app: FastifyInstance): Promise<void> {
       } catch (e) {
         return reply.status(404).send({ error: (e as Error).message });
       }
+      const abortController = new AbortController();
+      if (!claimRun(sid, abortController)) {
+        return reply.status(409).send({ error: 'a turn is already in flight for this thread' });
+      }
       startSSE(reply);
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
-      const abortController = new AbortController();
-      registerRun(sid, abortController);
       pipeKimiToSSE(reply, runKimi({ prompt: text, cwd, resume: sid, images, abortController }), sid, { cwd, text, hasImages: images.length > 0 });
     },
   );
