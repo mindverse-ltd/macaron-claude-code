@@ -11,7 +11,7 @@ Use this skill when the user wants to open the Macaron WebUI — a local browser
 
 ## Resolving the plugin root
 
-Resolve the plugin root from this `SKILL.md` file by going two directories up from `skills/macaron-webui/`. The launcher script is at `<plugin root>/start.sh`.
+Resolve the plugin root from this `SKILL.md` file by going two directories up from `codex-skills/macaron-webui/`. The launcher script is at `<plugin root>/start.sh`.
 
 ## Bootstrap
 

@@ -10,7 +10,7 @@
   "repository": "https://github.com/MindLab-Research/macaron-artifacts",
   "license": "MIT",
   "keywords": ["macaron", "genui", "webui", "session-manager", "codex"],
-  "skills": "./skills/",
+  "skills": "./codex-skills/",
   "interface": {
     "displayName": "Macaron",
     "shortDescription": "Visual session manager + streaming GenUI for Codex.",
