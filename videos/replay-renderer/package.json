@@ -1,0 +1,14 @@
+{
+  "name": "replay-renderer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "node scripts/prepare-replay.mjs fixtures/sample-replay.json index.html",
+    "test": "node --test scripts/*.test.mjs",
+    "dev": "npx --yes hyperframes@0.7.60 preview",
+    "check": "npm run prepare && npx --yes hyperframes@0.7.60 check",
+    "render": "npm run prepare && npx --yes hyperframes@0.7.60 render --quality high --output out/replay-sample.mp4",
+    "render:draft": "npm run prepare && npx --yes hyperframes@0.7.60 render --quality draft --output out/replay-sample.mp4",
+    "publish": "npx --yes hyperframes@0.7.60 publish"
+  }
+}

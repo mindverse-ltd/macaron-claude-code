@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Macaron Session Replay</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.REPLAY_DATA = {"version":1,"id":"checkout-latency","title":"Checkout latency review","subtitle":"Agent session replay / streaming GenUI","agent":"EVE","targetDuration":24,"events":[{"id":"event-user","type":"user","text":"Trace the checkout slowdown, patch the hot path, and show me the result as a compact incident dashboard.","start":0.8,"duration":2.317},{"id":"event-plan","type":"assistant","text":"I will inspect the route, establish a baseline, then render the evidence before and after the fix.","start":3.117,"duration":1.956},{"id":"event-read","type":"tool","name":"Read","input":"server/src/routes/checkout.ts","result":"Loaded 214 lines / cache guard found after pricing lookup","status":"ok","start":5.073,"duration":1.67},{"id":"event-test","type":"tool","name":"Bash","input":"pnpm test checkout --reporter=dot","result":"18 passed / baseline p95 842 ms","status":"warning","start":6.743,"duration":1.583},{"id":"event-ui-baseline","type":"render_ui","code":"export default function LatencyOverview(){return \u003cDashboard title=\"Checkout latency\" stats={stats} bars={regions} rows={traces} />} ","stream":[{"label":"shell","preview":{"eyebrow":"LIVE BASELINE","title":"Checkout latency","status":"Streaming"},"at":8.746,"progress":0.25},{"label":"metrics","preview":{"eyebrow":"LIVE BASELINE","title":"Checkout latency","status":"Streaming","stats":[{"label":"p50","value":"188 ms","tone":"good"},{"label":"p95","value":"842 ms","tone":"bad"},{"label":"errors","value":"0.7%","tone":"warn"}]},"at":10.01,"progress":0.5},{"label":"regions","preview":{"eyebrow":"LIVE BASELINE","title":"Checkout latency","status":"Streaming","stats":[{"label":"p50","value":"188 ms","tone":"good"},{"label":"p95","value":"842 ms","tone":"bad"},{"label":"errors","value":"0.7%","tone":"warn"}],"bars":[{"label":"us-east","value":84,"max":100},{"label":"eu-west","value":58,"max":100},{"label":"ap-south","value":43,"max":100}]},"at":11.275,"progress":0.75},{"label":"traces","preview":{"eyebrow":"LIVE BASELINE","title":"Checkout latency","status":"Ready","stats":[{"label":"p50","value":"188 ms","tone":"good"},{"label":"p95","value":"842 ms","tone":"bad"},{"label":"errors","value":"0.7%","tone":"warn"}],"bars":[{"label":"us-east","value":84,"max":100},{"label":"eu-west","value":58,"max":100},{"label":"ap-south","value":43,"max":100}],"rows":[{"label":"pricing.lookup","value":"491 ms","state":"slow"},{"label":"inventory.reserve","value":"119 ms","state":"ok"},{"label":"payment.intent","value":"104 ms","state":"ok"}]},"at":12.539,"progress":1}],"start":8.326,"duration":4.613},{"id":"event-edit","type":"tool","name":"Edit","input":"Move cache lookup ahead of pricing hydration","result":"Updated checkout.ts / added stale-key regression test","status":"ok","start":12.939,"duration":1.713},{"id":"event-verify","type":"tool","name":"Bash","input":"pnpm test checkout && pnpm bench checkout","result":"19 passed / p95 842 ms -> 236 ms","status":"ok","start":14.652,"duration":1.619},{"id":"event-summary","type":"assistant","text":"The cache guard now bypasses the expensive hydration path. Tests pass and p95 is down by 72%.","start":16.271,"duration":1.916},{"id":"event-ui-result","type":"render_ui","code":"export default function ReleaseStatus(){return \u003cDashboard title=\"Patch verified\" stats={improvement} bars={checks} rows={changes} />} ","stream":[{"label":"shell","preview":{"eyebrow":"VERIFICATION","title":"Patch verified","status":"Streaming"},"at":18.607,"progress":0.25},{"label":"result","preview":{"eyebrow":"VERIFICATION","title":"Patch verified","status":"Streaming","stats":[{"label":"p95","value":"236 ms","tone":"good"},{"label":"change","value":"-72%","tone":"good"},{"label":"tests","value":"19/19","tone":"good"}]},"at":19.871,"progress":0.5},{"label":"checks","preview":{"eyebrow":"VERIFICATION","title":"Patch verified","status":"Streaming","stats":[{"label":"p95","value":"236 ms","tone":"good"},{"label":"change","value":"-72%","tone":"good"},{"label":"tests","value":"19/19","tone":"good"}],"bars":[{"label":"unit","value":100,"max":100},{"label":"integration","value":100,"max":100},{"label":"benchmark","value":92,"max":100}]},"at":21.136,"progress":0.75},{"label":"changes","preview":{"eyebrow":"VERIFICATION","title":"Patch verified","status":"Ready","stats":[{"label":"p95","value":"236 ms","tone":"good"},{"label":"change","value":"-72%","tone":"good"},{"label":"tests","value":"19/19","tone":"good"}],"bars":[{"label":"unit","value":100,"max":100},{"label":"integration","value":100,"max":100},{"label":"benchmark","value":92,"max":100}],"rows":[{"label":"checkout.ts","value":"+8 -5","state":"changed"},{"label":"checkout.test.ts","value":"+24","state":"changed"},{"label":"CI","value":"passed","state":"ok"}]},"at":22.4,"progress":1}],"start":18.187,"duration":4.613}],"duration":24,"introDuration":0.8,"outroDuration":1.2};
+    </script>
+    <style>
+      :root {
+        --bg: #101416;
+        --bg-raised: #171d1f;
+        --panel: #1d2426;
+        --panel-strong: #252e30;
+        --line: #3c484a;
+        --muted: #aab5b2;
+        --fg: #f4f5ef;
+        --accent: #b9e86a;
+        --cyan: #70c9ba;
+        --amber: #f2b85b;
+        --danger: #f07872;
+        --paper: #eef1e7;
+        --paper-ink: #172023;
+      }
+
+      * {
+        box-sizing: border-box;
+        letter-spacing: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "Montserrat", sans-serif;
+      }
+
+      body {
+        position: relative;
+      }
+
+      button,
+      code,
+      pre,
+      .mono {
+        font-family: "JetBrains Mono", monospace;
+        font-variant-ligatures: none;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+
+      .clip {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .frame-fill {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background: var(--bg);
+      }
+
+      .grid-field {
+        position: absolute;
+        inset: 0;
+        opacity: 0.16;
+        background-image:
+          linear-gradient(rgba(185, 232, 106, 0.12) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(185, 232, 106, 0.12) 1px, transparent 1px);
+        background-size: 72px 72px;
+      }
+
+      .preview-bloom {
+        position: absolute;
+        z-index: 0;
+        width: 940px;
+        height: 780px;
+        right: 60px;
+        top: 160px;
+        opacity: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(70, 133, 87, 0.42) 0%, rgba(70, 133, 87, 0) 68%);
+        transform-origin: 50% 50%;
+        will-change: transform, opacity;
+      }
+
+      .topbar {
+        position: absolute;
+        z-index: 5;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 78px;
+        display: flex;
+        align-items: center;
+        border-bottom: 2px solid var(--line);
+        background: rgba(16, 20, 22, 0.96);
+      }
+
+      .brand-lockup {
+        width: 278px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 28px;
+        border-right: 2px solid var(--line);
+      }
+
+      .brand-mark {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+      }
+
+      .brand-name {
+        font-size: 22px;
+        font-weight: 900;
+      }
+
+      .replay-title {
+        min-width: 0;
+        flex: 1;
+        padding: 0 32px;
+      }
+
+      .replay-title h1 {
+        margin: 0;
+        overflow: hidden;
+        color: var(--fg);
+        font-size: 26px;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .replay-title p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 17px;
+        font-weight: 400;
+      }
+
+      .topbar-meta {
+        width: 360px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 24px;
+        padding-right: 32px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .live-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .live-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .sidebar {
+        position: absolute;
+        z-index: 4;
+        left: 0;
+        top: 78px;
+        bottom: 58px;
+        width: 278px;
+        padding: 34px 28px;
+        border-right: 2px solid var(--line);
+        background: #13191b;
+      }
+
+      .sidebar-label {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 16px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .agent-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-bottom: 28px;
+        border-bottom: 2px solid var(--line);
+      }
+
+      .agent-avatar {
+        width: 52px;
+        height: 52px;
+        display: grid;
+        place-items: center;
+        border: 2px solid var(--accent);
+        border-radius: 8px;
+        color: var(--accent);
+        font-size: 22px;
+        font-weight: 900;
+      }
+
+      .agent-name {
+        color: var(--fg);
+        font-size: 22px;
+        font-weight: 900;
+      }
+
+      .agent-role {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .activity {
+        margin-top: 32px;
+      }
+
+      .activity-list {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        margin-top: 24px;
+      }
+
+      .activity-item {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        align-items: center;
+        gap: 12px;
+        color: #8b989a;
+        font-size: 17px;
+      }
+
+      .activity-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #4b5557;
+        transform-origin: 50% 50%;
+      }
+
+      .activity-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .workspace {
+        position: absolute;
+        z-index: 2;
+        left: 278px;
+        right: 0;
+        top: 78px;
+        bottom: 58px;
+        display: grid;
+        grid-template-columns: 678px minmax(0, 1fr);
+        gap: 24px;
+        padding: 24px 28px;
+      }
+
+      .trace-panel,
+      .preview-panel {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+        border: 2px solid var(--line);
+        border-radius: 8px;
+        background: rgba(23, 29, 31, 0.98);
+      }
+
+      .panel-header {
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        border-bottom: 2px solid var(--line);
+      }
+
+      .panel-heading {
+        font-size: 22px;
+        font-weight: 900;
+      }
+
+      .panel-kicker {
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .event-count {
+        color: var(--accent);
+        font-size: 19px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .feed-viewport {
+        position: absolute;
+        top: 74px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow: hidden;
+        padding: 22px 20px 0;
+      }
+
+      .feed-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        will-change: transform;
+      }
+
+      .event-card {
+        position: relative;
+        flex: 0 0 126px;
+        height: 126px;
+        overflow: hidden;
+        padding: 18px 20px 16px 56px;
+        border: 2px solid #354043;
+        border-radius: 8px;
+        background: #20282a;
+        opacity: 0;
+        will-change: transform, opacity;
+      }
+
+      .event-card.user {
+        background: #263129;
+        border-color: #587343;
+      }
+
+      .event-card.render_ui {
+        background: #202d2b;
+        border-color: #4f8b7f;
+      }
+
+      .event-icon {
+        position: absolute;
+        left: 18px;
+        top: 18px;
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border: 2px solid currentColor;
+        border-radius: 4px;
+        color: var(--cyan);
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      .event-card.user .event-icon {
+        color: var(--accent);
+      }
+
+      .event-card.tool .event-icon {
+        color: var(--amber);
+      }
+
+      .event-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .event-time {
+        color: #929d9e;
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .event-copy {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--fg);
+        font-size: 20px;
+        font-weight: 400;
+        line-height: 1.35;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .tool-line {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        color: #d8dfd8;
+        font-size: 17px;
+      }
+
+      .tool-input {
+        overflow: hidden;
+        color: var(--fg);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tool-result {
+        margin-top: 8px;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-mark {
+        min-width: 70px;
+        padding: 5px 8px;
+        border: 1px solid currentColor;
+        border-radius: 4px;
+        color: var(--cyan);
+        font-size: 14px;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .status-mark.warning {
+        color: var(--amber);
+      }
+
+      .status-mark.error {
+        color: var(--danger);
+      }
+
+      .stream-line {
+        height: 4px;
+        margin-top: 12px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: #33413f;
+      }
+
+      .stream-fill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--cyan);
+        transform: scaleX(0);
+        transform-origin: 0 50%;
+        will-change: transform;
+      }
+
+      .render-code {
+        display: block;
+        max-width: 100%;
+        height: 34px;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        color: #d9ede8;
+        font-size: 13px;
+        line-height: 1.3;
+        white-space: normal;
+      }
+
+      .preview-panel {
+        background: #1b2325;
+      }
+
+      .preview-header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .streaming-badge {
+        padding: 6px 10px;
+        border: 1px solid var(--cyan);
+        border-radius: 4px;
+        color: var(--cyan);
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .preview-progress-track {
+        position: absolute;
+        z-index: 4;
+        top: 70px;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: #293234;
+      }
+
+      .preview-progress {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: 0 50%;
+      }
+
+      .preview-canvas {
+        position: absolute;
+        top: 74px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow: hidden;
+        padding: 26px;
+      }
+
+      .preview-empty {
+        position: absolute;
+        inset: 26px;
+        display: grid;
+        place-items: center;
+        border: 2px dashed #465255;
+        border-radius: 8px;
+        color: #7f8a8b;
+        text-align: center;
+      }
+
+      .preview-empty strong {
+        display: block;
+        margin-bottom: 12px;
+        color: #aab5b2;
+        font-size: 28px;
+      }
+
+      .preview-empty span {
+        font-size: 18px;
+      }
+
+      .snapshot-stack {
+        position: absolute;
+        inset: 26px;
+      }
+
+      .ui-snapshot {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        padding: 38px;
+        border: 3px solid #c8cdbf;
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--paper-ink);
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .snapshot-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .snapshot-eyebrow {
+        color: #496b42;
+        font-size: 17px;
+        font-weight: 900;
+      }
+
+      .snapshot-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: #526061;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .snapshot-status::before {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #5aae7a;
+        content: "";
+      }
+
+      .snapshot-title {
+        margin: 22px 0 30px;
+        font-size: 48px;
+        font-weight: 900;
+        line-height: 1.04;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        min-height: 116px;
+      }
+
+      .stat-card {
+        height: 116px;
+        padding: 18px;
+        border: 2px solid #bac1b4;
+        border-radius: 8px;
+        background: #f8f9f3;
+        transform-origin: 50% 50%;
+        will-change: transform, opacity;
+      }
+
+      .stat-label {
+        color: #5f6d6d;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 16px;
+      }
+
+      .stat-value {
+        margin-top: 10px;
+        color: #1a2527;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 30px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-card.good .stat-value {
+        color: #28704b;
+      }
+
+      .stat-card.warn .stat-value {
+        color: #9b681c;
+      }
+
+      .stat-card.bad .stat-value {
+        color: #a93d3b;
+      }
+
+      .snapshot-body {
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+        gap: 22px;
+        margin-top: 24px;
+      }
+
+      .bars,
+      .rows {
+        min-height: 234px;
+        padding: 20px;
+        border: 2px solid #c5cabf;
+        border-radius: 8px;
+        background: #f7f8f1;
+      }
+
+      .section-label {
+        margin-bottom: 18px;
+        color: #5f6d6c;
+        font-size: 16px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .bar-row {
+        margin-bottom: 18px;
+      }
+
+      .bar-meta {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        color: #3f4d4d;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 15px;
+      }
+
+      .bar-track {
+        height: 13px;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #d9ddd2;
+      }
+
+      .bar-fill {
+        display: block;
+        width: var(--bar-width);
+        height: 100%;
+        border-radius: 4px;
+        background: #5d8e69;
+        transform-origin: 0 50%;
+        will-change: transform;
+      }
+
+      .data-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+        min-height: 50px;
+        border-bottom: 1px solid #cdd2c8;
+        color: #334142;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 15px;
+      }
+
+      .data-row:last-child {
+        border-bottom: 0;
+      }
+
+      .data-row-value {
+        color: #53615f;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .bottom-bar {
+        position: absolute;
+        z-index: 6;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 58px;
+        display: flex;
+        align-items: center;
+        border-top: 2px solid var(--line);
+        background: #111719;
+      }
+
+      .timeline-track {
+        position: relative;
+        flex: 1;
+        height: 6px;
+        margin: 0 30px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: #344042;
+      }
+
+      .timeline-fill {
+        width: 100%;
+        height: 100%;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: 0 50%;
+      }
+
+      .timecode {
+        width: 124px;
+        color: var(--fg);
+        font-size: 19px;
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+      }
+
+      .event-total {
+        width: 172px;
+        border-left: 2px solid var(--line);
+        color: var(--muted);
+        font-size: 17px;
+        text-align: center;
+      }
+
+      .complete-pill {
+        position: absolute;
+        z-index: 10;
+        right: 54px;
+        bottom: 86px;
+        padding: 15px 20px;
+        border: 2px solid var(--accent);
+        border-radius: 6px;
+        background: #1c2820;
+        color: var(--accent);
+        font-size: 20px;
+        font-weight: 900;
+        opacity: 0;
+        will-change: transform, opacity;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="macaron-replay"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="24"
+    >
+      <section
+        id="replay-shell"
+        class="clip"
+        data-start="0"
+        data-duration="24"
+        data-track-index="1"
+      >
+        <div class="frame-fill">
+          <div class="grid-field"></div>
+          <div id="preview-bloom" class="preview-bloom"></div>
+        </div>
+
+        <header class="topbar">
+          <div class="brand-lockup">
+            <img class="brand-mark" src=".media/images/logo_001.svg" alt="" />
+            <div class="brand-name">Macaron</div>
+          </div>
+          <div class="replay-title">
+            <h1 id="replay-title"></h1>
+            <p id="replay-subtitle"></p>
+          </div>
+          <div class="topbar-meta mono">
+            <span id="event-position">EVENT 00 / 00</span>
+            <span class="live-state"><span class="live-dot"></span>REPLAY</span>
+          </div>
+        </header>
+
+        <aside class="sidebar">
+          <div class="sidebar-label">Agent</div>
+          <div class="agent-row">
+            <div id="agent-avatar" class="agent-avatar"></div>
+            <div>
+              <div id="agent-name" class="agent-name"></div>
+              <div class="agent-role">local coding agent</div>
+            </div>
+          </div>
+          <div class="activity">
+            <div class="sidebar-label">Run activity</div>
+            <div id="activity-list" class="activity-list"></div>
+          </div>
+        </aside>
+
+        <main class="workspace">
+          <section class="trace-panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-heading">Session trace</div>
+                <div class="panel-kicker">messages and tool execution</div>
+              </div>
+              <div id="trace-count" class="event-count mono">00 / 00</div>
+            </div>
+            <div class="feed-viewport">
+              <div id="feed-stack" class="feed-stack" data-layout-allow-overflow></div>
+            </div>
+          </section>
+
+          <section class="preview-panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-heading">render_ui output</div>
+                <div class="panel-kicker">incremental component snapshots</div>
+              </div>
+              <div class="preview-header-right mono">
+                <span id="stream-label">WAITING</span>
+                <span class="streaming-badge">STREAM</span>
+              </div>
+            </div>
+            <div class="preview-progress-track"><span id="preview-progress" class="preview-progress"></span></div>
+            <div class="preview-canvas">
+              <div id="preview-empty" class="preview-empty">
+                <div><strong>Preview idle</strong><span>render_ui frames will stream here</span></div>
+              </div>
+              <div id="snapshot-stack" class="snapshot-stack"></div>
+            </div>
+          </section>
+        </main>
+
+        <footer class="bottom-bar">
+          <div id="timecode" class="timecode mono">00:00.0</div>
+          <div class="timeline-track"><div id="timeline-fill" class="timeline-fill"></div></div>
+          <div id="event-total" class="event-total mono"></div>
+        </footer>
+        <div id="complete-pill" class="complete-pill">REPLAY COMPLETE</div>
+      </section>
+    </div>
+
+    <script>
+      const replay = window.REPLAY_DATA;
+      const totalEvents = replay.events.length;
+      const formatTime = (seconds) => {
+        const whole = Math.floor(seconds);
+        const tenths = Math.floor((seconds - whole) * 10);
+        return `00:${String(whole).padStart(2, "0")}.${tenths}`;
+      };
+      const create = (tag, className, text) => {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+      const eventLabel = (event) => {
+        if (event.type === "render_ui") return "render_ui";
+        if (event.type === "tool") return event.name;
+        return event.type;
+      };
+
+      document.getElementById("replay-title").textContent = replay.title;
+      document.getElementById("replay-subtitle").textContent = replay.subtitle || "Agent session replay";
+      document.getElementById("agent-name").textContent = replay.agent;
+      document.getElementById("agent-avatar").textContent = replay.agent.slice(0, 2).toUpperCase();
+      document.getElementById("event-total").textContent = `${totalEvents} EVENTS`;
+
+      const activityList = document.getElementById("activity-list");
+      const feedStack = document.getElementById("feed-stack");
+      const snapshotStack = document.getElementById("snapshot-stack");
+      const activityDots = [];
+      const eventCards = [];
+      const renderEvents = [];
+
+      function renderEventCard(event, index) {
+        const card = create("article", `event-card ${event.type}`);
+        card.id = `card-${event.id}`;
+        const icon = create("div", "event-icon", event.type === "user" ? "U" : event.type === "assistant" ? "A" : event.type === "render_ui" ? "UI" : ">_");
+        card.appendChild(icon);
+        const label = create("div", "event-label");
+        label.appendChild(create("span", "mono", eventLabel(event)));
+        label.appendChild(create("span", "event-time mono", formatTime(event.start)));
+        card.appendChild(label);
+
+        if (event.type === "user" || event.type === "assistant") {
+          card.appendChild(create("div", "event-copy", event.text));
+        } else if (event.type === "tool") {
+          const line = create("div", "tool-line mono");
+          line.appendChild(create("div", "tool-input", event.input));
+          line.appendChild(create("div", `status-mark ${event.status || "ok"}`, event.status || "ok"));
+          card.appendChild(line);
+          card.appendChild(create("div", "tool-result mono", event.result));
+        } else {
+          const code = create("code", "render-code", "");
+          code.id = `code-${event.id}`;
+          card.appendChild(code);
+          const line = create("div", "stream-line");
+          const fill = create("span", "stream-fill");
+          fill.id = `stream-${event.id}`;
+          line.appendChild(fill);
+          card.appendChild(line);
+          renderEvents.push({ event, code, fill });
+        }
+
+        feedStack.appendChild(card);
+        eventCards.push(card);
+
+        const activity = create("div", "activity-item");
+        const dot = create("span", "activity-dot");
+        dot.id = `activity-${event.id}`;
+        activity.appendChild(dot);
+        activity.appendChild(create("span", "activity-text", `${String(index + 1).padStart(2, "0")}  ${eventLabel(event)}`));
+        activityList.appendChild(activity);
+        activityDots.push(dot);
+      }
+
+      function appendStat(container, stat) {
+        const card = create("div", `stat-card ${stat.tone || ""}`);
+        card.appendChild(create("div", "stat-label", stat.label));
+        card.appendChild(create("div", "stat-value", stat.value));
+        container.appendChild(card);
+      }
+
+      function renderSnapshot(event, frame, eventIndex, frameIndex) {
+        const preview = frame.preview;
+        const snapshot = create("section", "ui-snapshot");
+        snapshot.id = `snapshot-${eventIndex}-${frameIndex}`;
+        const topLine = create("div", "snapshot-topline");
+        topLine.appendChild(create("div", "snapshot-eyebrow", preview.eyebrow));
+        topLine.appendChild(create("div", "snapshot-status", preview.status || "Streaming"));
+        snapshot.appendChild(topLine);
+        snapshot.appendChild(create("h2", "snapshot-title", preview.title));
+
+        const stats = create("div", "stats-grid");
+        (preview.stats || []).forEach((stat) => appendStat(stats, stat));
+        snapshot.appendChild(stats);
+
+        if ((preview.bars && preview.bars.length) || (preview.rows && preview.rows.length)) {
+          const body = create("div", "snapshot-body");
+          const bars = create("div", "bars");
+          bars.appendChild(create("div", "section-label", "Signal"));
+          (preview.bars || []).forEach((bar) => {
+            const row = create("div", "bar-row");
+            const meta = create("div", "bar-meta");
+            meta.appendChild(create("span", "", bar.label));
+            meta.appendChild(create("span", "", `${bar.value}%`));
+            row.appendChild(meta);
+            const track = create("div", "bar-track");
+            const fill = create("span", "bar-fill");
+            fill.style.setProperty("--bar-width", `${Math.round((bar.value / bar.max) * 100)}%`);
+            track.appendChild(fill);
+            row.appendChild(track);
+            bars.appendChild(row);
+          });
+          body.appendChild(bars);
+
+          const rows = create("div", "rows");
+          rows.appendChild(create("div", "section-label", "Details"));
+          (preview.rows || []).forEach((item) => {
+            const row = create("div", "data-row");
+            row.appendChild(create("span", "", item.label));
+            row.appendChild(create("span", "data-row-value", item.value));
+            rows.appendChild(row);
+          });
+          body.appendChild(rows);
+          snapshot.appendChild(body);
+        }
+        snapshotStack.appendChild(snapshot);
+        return snapshot;
+      }
+
+      replay.events.forEach(renderEventCard);
+      renderEvents.forEach(({ event }, eventIndex) => {
+        event.snapshotNodes = event.stream.map((frame, frameIndex) => renderSnapshot(event, frame, eventIndex, frameIndex));
+      });
+
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const timelineFill = document.getElementById("timeline-fill");
+      const previewProgress = document.getElementById("preview-progress");
+      const previewEmpty = document.getElementById("preview-empty");
+      const streamLabel = document.getElementById("stream-label");
+      const eventPosition = document.getElementById("event-position");
+      const traceCount = document.getElementById("trace-count");
+      const timecode = document.getElementById("timecode");
+      const easeCycle = ["power3.out", "expo.out", "circ.out", "sine.out", "power4.out"];
+
+      tl.fromTo(".topbar", { y: -78 }, { y: 0, duration: 0.46, ease: "power3.out" }, 0.12);
+      tl.fromTo(".sidebar", { x: -278 }, { x: 0, duration: 0.62, ease: "expo.out" }, 0.16);
+      tl.fromTo(".workspace", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.52, ease: "circ.out" }, 0.2);
+      tl.fromTo(".bottom-bar", { y: 58 }, { y: 0, duration: 0.4, ease: "sine.out" }, 0.28);
+      tl.fromTo(timelineFill, { scaleX: 0 }, { scaleX: 1, duration: replay.duration, ease: "none" }, 0);
+
+      const clock = { t: 0 };
+      let lastTick = -1;
+      tl.to(clock, {
+        t: replay.duration,
+        duration: replay.duration,
+        ease: "none",
+        onUpdate: () => {
+          const tick = Math.floor(clock.t * 10);
+          if (tick !== lastTick) {
+            timecode.textContent = formatTime(clock.t);
+            lastTick = tick;
+          }
+        },
+      }, 0);
+
+      replay.events.forEach((event, index) => {
+        const card = eventCards[index];
+        const start = event.start;
+        const from = index % 4 === 0
+          ? { opacity: 0, x: 30, scale: 0.98 }
+          : index % 4 === 1
+            ? { opacity: 0, y: 24, scale: 0.98 }
+            : index % 4 === 2
+              ? { opacity: 0, x: -24, scale: 0.97 }
+              : { opacity: 0, y: -18, scale: 0.98 };
+        tl.fromTo(card, from, { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.36 + (index % 3) * 0.08, ease: easeCycle[index % easeCycle.length] }, start);
+
+        const scrollOffset = Math.max(0, (index - 3) * 140);
+        if (scrollOffset > 0) {
+          tl.to(feedStack, { y: -scrollOffset, duration: 0.44, ease: "power3.inOut" }, start + 0.18);
+        }
+        if (index >= 4) {
+          const staleCard = eventCards[index - 4];
+          tl.to(staleCard, { opacity: 0, duration: 0.12, ease: "power1.in" }, start + 0.06);
+          tl.set(staleCard, { visibility: "hidden" }, start + 0.18);
+        }
+
+        tl.to(activityDots[index], { scale: 1.35, backgroundColor: "#b9e86a", duration: 0.18, ease: "power2.out" }, start);
+        if (index > 0) {
+          tl.to(activityDots[index - 1], { scale: 1, backgroundColor: "#4b5557", duration: 0.16, ease: "power1.in" }, start);
+        }
+        tl.set(eventPosition, { innerText: `EVENT ${String(index + 1).padStart(2, "0")} / ${String(totalEvents).padStart(2, "0")}` }, start);
+        tl.set(traceCount, { innerText: `${String(index + 1).padStart(2, "0")} / ${String(totalEvents).padStart(2, "0")}` }, start);
+      });
+
+      let previousSnapshot = null;
+      renderEvents.forEach(({ event, code, fill }, renderIndex) => {
+        const codeDriver = { value: 0 };
+        tl.to(codeDriver, {
+          value: event.code.length,
+          duration: Math.max(1, event.duration - 0.5),
+          ease: "none",
+          onUpdate: () => {
+            code.textContent = event.code.slice(0, Math.floor(codeDriver.value));
+          },
+        }, event.start + 0.16);
+        tl.fromTo(fill, { scaleX: 0 }, { scaleX: 1, duration: event.duration - 0.3, ease: "none" }, event.start + 0.14);
+        tl.set(previewProgress, { scaleX: 0 }, event.start);
+        tl.to(previewProgress, { scaleX: 1, duration: event.duration - 0.2, ease: "none" }, event.start + 0.1);
+        tl.set(streamLabel, { innerText: `CALL ${String(renderIndex + 1).padStart(2, "0")}` }, event.start);
+        tl.to(previewEmpty, { opacity: 0, duration: 0.24, ease: "power1.in" }, event.start);
+
+        event.stream.forEach((frame, frameIndex) => {
+          const snapshot = event.snapshotNodes[frameIndex];
+          const at = frame.at;
+          if (previousSnapshot) {
+            tl.to(previousSnapshot, { opacity: 0, duration: 0.16, ease: "power1.in" }, at);
+            tl.set(previousSnapshot, { visibility: "hidden" }, at + 0.16);
+          }
+          tl.fromTo(snapshot, { autoAlpha: 0, scale: 0.985 }, { autoAlpha: 1, scale: 1, duration: 0.3, ease: frameIndex === 0 ? "power3.out" : "expo.out" }, at);
+          tl.set(streamLabel, { innerText: frame.label.toUpperCase() }, at);
+
+          const statCards = snapshot.querySelectorAll(".stat-card");
+          statCards.forEach((stat, statIndex) => {
+            tl.fromTo(stat, { opacity: 0, scale: 0.92, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.38, ease: "power3.out" }, at + 0.08 + statIndex * 0.06);
+          });
+          snapshot.querySelectorAll(".bar-fill").forEach((bar, barIndex) => {
+            tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: 0.44, ease: "circ.out" }, at + 0.1 + barIndex * 0.07);
+          });
+          snapshot.querySelectorAll(".data-row").forEach((row, rowIndex) => {
+            tl.fromTo(row, { opacity: 0, x: 14 }, { opacity: 1, x: 0, duration: 0.3, ease: "sine.out" }, at + 0.12 + rowIndex * 0.06);
+          });
+          previousSnapshot = snapshot;
+        });
+      });
+
+      const bloomPhase = { p: 0 };
+      const firstRender = renderEvents[0]?.event;
+      if (firstRender) {
+        tl.fromTo("#preview-bloom", { opacity: 0, scale: 0.86 }, { opacity: 0.26, scale: 1, duration: 0.9, ease: "power2.out" }, firstRender.start);
+        tl.to(bloomPhase, {
+          p: Math.PI * 6,
+          duration: replay.duration - firstRender.start,
+          ease: "none",
+          onUpdate: () => {
+            const bloom = document.getElementById("preview-bloom");
+            const wave = Math.sin(bloomPhase.p);
+            bloom.style.opacity = String(0.26 + wave * 0.025);
+            bloom.style.transform = `scale(${1 + wave * 0.018})`;
+          },
+        }, firstRender.start + 0.9);
+      }
+
+      const closeAt = replay.duration - replay.outroDuration;
+      tl.fromTo("#complete-pill", { opacity: 0, scale: 0.92, y: 18 }, { opacity: 1, scale: 1, y: 0, duration: 0.42, ease: "power3.out" }, closeAt);
+      tl.to(".live-dot", { backgroundColor: "#70c9ba", scale: 1.35, duration: 0.25, ease: "power2.out" }, closeAt);
+
+      window.__timelines["macaron-replay"] = tl;
+    </script>
+  </body>
+</html>

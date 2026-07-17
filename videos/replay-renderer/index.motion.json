@@ -1,0 +1,13 @@
+{
+  "duration": 24,
+  "maxStaticSec": 2.4,
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#replay-title", "bySec": 0.7 },
+    { "kind": "appearsBy", "selector": "#card-event-user", "bySec": 1.4 },
+    { "kind": "before", "a": "#card-event-user", "b": "#card-event-read" },
+    { "kind": "appearsBy", "selector": "#snapshot-0-3", "bySec": 12.9 },
+    { "kind": "appearsBy", "selector": "#snapshot-1-3", "bySec": 22.8 },
+    { "kind": "staysInFrame", "selector": ".preview-panel" },
+    { "kind": "keepsMoving", "withinSelector": "#replay-shell", "maxStaticSec": 2.4 }
+  ]
+}
