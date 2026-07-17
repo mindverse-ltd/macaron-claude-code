@@ -51,6 +51,14 @@ export function validateReplay(replay) {
       event.stream.forEach((frame, frameIndex) => {
         assert(typeof frame.label === 'string' && frame.label.trim(), `${event.id}.stream[${frameIndex}].label is required`);
         assert(frame.preview && typeof frame.preview === 'object', `${event.id}.stream[${frameIndex}].preview is required`);
+        if (frameIndex > 0) {
+          const previous = event.stream[frameIndex - 1].preview;
+          for (const key of ['stats', 'bars', 'rows']) {
+            const previousCount = Array.isArray(previous[key]) ? previous[key].length : 0;
+            const currentCount = Array.isArray(frame.preview[key]) ? frame.preview[key].length : 0;
+            assert(currentCount >= previousCount, `${event.id}.stream[${frameIndex}].preview.${key} must be cumulative`);
+          }
+        }
       });
     }
   });

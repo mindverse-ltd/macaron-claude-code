@@ -1,29 +1,35 @@
 ---
-background: "#101416"
-foreground: "#F4F5EF"
-accent: "#B9E86A"
-font_display: "Montserrat"
-font_mono: "JetBrains Mono"
+background: "#FAF9F5"
+surface: "#FFFFFF"
+surface_2: "#F5F4ED"
+surface_3: "#EFEDE3"
+border: "#E8E6DC"
+border_strong: "#D9D5C7"
+foreground: "#3D3929"
+foreground_2: "#5D584A"
+muted: "#8A8473"
+accent: "#C96442"
+good: "#5A8B5A"
+warn: "#B88A3A"
+bad: "#C0524A"
+font_display: "Tiempos Text"
+font_body: "Sohne"
+font_mono: "Sohne Mono"
 corner_radius: 8
 ---
 
-# Replay Workbench
+# Macaron Session Replay
 
-Concept angle: a session replay should feel like a calm editing desk where the
-agent's trace remains readable while the generated interface becomes the active
-subject.
+This composition uses the existing Macaron web design system verbatim. The
+normative source is `web/src/styles.css`: warm paper background, white and
+warm-gray surfaces, orange accent, 1px warm-gray borders, and the existing
+Sohne/Tiempos/Sohne Mono stacks.
 
-- Focal element: the live `render_ui` preview on the right.
-- Edge anchors: session identity at top-left; elapsed time and event count at
-  bottom-right.
-- Supporting detail: fixed-height transcript rows, tool status marks, a timeline
-  rail, and a single streaming progress rule.
-- Background: deep green-tinted neutral with a low-opacity grid and one bounded
-  lime bloom behind the preview surface.
-- Typography: Montserrat 700/900 for product labels and titles; JetBrains Mono
-  400/700 for tool names, code, values, and timestamps.
-- Motion rules: dynamic-content-sequencing for event timing,
-  discrete-text-sequence for streamed code, spring-pop-entrance for UI groups,
-  and ambient-glow-bloom for the preview focus.
-- No narration or music. Silence keeps the review surface functional and avoids
-  implying production audio is part of the renderer contract.
+- Preserve the 260px Macaron sidebar, pill session bar, 14px thread surface,
+  inline TUI tool rows, and `render_ui` header treatment.
+- The GenUI preview is one persistent DOM tree. Streaming stages update text,
+  values, and bar transforms in place; newly available nodes enter individually.
+- Never crossfade, replace, or hide the whole preview between stream stages.
+- Use only existing Macaron semantic colors and radii. Do not add a separate
+  replay palette, decorative grid, glow, or heavy video-only border system.
+- No narration or music. The result remains a functional review surface.

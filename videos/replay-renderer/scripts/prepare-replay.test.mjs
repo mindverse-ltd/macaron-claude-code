@@ -40,6 +40,24 @@ test('rejects duplicate ids and unsupported event types', () => {
   );
 });
 
+test('rejects render_ui streams that remove previously rendered nodes', () => {
+  const renderEvent = structuredClone(fixture.events.find((event) => event.type === 'render_ui'));
+  renderEvent.stream[2].preview.stats = [];
+  assert.throws(
+    () => validateReplay({ ...fixture, events: [renderEvent] }),
+    /preview.stats must be cumulative/,
+  );
+});
+
+test('template uses one persistent GenUI root without snapshot swapping', () => {
+  const template = fs.readFileSync(new URL('../index.template', import.meta.url), 'utf8');
+  assert.equal(template.match(/id="genui-root"/g)?.length, 1);
+  assert.doesNotMatch(template, /ui-snapshot|renderSnapshot|previousSnapshot/);
+  assert.match(template, /updateStats\(preview\.stats \|\| \[\], at\)/);
+  assert.match(template, /updateBars\(preview\.bars \|\| \[\], at\)/);
+  assert.match(template, /updateRows\(preview\.rows \|\| \[\], at\)/);
+});
+
 test('template rendering escapes script-closing markup', () => {
   const replay = prepareReplay({
     ...fixture,

@@ -2,7 +2,7 @@
 
 This HyperFrames project turns a normalized Macaron session replay into a
 deterministic MP4. It renders messages, ordinary tool calls, tool results, and
-incremental `render_ui` snapshots on one seekable timeline.
+incremental `render_ui` updates on one seekable timeline.
 
 ## Render the sample
 
@@ -38,7 +38,7 @@ without a separate build step.
 - `tool`: `name`, `input`, `result`, and optional `status`.
 - `render_ui`: source `code` plus at least two ordered `stream` frames.
 
-Each stream frame carries a small visual snapshot descriptor: title, status,
-optional stats, bars, and rows. Keeping snapshots declarative makes frame seeking
-deterministic and avoids executing arbitrary model-authored TSX during video
-rendering.
+Each stream frame carries a small cumulative UI descriptor: title, status,
+optional stats, bars, and rows. The renderer keeps one persistent preview DOM
+tree and applies each stage in place, matching Macaron's incremental GenUI
+behavior without executing arbitrary model-authored TSX during video rendering.
