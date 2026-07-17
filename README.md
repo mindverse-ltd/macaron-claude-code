@@ -19,7 +19,7 @@ The repo doubles as its own plugin marketplace. Use the full https URL — the `
 In a Claude Code session, run each command separately (pasting both lines at once merges them into one command):
 
 ```
-/plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+/plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 ```
 
 ```
@@ -29,7 +29,7 @@ In a Claude Code session, run each command separately (pasting both lines at onc
 or from the shell:
 
 ```bash
-claude plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+claude plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 claude plugin install macaron@macaron
 ```
 
@@ -38,7 +38,7 @@ For local development, install your checkout directly: `claude plugin install /p
 ### Codex
 
 ```bash
-codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 codex plugin add macaron@macaron
 ```
 
@@ -46,7 +46,7 @@ Requires **codex-cli ≥ 0.142.0** — older releases can't resolve a plugin roo
 
 ```bash
 codex plugin marketplace remove macaron
-codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifacts
+codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 ```
 
 ### Kimi Code
@@ -54,7 +54,7 @@ codex plugin marketplace add https://github.com/MindLab-Research/macaron-artifac
 In a Kimi Code session, install from the GitHub URL, then reload to activate:
 
 ```
-/plugins install https://github.com/MindLab-Research/macaron-artifacts
+/plugins install https://github.com/mindverse-ltd/macaron-artifacts
 /reload
 ```
 
@@ -63,20 +63,20 @@ In a Kimi Code session, install from the GitHub URL, then reload to activate:
 Three independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`), `mcx` (Codex WebUI, port `7979`), and `mkx` (Kimi WebUI, port `7980`). Install one, get only that one. Launch any of them in one command, no plugin install needed:
 
 ```bash
-bunx mcc@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
-bunx mcx@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
-bunx mkx@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
+bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
+bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
+bunx mkx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
 ```
 
 `npx` works the same way — bin name = package name for all three:
 
 ```bash
-npx mcc@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
-npx mcx@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
-npx mkx@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
+npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
+npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
+npx mkx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
 ```
 
-Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/MindLab-Research/macaron-artifacts/commits/main)). All three accept `--host` / `--port`; run with `--help` for the full list.
+Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-artifacts/commits/main)). All three accept `--host` / `--port`; run with `--help` for the full list.
 
 Verify:
 
