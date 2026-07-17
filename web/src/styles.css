@@ -1121,6 +1121,7 @@ textarea:focus, select:focus, input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap; /* narrow screens: whole tags drop to the next line instead of squeezing the name */
   margin-bottom: 3px;
 }
 .prov-name { font-weight: 600; }
@@ -1133,6 +1134,7 @@ textarea:focus, select:focus, input:focus {
   color: var(--muted);
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  white-space: nowrap; /* never split a badge mid-word (e.g. "BUILT-IN") */
 }
 .prov-tag.ok { color: #3a7; background: rgba(76, 175, 80, 0.12); }
 .prov-tag.bad { color: #c65; background: rgba(198, 92, 82, 0.12); }
@@ -4954,6 +4956,19 @@ textarea:focus, select:focus, input:focus {
   padding: 40px;
   text-align: center;
 }
+@media (max-width: 768px) {
+  /* Stack tree above editor: a fixed 280px tree would squeeze the editor to
+     an unusable sliver on phones. */
+  .fx-body { flex-direction: column; }
+  .fx-tree {
+    width: 100%;
+    max-height: 45%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  /* Clear the fixed hamburger (same 60px offset .view uses). */
+  .fx-head { padding-left: 60px; }
+}
 
 /* ---------- demos gallery ---------- */
 .examples-view {
@@ -5007,6 +5022,15 @@ textarea:focus, select:focus, input:focus {
   font-size: 13px;
   min-width: 220px;
   cursor: pointer;
+}
+@media (max-width: 768px) {
+  /* Side-by-side head leaves the intro a ~90px column once the 220px select
+     takes its share — stack instead and let the picker span full width.
+     Top padding mirrors .view's mobile rule to clear the fixed hamburger. */
+  .examples-view { padding: 60px 18px calc(40px + env(safe-area-inset-bottom)); }
+  .examples-head { flex-direction: column; }
+  .examples-target { width: 100%; }
+  .examples-target select { min-width: 0; width: 100%; }
 }
 .examples-section { margin-top: 28px; }
 .examples-section-title {
