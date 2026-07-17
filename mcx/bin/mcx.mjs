@@ -13,12 +13,21 @@ function printHelp() {
   Start the Macaron Codex WebUI (ChatGPT-style chat over the Codex SDK).
 
 Options:
-  --host <host>     Bind address (default: 127.0.0.1)
-  --port <port>     Port (default: 7979 — offset from mcc's 7878 so both can run)
-  --version, -v     Print version and exit
-  --help, -h        Show this help
+  --host <host>          Bind address (default: 127.0.0.1)
+  --port <port>          Port (default: 7979 — offset from mcc's 7878 so both can run)
+  --allow-origin <url>   Allow a hosted WebUI on this origin to drive the server
+                         cross-origin (repeatable; appends to MACARON_ALLOWED_ORIGINS)
+  --allow-hosted         Allow the official hosted WebUI (https://artifacts.macaron.im)
+  --version, -v          Print version and exit
+  --help, -h             Show this help
+
+Enabling any origin arms an access token so the API is never open cross-origin.
+Precedence is additive: MACARON_ALLOWED_ORIGINS (env) ∪ every --allow-origin ∪,
+if --allow-hosted / MACARON_ALLOW_HOSTED is set, the official origin.
 
 Environment:
+  MACARON_ALLOWED_ORIGINS  Comma-separated allowed origins
+  MACARON_ALLOW_HOSTED     1/true to include the official hosted origin
   MACARON_CODEX_PATH   Path to codex CLI binary (default: auto-detected)
   MACARON_LOG_LEVEL    Log level (default: info)
 
@@ -34,8 +43,6 @@ async function printVersion() {
 
 const readValue = (i, flag) => {
   const v = args[i + 1];
-  // Reject only a missing or flag-like next token; an empty value passes here
-  // (matching `--flag=`) and, for --port, is caught by the range check below.
   if (v === undefined || v.startsWith('-')) throw new Error(`${flag} requires a value`);
   return v;
 };
@@ -48,6 +55,19 @@ try {
     const inline = eq === -1 ? null : a.slice(eq + 1);
     if (flag === '--help' || flag === '-h') { printHelp(); process.exit(0); }
     if (flag === '--version' || flag === '-v') { await printVersion(); process.exit(0); }
+    if (flag === '--allow-hosted') {
+      if (inline !== null) throw new Error(`${flag} does not take a value`);
+      process.env.MACARON_ALLOW_HOSTED = '1';
+      continue;
+    }
+    if (flag === '--allow-origin') {
+      const origin = (inline ?? readValue(i, flag)).trim();
+      if (!origin) throw new Error(`${flag} requires a non-empty value`);
+      const cur = process.env.MACARON_ALLOWED_ORIGINS;
+      process.env.MACARON_ALLOWED_ORIGINS = cur ? `${cur},${origin}` : origin;
+      if (inline === null) i++;
+      continue;
+    }
     if (flag === '--host' || flag === '--port') {
       process.env[flag === '--host' ? 'MACARON_HOST' : 'MACARON_PORT'] = inline ?? readValue(i, flag);
       // Advance past the consumed value only for the space form (inline === null).
