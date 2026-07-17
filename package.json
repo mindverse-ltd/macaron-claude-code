@@ -12,8 +12,8 @@
     "bundle": "pnpm --filter @macaron/server bundle",
     "prepack": "pnpm --filter @macaron/shared build && pnpm --filter @macaron/server bundle && pnpm --filter @macaron/web build",
     "typecheck": "pnpm --filter @macaron/shared typecheck && pnpm --filter @macaron/server typecheck && pnpm --filter @macaron/web typecheck",
-    "replay:test": "npm --prefix videos/replay-renderer test",
-    "replay:render": "npm --prefix videos/replay-renderer run render"
+    "replay:test": "node --test scripts/replay/*.test.mjs",
+    "replay:render": "pnpm build:web && node scripts/replay/render.mjs"
   },
   "bin": {
     "mcc": "./bin/mcc.mjs"
@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
-    "pkg-pr-new": "^0.0.75"
+    "pkg-pr-new": "^0.0.75",
+    "playwright-core": "^1.61.1"
   }
 }

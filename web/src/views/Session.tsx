@@ -705,10 +705,12 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   // and just tack an error banner on top.
   const [lastGoodCode, setLastGoodCode] = useState('');
   const [runtimeError, setRuntimeError] = useState('');
+  const [hasRendered, setHasRendered] = useState(false);
 
   const onRendered = useCallback((rendered: string) => {
     setLastGoodCode(rendered);
     setRuntimeError('');
+    setHasRendered(true);
   }, []);
   const onError = useCallback((err: Error) => {
     setRuntimeError(err.message || String(err));
@@ -717,6 +719,7 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
   const displayCode = code || lastGoodCode;
   const toolError = it.status === 'error' ? (it.error || 'unknown error') : '';
   const banner = toolError || runtimeError;
+  const waitingForFirstFrame = !hasRendered && !banner;
 
   if (!displayCode) {
     if (toolError) {
@@ -739,16 +742,23 @@ function GenuiItem({ it }: { it: Extract<Item, { kind: 'genui' }> }) {
           Newer render failed — showing last good frame. {banner}
         </div>
       )}
-      <StaticGenUIRenderer
-        code={displayCode}
-        active
-        streaming={streaming}
-        preserveStateOnUpdate={streaming}
-        flushMode="immediate"
-        onRendered={onRendered}
-        onError={onError}
-        className="ti-genui-renderer macaron-genui-scope"
-      />
+      {waitingForFirstFrame && <div className="ti-genui-pending">generating UI…</div>}
+      <div
+        data-genui-render-state={hasRendered ? 'ready' : 'pending'}
+        aria-hidden={!hasRendered}
+        style={!hasRendered ? { height: 0, overflow: 'hidden', visibility: 'hidden' } : undefined}
+      >
+        <StaticGenUIRenderer
+          code={displayCode}
+          active
+          streaming={streaming}
+          preserveStateOnUpdate={streaming}
+          flushMode="immediate"
+          onRendered={onRendered}
+          onError={onError}
+          className="ti-genui-renderer macaron-genui-scope"
+        />
+      </div>
     </div>
   );
 }
