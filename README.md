@@ -92,7 +92,7 @@ Inside Claude Code:
 /macaron
 ```
 
-The slash command starts the local server (`node server/dist/index.js`, port `7878` by default) and opens `http://localhost:7878` in your browser. Pass a custom port with `/macaron 8080`.
+The slash command starts the local server (`node server/dist/index.js`, fixed port `7878`) and opens `http://localhost:7878` in your browser.
 
 Inside Codex, ask it to open the Macaron WebUI. The Codex-side default port is `7979`.
 
