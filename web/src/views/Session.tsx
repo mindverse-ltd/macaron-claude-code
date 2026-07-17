@@ -630,12 +630,14 @@ function ToolItem({ id, name, input, result, durationMs, isError }: { id?: strin
 function ThinkingIndicator({
   assistantLen,
   outputTokens,
+  activity,
 }: {
   assistantLen: number;
   // Authoritative cumulative output_tokens from the SDK's message_delta
   // usage stream. -1 = no signal yet (Macaron path or pre-first-delta); in
   // that case we fall back to the CLI's len/4 English estimate.
   outputTokens: number;
+  activity: readonly unknown[];
 }) {
   const startRef = useRef(Date.now());
   const verbRef = useRef<string>(THINKING_VERBS[Math.floor(Math.random() * THINKING_VERBS.length)]!);
@@ -650,8 +652,6 @@ function ThinkingIndicator({
     outputTokens >= 0 ? outputTokens : Math.round(assistantLen / 4);
 
   useEffect(() => {
-    startRef.current = Date.now();
-    setNow(Date.now());
     setDisplayTokens(0);
     const clockId = window.setInterval(() => setNow(Date.now()), 500);
     const frameId = window.setInterval(
@@ -667,6 +667,11 @@ function ThinkingIndicator({
       window.clearInterval(easeId);
     };
   }, []);
+
+  useEffect(() => {
+    startRef.current = Date.now();
+    setNow(Date.now());
+  }, [activity]);
 
   const elapsedMs = Math.max(0, now - startRef.current);
   const tokens = displayTokens;
@@ -2651,7 +2656,7 @@ export function Session(props: SessionProps = {}) {
         button, banners, error/empty placeholders) goes at the END of the DOM.
       */}
       <div className="thread tui" ref={threadRef}>
-        {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} />}
+        {(sending || polling) && <ThinkingIndicator assistantLen={liveAssistantLen} outputTokens={outputTokens} activity={liveTurn} />}
         {/* Suggested follow-ups from the throwaway cache-hit query. Rendered
             ABOVE liveTurn in DOM (so BELOW it visually — column-reverse)
             i.e. just above the input area, right under the latest reply.
