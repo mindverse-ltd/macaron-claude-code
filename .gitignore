@@ -33,3 +33,5 @@ build/
 
 # Claude Code local
 .claude/settings.local.json
+.vercel
+.env*

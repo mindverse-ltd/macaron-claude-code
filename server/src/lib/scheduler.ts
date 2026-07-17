@@ -5,6 +5,7 @@
 import { promises as fs } from 'node:fs';
 import { runClaude } from './claude-runner.js';
 import { runCodex } from './codex-runner.js';
+import { runKimi } from './kimi-runner.js';
 import { getActiveProviderEnv } from './settings-store.js';
 import { liveStart, livePush, liveEnd } from './live-registry.js';
 import { registerRun, endRun } from './active-runs.js';
@@ -97,6 +98,10 @@ export async function fireSchedule(schedule: Schedule, advance = true): Promise<
     let stream: AsyncGenerator<RunnerEvent>;
     if (schedule.engine === 'codex') {
       stream = runCodex({ prompt: schedule.prompt, cwd: schedule.cwd, abortController });
+    } else if (schedule.engine === 'kimi') {
+      // Headless like codex: `kimi -p` runs with auto permission and writes
+      // its own wire.jsonl, which the store picks up on the next refresh.
+      stream = runKimi({ prompt: schedule.prompt, cwd: schedule.cwd, abortController });
     } else {
       const { model, env } = getActiveProviderEnv();
       // A scheduled fire is headless — no client is attached to answer the

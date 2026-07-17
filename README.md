@@ -1,6 +1,6 @@
 # Macaron Artifacts
 
-Macaron Artifacts publishes the plugin manifests, local WebUI runtime, GenUI tooling, and docs for running Macaron with Claude Code and Codex.
+Macaron Artifacts publishes the plugin manifests, local WebUI runtime, GenUI tooling, and docs for running Macaron with Claude Code, Codex, and Kimi Code.
 
 1. **Visual sessions** — browse workspaces and sessions with previews, then continue a turn from the browser.
 2. **Live chat** — stream thinking, tool calls, and GenUI previews from supported agent runtimes.
@@ -42,23 +42,34 @@ codex plugin marketplace add https://github.com/mindverse-ltd/macaron-artifacts
 codex plugin add macaron@macaron
 ```
 
+### Kimi Code
+
+In a Kimi Code session, install from the GitHub URL, then reload to activate:
+
+```
+/plugins install https://github.com/mindverse-ltd/macaron-artifacts
+/reload
+```
+
 ### Run without installing
 
-Two independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`) and `mcx` (Codex WebUI, port `7979`). Install one, get only that one. Launch either in one command, no plugin install needed:
+Three independent packages, each self-contained (its own prebuilt server + web bundles) — `mcc` (Claude WebUI, port `7878`), `mcx` (Codex WebUI, port `7979`), and `mkx` (Kimi WebUI, port `7980`). Install one, get only that one. Launch any of them in one command, no plugin install needed:
 
 ```bash
 bunx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
 bunx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
+bunx mkx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
 ```
 
-`npx` works the same way — bin name = package name for both:
+`npx` works the same way — bin name = package name for all three:
 
 ```bash
 npx mcc@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcc@<sha>   # Claude → http://localhost:7878
 npx mcx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mcx@<sha>   # Codex  → http://localhost:7979
+npx mkx@https://pkg.pr.new/mindverse-ltd/macaron-artifacts/mkx@<sha>   # Kimi   → http://localhost:7980
 ```
 
-Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-artifacts/commits/main)). Both accept `--host` / `--port`; run with `--help` for the full list.
+Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/mindverse-ltd/macaron-artifacts/commits/main)). All three accept `--host` / `--port`; run with `--help` for the full list.
 
 Verify:
 
@@ -78,6 +89,8 @@ Inside Claude Code:
 The slash command starts the local server (`node server/dist/index.js`, port `7878` by default) and opens `http://localhost:7878` in your browser. Pass a custom port with `/macaron 8080`.
 
 Inside Codex, ask it to open the Macaron WebUI. The Codex-side default port is `7979`.
+
+Inside Kimi Code, run `/macaron:macaron`. The Kimi-side default port is `7980`.
 
 ### Views
 
@@ -113,8 +126,12 @@ Remote requests must then present the token; localhost stays frictionless (loopb
 
 ```
 .claude-plugin/                   plugin manifest + marketplace (install from GitHub)
+.kimi-plugin/                     Kimi Code plugin manifest
 commands/macaron.md               /macaron slash command
+commands-kimi/                    Kimi Code slash commands (/macaron:macaron)
 skills/genui-builder/             bundled GenUI authoring skill
+skills/macaron-webui-kimi/        Kimi Code WebUI skill
+mkx/                              self-contained Kimi launcher package (port 7980)
 start.sh                          one-time npm install + build, boots server in background
 shared/                           domain types + SSE protocol (server ↔ web)
 server/                           Fastify API, Claude Agent SDK runner, provider relay
@@ -126,3 +143,4 @@ site/                             Fumadocs docs + landing site (standalone, not 
 
 - Built and tested against **Node 22**.
 - Claude Code stores project directories as `~/.claude/projects/-<encoded-path>`; hyphens in the original folder name are ambiguous (we display the best-guess decoded path).
+- Kimi Code stores sessions under `~/.kimi-code/sessions/<workDirKey>/<sessionId>/` (one bucket per working directory), with `~/.kimi-code/session_index.jsonl` as a fast sessionId → directory index.

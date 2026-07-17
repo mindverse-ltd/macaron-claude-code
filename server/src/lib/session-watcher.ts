@@ -2,15 +2,16 @@ import { watch } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import type { FastifyReply } from 'fastify';
 import type { SystemEvent } from '@macaron/shared';
-import { CLAUDE_PROJECTS, CODEX_SESSIONS } from '../config.js';
+import { CLAUDE_PROJECTS, CODEX_SESSIONS, KIMI_SESSIONS } from '../config.js';
 import { sseSend } from './sse.js';
 
-// Recursive fs.watch over the two transcript trees macaron already reads.
-// A terminal `claude`/`codex` run appends to a jsonl here; we debounce the
-// burst of change events and push one `sessions-changed` nudge to every
-// connected client so external sessions surface live instead of waiting for
-// the next poll. We deliberately don't parse the file — the nudge just tells
-// the client to refetch its (already cheap, mtime-cached) workspace list.
+// Recursive fs.watch over the three transcript trees macaron already reads.
+// A terminal `claude`/`codex`/`kimi` run appends to a transcript here; we
+// debounce the burst of change events and push one `sessions-changed` nudge
+// to every connected client so external sessions surface live instead of
+// waiting for the next poll. We deliberately don't parse the file — the
+// nudge just tells the client to refetch its (already cheap, mtime-cached)
+// workspace list.
 
 const subs = new Set<FastifyReply>();
 const DEBOUNCE_MS = 400;
@@ -68,5 +69,6 @@ export async function startSessionWatcher(): Promise<void> {
   await Promise.all([
     watchTree(CLAUDE_PROJECTS, 'claude'),
     watchTree(CODEX_SESSIONS, 'codex'),
+    watchTree(KIMI_SESSIONS, 'kimi'),
   ]);
 }

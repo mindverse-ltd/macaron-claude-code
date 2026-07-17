@@ -190,6 +190,7 @@ function ScheduleForm({ draft, onChange }: { draft: ScheduleInput; onChange: (pa
         <select id="s-engine" className="settings-input" value={draft.engine} onChange={(e) => onChange({ engine: e.target.value as SessionKind })}>
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
+          <option value="kimi">Kimi</option>
         </select>
       </div>
       <div className="settings-field">

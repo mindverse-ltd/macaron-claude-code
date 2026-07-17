@@ -24,13 +24,15 @@ SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Codex plugin cache (~/.codex/plugins/cache/…) is NOT a stable working dir:
 # Codex prunes/regenerates it on version sync, killing our node_modules +
 # web/dist + server/dist and leaving a listening server pointing at
-# nothing. Claude Code plugin cache (~/.claude/plugins/cache/…) has the
-# same class of behavior. Detect either and rsync source into a stable
+# nothing. Claude Code (~/.claude/plugins/cache/…) and Kimi Code
+# (~/.kimi-code/plugins/… — installs run from a managed copy that gets
+# replaced on plugin update) have the same class of behavior.
+# Detect any of them and rsync source into a stable
 # runtime dir under $HOME, then run install/build/launch from there.
 DIR="$SRC_DIR"
 _needs_mirror=0
 case "$SRC_DIR" in
-  *"/.codex/plugins/cache/"*|*"/.claude/plugins/cache/"*) _needs_mirror=1 ;;
+  *"/.codex/plugins/cache/"*|*"/.claude/plugins/cache/"*|*"/.kimi-code/plugins/"*) _needs_mirror=1 ;;
 esac
 if [ "$_needs_mirror" = 1 ]; then
   # Version key: pull from package.json so parallel major bumps get
@@ -88,11 +90,11 @@ fi
 [ -n "$_CALLER_FOREGROUND" ] && MACARON_FOREGROUND="$_CALLER_FOREGROUND"
 
 ENGINE="${MACARON_ENGINE:-claude}"
-if [ "$ENGINE" = "codex" ]; then
-  PORT="${MACARON_PORT:-7979}"
-else
-  PORT="${MACARON_PORT:-7878}"
-fi
+case "$ENGINE" in
+  codex) PORT="${MACARON_PORT:-7979}" ;;
+  kimi)  PORT="${MACARON_PORT:-7980}" ;;
+  *)     PORT="${MACARON_PORT:-7878}" ;;
+esac
 FOREGROUND="${MACARON_FOREGROUND:-0}"
 
 WEB_DIST="$DIR/web/dist"
@@ -169,6 +171,16 @@ if [ ! -f "$SERVER_DIST" ] || [ ! -f "$WEB_DIST/index.html" ]; then
   needs_build=1
 elif [ -n "$(find "$DIR/web/src" "$DIR/server/src" "$DIR/shared/src" \
        -newer "$WEB_DIST/index.html" -type f -print -quit 2>/dev/null)" ]; then
+  needs_build=1
+fi
+
+# A `pnpm bundle` / prepack run leaves dist/index.js as a self-contained bun
+# bundle that inlines server sources. tsc's incremental build only re-emits
+# changed files and never overwrites that entry, so a stale bundle would be
+# served forever ("build succeeded" but nothing changed). Detect the bundle
+# marker (__require shim) and force a full tsc re-emit.
+if grep -q '__require' "$SERVER_DIST" 2>/dev/null; then
+  rm -f "$DIR/server/tsconfig.tsbuildinfo"
   needs_build=1
 fi
 

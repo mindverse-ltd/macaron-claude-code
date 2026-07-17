@@ -115,8 +115,62 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  mkx:
+    dependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: ^0.3.196
+        version: 0.3.202(@anthropic-ai/sdk@0.110.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
+      '@fastify/static':
+        specifier: ^8.0.0
+        version: 8.3.0
+      '@genui/diagnostics':
+        specifier: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@7c845c8
+        version: https://pkg.pr.new/MindLab-Research/macaron-genui-demo/@genui/diagnostics@7c845c8(@unocss/autocomplete@66.7.5)(@unocss/core@66.7.5)(typescript@5.9.3)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      '@openai/codex-sdk':
+        specifier: ^0.142.5
+        version: 0.142.5
+      '@unocss/autocomplete':
+        specifier: ^66.7.5
+        version: 66.7.5
+      '@unocss/core':
+        specifier: ^66.7.5
+        version: 66.7.5
+      '@unocss/preset-wind3':
+        specifier: ^66.7.5
+        version: 66.7.5
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
+      fastify:
+        specifier: ^5.2.0
+        version: 5.10.0
+      ignore:
+        specifier: ^7.0.5
+        version: 7.0.5
+      node-pty:
+        specifier: ^1.1.0
+        version: 1.1.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      unocss-preset-animations:
+        specifier: ^1.3.0
+        version: 1.3.0(@unocss/preset-wind3@66.7.5)(unocss@66.7.5(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.23.0)))
+      web-push:
+        specifier: ^3.6.7
+        version: 3.6.7
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   server:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.2.1
+        version: 1.2.1(zod@4.4.3)
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.196
         version: 0.3.202(@anthropic-ai/sdk@0.110.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
@@ -351,6 +405,11 @@ importers:
         version: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.23.0)
 
 packages:
+
+  '@agentclientprotocol/sdk@1.2.1':
+    resolution: {integrity: sha512-jwYUdOQR7tc+Zfch53VL4JJyUNK/46q03uUTYb+PjECsmnNl94XFXOfYLJ8RBpMNidXd1rpOAVgb0vqD98xImA==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
@@ -3606,6 +3665,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@1.2.1(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@antfu/install-pkg@1.1.0':
     dependencies:
