@@ -69,8 +69,13 @@ const app = Fastify({
   },
   // Disable strict trailing-slash for friendlier URLs.
   ignoreTrailingSlash: true,
-  // Allow large request bodies (genui prompts can grow).
-  bodyLimit: 2 * 1024 * 1024,
+  // Allow large request bodies. GenUI prompts + inlined image attachments
+  // (base64-encoded dataUrls) can easily blow past a few MB: a single
+  // full-screen retina screenshot ~ 3–5 MB after base64. 2 MB used to 413
+  // any reply that carried a modest screenshot. 32 MB gives comfortable
+  // headroom for multi-image messages without letting a runaway upload
+  // OOM the process.
+  bodyLimit: 32 * 1024 * 1024,
   // Worktree cwds can be long (deep repo paths encoded as path params), and
   // Fastify caps a single param at 100 chars by default — a worktree under
   // .../macaron-genui-demo/.claude/worktrees/<name> blows past it and 414s every
