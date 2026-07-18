@@ -96,6 +96,25 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
+// The Claude Agent SDK (and its transitive undici) fires fetches whose failures
+// bubble up as UNHANDLED rejections when the remote closes the TLS socket
+// mid-request (`TypeError: terminated` / `UND_ERR_SOCKET: other side closed`).
+// Node's default is to crash the whole process on unhandled rejection, so one
+// flaky provider request killed the WebUI server and left every open session
+// silently stalled (SSE closed → client saw "done" with no output → confusing
+// "finished" notification with no visible response).
+//
+// Log-and-continue: the SDK's own iterator will re-surface the error to its
+// caller (claude-runner) which already emits an SSE `error`+`done` for that
+// specific session. Keeping the process alive lets other sessions keep working.
+process.on('unhandledRejection', (reason: unknown) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  app.log.error({ err, kind: 'unhandledRejection' }, '[macaron-server] unhandled promise rejection — staying alive');
+});
+process.on('uncaughtException', (err: Error) => {
+  app.log.error({ err, kind: 'uncaughtException' }, '[macaron-server] uncaught exception — staying alive');
+});
+
 // Gate the API/relay behind a shared token when the server is reachable from
 // the network. resolveToken auto-generates one when bound to a non-loopback
 // host with no token set; seed it into the module-level armed slot so the hook
