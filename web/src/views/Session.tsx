@@ -46,6 +46,7 @@ import { useConfirm } from '../components/Confirm';
 import { useFileMention } from '../components/MentionPopup';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
 import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
+import { toolHeader } from '../lib/toolHeader';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
 import { playSound } from '../lib/sound';
@@ -282,26 +283,6 @@ export function flatten(messages: Message[]): Item[] {
     }
   }
   return out;
-}
-
-// ---- Tool header formatting (Bash → command first line, etc.) -------------
-
-export function toolHeader(name: string, input: any): string {
-  if (!input || typeof input !== 'object') return '';
-  if (name === 'Bash') {
-    return String(input.description || input.command || '').replace(/\s+/g, ' ').slice(0, 240);
-  }
-  if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
-    const p = String(input.file_path || '');
-    return p ? '…' + p.split('/').slice(-2).join('/') : '';
-  }
-  if (name === 'Glob') return String(input.pattern || '');
-  if (name === 'Grep') return String(input.pattern || '');
-  if (name === 'TaskCreate') return String(input.subject || '');
-  if (name === 'TaskUpdate') return `#${input.taskId || ''} → ${input.status || input.subject || ''}`;
-  if (name === 'WebFetch' || name === 'WebSearch') return String(input.url || input.query || '');
-  const s = JSON.stringify(input);
-  return s.length > 200 ? s.slice(0, 200) + '…' : s;
 }
 
 // ---- Items ----------------------------------------------------------------
