@@ -576,12 +576,15 @@ function ToolItem({ id, name, input, result, durationMs, isError }: { id?: strin
   const [open, setOpen] = useState(false);
   const header = toolHeader(name, input);
   const command = bashCommand(name, input);
+  const commandLines = command ? command.split('\n') : [];
+  const shownCommand = (open ? commandLines : commandLines.slice(0, PREVIEW_LINES)).join('\n');
   const resultText = (result ?? '').replace(/\n+$/, '');
   const allLines = resultText ? resultText.split('\n') : [];
   const previewLines = open ? allLines : allLines.slice(0, PREVIEW_LINES);
-  const extra = Math.max(0, allLines.length - PREVIEW_LINES);
-  // Expandable if there's overflow output OR a Bash script to reveal (even with no output).
-  const expandable = isToolExpandable(command, allLines.length, PREVIEW_LINES);
+  const extra = Math.max(0, allLines.length - PREVIEW_LINES) + Math.max(0, commandLines.length - PREVIEW_LINES);
+  // Both the input script and the output collapse to PREVIEW_LINES; expandable only when
+  // one of them actually overflows — no toggle for a script/output that already fits.
+  const expandable = isToolExpandable(commandLines.length, allLines.length, PREVIEW_LINES);
   const expandLabel = extra > 0 ? `… +${extra} ${extra === 1 ? 'line' : 'lines'} (expand)` : 'expand';
 
   return (
@@ -596,11 +599,11 @@ function ToolItem({ id, name, input, result, durationMs, isError }: { id?: strin
         )}
         {durationMs != null && <span className="ti-tool-dur">{formatDuration(durationMs)}</span>}
       </div>
-      {open && command && (
+      {command && (
         <div className="ti-tool-input">
           <span className="ti-rail">└</span>
-          <Suspense fallback={<pre className="chat-code-plain">{command}</pre>}>
-            <BashScript code={command} language="bash" streaming={false} />
+          <Suspense fallback={<pre className="chat-code-plain">{shownCommand}</pre>}>
+            <BashScript code={shownCommand} language="bash" streaming={false} />
           </Suspense>
         </div>
       )}

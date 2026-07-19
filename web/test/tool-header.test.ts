@@ -29,17 +29,19 @@ test('bashCommand is empty when the Bash call has no command', () => {
   assert.equal(bashCommand('Bash', { description: 'noop' }), '');
 });
 
-test('a Bash call with no output is still expandable so its script is reachable', () => {
-  const command = 'nohup ./long-job.sh &';
-  assert.equal(isToolExpandable(command, 0, PREVIEW), true);
+test('a Bash script that overflows the preview is expandable even with no output', () => {
+  const command = 'set -e\ncd /tmp\nls -la'; // 3 lines > preview
+  assert.equal(isToolExpandable(command.split('\n').length, 0, PREVIEW), true);
 });
 
-test('a Bash call with short output stays expandable for the script', () => {
-  // 1 output line (< preview) would not expand on its own, but the script must be reachable.
-  assert.equal(isToolExpandable('echo hi', 1, PREVIEW), true);
+test('a Bash script within the preview adds no expand affordance', () => {
+  // 1 output line + 1 command line, both ≤ preview → no pointless toggle.
+  assert.equal(isToolExpandable(1, 1, PREVIEW), false);
 });
 
-test('a non-Bash tool expands only when output overflows the preview', () => {
-  assert.equal(isToolExpandable('', 2, PREVIEW), false);
-  assert.equal(isToolExpandable('', 3, PREVIEW), true);
+test('input and output each independently drive expandability', () => {
+  assert.equal(isToolExpandable(3, 0, PREVIEW), true);  // long script, no output
+  assert.equal(isToolExpandable(0, 3, PREVIEW), true);  // long output, no script
+  assert.equal(isToolExpandable(2, 2, PREVIEW), false); // both fit exactly
+  assert.equal(isToolExpandable(0, 0, PREVIEW), false); // nothing to reveal
 });

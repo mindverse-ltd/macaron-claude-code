@@ -26,9 +26,9 @@ export function bashCommand(name: string, input: any): string {
   return String(input.command || '');
 }
 
-// A tool row is expandable when it has output beyond the inline preview OR a Bash script
-// worth revealing — the latter makes a no-output Bash call (e.g. a backgrounded command)
-// still expandable so its script is reachable. `previewLines` = lines shown collapsed.
-export function isToolExpandable(command: string, outputLineCount: number, previewLines: number): boolean {
-  return outputLineCount > previewLines || !!command;
+// A tool row is expandable when either the Bash input script OR the output overflows the
+// inline preview — both collapse to `previewLines` and reveal the rest on expand. A script or
+// output that already fits within the preview adds no expand affordance (no pointless toggle).
+export function isToolExpandable(commandLineCount: number, outputLineCount: number, previewLines: number): boolean {
+  return commandLineCount > previewLines || outputLineCount > previewLines;
 }
