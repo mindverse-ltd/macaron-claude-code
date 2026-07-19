@@ -621,7 +621,7 @@ function ToolItem({ id, name, input, result, durationMs, isError }: { id?: strin
         <span className="ti-tool-name">{name}</span>
         {header && (
           <span className="ti-tool-args" title={header}>
-            ({header})
+            {name === 'Bash' ? header : `(${header})`}
           </span>
         )}
         {durationMs != null && <span className="ti-tool-dur">{formatDuration(durationMs)}</span>}
