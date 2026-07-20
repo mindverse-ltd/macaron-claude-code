@@ -180,6 +180,32 @@ test('env-seeding a full provider clears the launch override so UI/routing route
   }
 });
 
+test('a complete env seed with a manual provider already active keeps that provider (kept-active-choice)', async () => {
+  const manual = await seedCustomActive(); // user manually picked this one
+  process.env.MACARON_PROVIDER_ENDPOINT = 'https://mint.macaron.im/v1';
+  process.env.MACARON_PROVIDER_TOKEN = 'sk-seed';
+  process.env.MACARON_PROVIDER_MODEL = 'macaron-v1-venti';
+  try {
+    // Boot with the full ambient env (sets launchOverride) while `manual` stays active.
+    await boot({ base: 'https://mint.macaron.im/v1', model: 'macaron-v1-venti' });
+    const res = await store.seedProviderFromEnv();
+    assert.ok(res.seeded);
+    assert.equal(res.activated, false); // main's contract: kept the manual choice
+    // The override must be cleared even though we didn't activate the seeded row,
+    // so UI + routing keep using the MANUAL provider — not ambient pass-through.
+    const pub = await store.readPublicSettings();
+    assert.equal(pub.activeProviderId, manual.id);
+    const { model, env } = store.getActiveProviderEnv();
+    assert.equal(model, 'stored-model'); // the manual provider's model, not the CLI one
+    assert.ok(env);
+    assert.match(env!.ANTHROPIC_BASE_URL, /\/relay\/anthropic\//);
+  } finally {
+    delete process.env.MACARON_PROVIDER_ENDPOINT;
+    delete process.env.MACARON_PROVIDER_TOKEN;
+    delete process.env.MACARON_PROVIDER_MODEL;
+  }
+});
+
 test('a model-only launch seeds nothing and keeps the pass-through override', async () => {
   await seedCustomActive();
   await boot({ model: 'cli-model' }); // no endpoint/token → seed is a no-op

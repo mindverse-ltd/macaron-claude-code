@@ -372,15 +372,16 @@ export async function seedProviderFromEnv(): Promise<
   if (idx >= 0) s.customProviders[idx] = next;
   else s.customProviders.push(next);
   const activated = s.activeProviderId === SYSTEM_PROVIDER_ID;
-  if (activated) {
-    s.activeProviderId = id;
-    // Seeding from env IS an explicit env-driven provider choice, so it retires
-    // the boot launchOverride — otherwise effectiveActiveId() would shadow the
-    // freshly-seeded provider back to System and UI/routing would disagree with
-    // the "(activated)" log line. (The override still governs launches that
-    // seed nothing: `--model`-only, or a base URL with no token.)
-    launchOverride = false;
-  }
+  if (activated) s.activeProviderId = id;
+  // A successful complete seed retires the boot launchOverride unconditionally.
+  // The override exists to force System pass-through from ambient env when we
+  // seed NOTHING; once a complete endpoint+token has been resolved into a real
+  // provider row, effectiveActiveId() must stop shadowing to System. This holds
+  // for both branches: when we activated the seeded row (route it), AND when a
+  // manual provider was already active (main's "kept active choice" — route
+  // THAT provider, not ambient pass-through). Override still governs the
+  // seed-nothing launches: `--model`-only, or a base URL with no token.
+  launchOverride = false;
   await persist();
   return { seeded: true, providerId: id, activated };
 }
