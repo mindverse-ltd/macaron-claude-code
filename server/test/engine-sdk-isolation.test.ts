@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { test, before } from 'node:test';
@@ -98,10 +99,36 @@ function install(tarball: string): string {
   return consumer;
 }
 
+// Ask the OS for a free ephemeral port (bind :0, read it back, release). Far
+// safer than a blind random pick in a fixed range — the kernel won't hand out a
+// port it's already using. A tiny TOCTOU window remains between release and the
+// child's bind, which boot()'s EADDRINUSE retry covers.
+function reservePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
 // Boot the installed bin and resolve once it logs "listening" (with its chosen
-// port) or exits early. Returns { ok, port, output, kill }.
-function boot(consumer: string, bin: string, engineEnv: string | undefined, extraEnv: Record<string, string> = {}): Promise<{ ok: boolean; port: number; output: string; kill: () => void }> {
-  const port = 20000 + Math.floor(Math.random() * 20000);
+// port) or exits early. Returns { ok, port, output, kill }. Retries on a lost
+// port race (EADDRINUSE) with a freshly reserved port so this required
+// pre-publish gate stays deterministic.
+async function boot(consumer: string, bin: string, engineEnv: string | undefined, extraEnv: Record<string, string> = {}): Promise<{ ok: boolean; port: number; output: string; kill: () => void }> {
+  for (let attempt = 0; ; attempt++) {
+    const port = await reservePort();
+    const res = await bootOnce(consumer, bin, engineEnv, extraEnv, port);
+    if (res.ok || !/EADDRINUSE/.test(res.output) || attempt >= 4) return res;
+    res.kill(); // lost the port between reserve and bind — try a fresh one
+  }
+}
+
+function bootOnce(consumer: string, bin: string, engineEnv: string | undefined, extraEnv: Record<string, string>, port: number): Promise<{ ok: boolean; port: number; output: string; kill: () => void }> {
   const env = { ...process.env, ...extraEnv };
   delete env.MACARON_ENGINE;
   if (engineEnv) env.MACARON_ENGINE = engineEnv;
@@ -199,6 +226,18 @@ async function postTurn(port: number, route: string, cwd: string): Promise<strin
   return out;
 }
 
+// True when a first-turn SSE stream proves the runner's own lazy SDK import
+// resolved: no module-resolution error, plus the engine-specific success signal
+// (claude streams the stub delta+done; codex/kimi reach their runner and report
+// the deterministic `/bin/false` downstream failure). The negative control below
+// removes the own SDK and asserts this flips to false — the module error appears.
+const MODULE_ERR = /ERR_MODULE_NOT_FOUND|Cannot find package|Cannot find module/;
+function firstTurnProvesOwnSdk(turn: string, expect: 'done' | 'error'): boolean {
+  if (MODULE_ERR.test(turn)) return false;
+  if (expect === 'done') return /"type":"delta"/.test(turn) && new RegExp(STUB_TEXT).test(turn) && /"type":"done"/.test(turn);
+  return /"type":"error"|"type":"done"/.test(turn);
+}
+
 // True if `node_modules/<pkg>` exists in the consumer install.
 function installed(consumer: string, pkg: string): boolean {
   return existsSync(path.join(consumer, 'node_modules', ...pkg.split('/')));
@@ -222,7 +261,10 @@ for (const [engine, l] of Object.entries(LAUNCHERS)) {
     const falseBin = spawnSync('sh', ['-c', 'command -v false'], { encoding: 'utf8' }).stdout.trim() || '/bin/false';
     const extraEnv: Record<string, string> =
       engine === 'claude' ? { ANTHROPIC_BASE_URL: stub!.url, ANTHROPIC_AUTH_TOKEN: 'stub', ANTHROPIC_API_KEY: 'stub' } :
-      engine === 'codex' ? { MACARON_CODEX_PATH: falseBin } :
+      // Force the SDK transport (not the default app-server bridge) so the POST
+      // actually reaches `import('@openai/codex-sdk')` in codex-runner — that
+      // lazy import is the thing this test exists to prove.
+      engine === 'codex' ? { MACARON_CODEX_PATH: falseBin, MACARON_CODEX_TRANSPORT: 'sdk' } :
       { MACARON_KIMI_PATH: falseBin };
     const b = await boot(consumer, l.bin, l.engineEnv, extraEnv);
     try {
@@ -236,19 +278,31 @@ for (const [engine, l] of Object.entries(LAUNCHERS)) {
       // lazy `import('<own-sdk>')`. A missing/broken own SDK would surface as
       // ERR_MODULE_NOT_FOUND in the stream instead of the engine's own output.
       const turn = await postTurn(b.port, l.turnRoute, consumer);
-      assert.doesNotMatch(turn, /ERR_MODULE_NOT_FOUND|Cannot find package|Cannot find module/, `${l.bin} first turn must not fail to import its own SDK:\n${turn}`);
-      if (l.expect === 'done') {
-        assert.match(turn, /"type":"delta"/, `${l.bin} first turn should stream a delta from the Anthropic stub:\n${turn}`);
-        assert.match(turn, new RegExp(STUB_TEXT), `${l.bin} first turn should carry the stub text:\n${turn}`);
-        assert.match(turn, /"type":"done"/, `${l.bin} first turn should reach done:\n${turn}`);
-      } else {
-        // The own SDK loaded and spawned `/bin/false`, whose non-zero exit the
-        // runner surfaces as an error/done — proving the runner path ran.
-        assert.match(turn, /"type":"error"|"type":"done"/, `${l.bin} first turn should reach its runner and report the downstream failure:\n${turn}`);
-      }
+      assert.ok(firstTurnProvesOwnSdk(turn, l.expect), `${l.bin} first turn must import its own SDK and reach the ${l.expect} signal:\n${turn}`);
     } finally {
       b.kill();
       stub?.close();
+    }
+
+    // (5) Negative control: remove ONLY the own SDK and repeat the first turn.
+    // The same probe must now FAIL — proving the assertion above is load-bearing
+    // and not silently passing on a path that never touches the SDK.
+    await fs.rm(path.join(consumer, 'node_modules', ...l.own.split('/')), { recursive: true, force: true });
+    const nstub = engine === 'claude' ? await startAnthropicStub() : null;
+    const nEnv = { ...extraEnv, ...(nstub ? { ANTHROPIC_BASE_URL: nstub.url } : {}) };
+    const nb = await boot(consumer, l.bin, l.engineEnv, nEnv);
+    try {
+      // Lazy imports mean the server still boots; the failure surfaces on the
+      // turn. mcc/mcx catch the import and emit a stream `error` carrying
+      // ERR_MODULE_NOT_FOUND; mkx's ACP import sits before its try so the turn
+      // simply never reaches its runner completion. Either way the success
+      // predicate must flip to false — that's the load-bearing signal.
+      assert.ok(nb.ok, `${l.bin} negative control should still boot (imports are lazy):\n${nb.output}`);
+      const nturn = await postTurn(nb.port, l.turnRoute, consumer);
+      assert.ok(!firstTurnProvesOwnSdk(nturn, l.expect), `${l.bin} negative control must FAIL its first turn once ${l.own} is removed, but it passed:\n${nturn}`);
+    } finally {
+      nb.kill();
+      nstub?.close();
       await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
       await fs.rm(consumer, { recursive: true, force: true }).catch(() => {});
     }
