@@ -80,6 +80,7 @@ import type {
   SkillDetail,
   Schedule,
   ScheduleInput,
+  SessionKind,
   SchedulesResponse,
   CommandsResponse,
   AgentsResponse,
@@ -193,6 +194,7 @@ async function req<T>(url: string, init: RequestInit): Promise<T> {
 
 export const api = {
   health: () => getJSON<HealthResponse>('/api/health'),
+  engine: () => getJSON<{ engine: SessionKind }>('/api/engine'),
   analytics: (window: string) =>
     getJSON<AnalyticsResponse>(`/api/analytics?window=${encodeURIComponent(window)}`),
   settings: () => getJSON<PublicSettings>('/api/settings'),
