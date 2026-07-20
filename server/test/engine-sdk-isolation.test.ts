@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync, cpSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -51,9 +51,10 @@ const npmOk = spawnSync('npm', ['--version'], { encoding: 'utf8' }).status === 0
 if (CI) assert.ok(npmOk, 'CI requires npm for mandatory pack coverage, but `npm --version` failed');
 const SKIP = !CI && (process.env.MACARON_SKIP_PACK_TESTS === '1' || !npmOk);
 
-// Build the shared bundles ONCE, then stage them into mcx/mkx (their prepack
-// does the same) so all three tarballs are self-contained. Done in `before` so a
-// clean checkout with no dist/ still produces faithful tarballs.
+// Build the shared bundles ONCE at the repo root. Each launcher is then staged
+// into its OWN per-run temp dir at pack time (see pack()), so nothing mutates the
+// shared mcx/mkx trees — two concurrent CI-mode suites in one checkout stay safe.
+// Done in `before` so a clean checkout with no dist/ still produces faithful tarballs.
 before(() => {
   if (SKIP) return;
   const run = (cmd: string, args: string[], cwd: string) => {
@@ -72,16 +73,22 @@ before(() => {
   if (!existsSync(path.join(repoRoot, 'web', 'dist', 'index.html'))) {
     run('pnpm', ['--filter', '@macaron/web', 'build'], repoRoot);
   }
-  // Stage the shared outputs into mcx/mkx (mirrors their scripts/stage.mjs).
-  for (const dir of ['mcx', 'mkx']) {
-    run('node', ['scripts/stage.mjs'], path.join(repoRoot, dir));
-  }
 }, { timeout: 180_000 });
 
-// pack the launcher (scripts skipped — bundles are already staged) into `dest`,
-// returning the tarball path.
+// Stage `dir`'s launcher into a fresh temp dir and `npm pack` it there, returning
+// the tarball path. Staging per-run (instead of mutating the shared mcx/mkx trees
+// like scripts/stage.mjs does) keeps concurrent same-checkout suites from racing:
+// each package-local file (package.json, bin, README) is copied from the launcher
+// dir and each shared bundle (server/dist/index.js, web/dist) from the repo root's
+// once-built output — matching every launcher's package.json `files` list.
 function pack(dir: string, dest: string): string {
-  const r = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', dest], { cwd: path.join(repoRoot, dir), encoding: 'utf8' });
+  const launcher = path.join(repoRoot, dir);
+  const stage = mkdtempSync(path.join(os.tmpdir(), 'macaron-stage-'));
+  cpSync(path.join(launcher, 'package.json'), path.join(stage, 'package.json'));
+  for (const rel of ['bin', 'README.md']) cpSync(path.join(launcher, rel), path.join(stage, rel), { recursive: true });
+  cpSync(path.join(repoRoot, 'server', 'dist', 'index.js'), path.join(stage, 'server', 'dist', 'index.js'));
+  cpSync(path.join(repoRoot, 'web', 'dist'), path.join(stage, 'web', 'dist'), { recursive: true });
+  const r = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', dest], { cwd: stage, encoding: 'utf8' });
   assert.equal(r.status, 0, `npm pack failed for ${dir}:\n${r.stderr}`);
   const tgz = readdirSync(dest).find((f) => f.endsWith('.tgz'));
   assert.ok(tgz, `no tarball produced for ${dir}`);
@@ -238,6 +245,15 @@ function firstTurnProvesOwnSdk(turn: string, expect: 'done' | 'error'): boolean 
   return /"type":"error"|"type":"done"/.test(turn);
 }
 
+// Strict negative control: once the own SDK is deleted, the first turn must reach
+// the runner's lazy `import()` and fail THERE — so the stream must carry the
+// module-resolution error AND a stream `error` AND a terminal `done`. Requiring
+// all three means a boot timeout (no stream), a "CLI not found" (no module error),
+// or a route 404 (no error/done) can NOT masquerade as a passing negative control.
+function negControlProvesMissingSdk(turn: string): boolean {
+  return MODULE_ERR.test(turn) && /"type":"error"/.test(turn) && /"type":"done"/.test(turn);
+}
+
 // True if `node_modules/<pkg>` exists in the consumer install.
 function installed(consumer: string, pkg: string): boolean {
   return existsSync(path.join(consumer, 'node_modules', ...pkg.split('/')));
@@ -299,13 +315,13 @@ for (const [engine, l] of Object.entries(LAUNCHERS)) {
     const nb = await boot(consumer, l.bin, l.engineEnv, nEnv);
     try {
       // Lazy imports mean the server still boots; the failure surfaces on the
-      // turn. mcc/mcx catch the import and emit a stream `error` carrying
-      // ERR_MODULE_NOT_FOUND; mkx's ACP import sits before its try so the turn
-      // simply never reaches its runner completion. Either way the success
-      // predicate must flip to false — that's the load-bearing signal.
+      // turn. With the own SDK gone, every runner's lazy `import()` throws inside
+      // its try/catch, emitting a stream `error` carrying the module-resolution
+      // message followed by a terminal `done`. The strict predicate demands all
+      // three so no weaker failure (timeout, CLI-not-found, 404) can pass here.
       assert.ok(nb.ok, `${l.bin} negative control should still boot (imports are lazy):\n${nb.output}`);
       const nturn = await postTurn(nb.port, l.turnRoute, consumer);
-      assert.ok(!firstTurnProvesOwnSdk(nturn, l.expect), `${l.bin} negative control must FAIL its first turn once ${l.own} is removed, but it passed:\n${nturn}`);
+      assert.ok(negControlProvesMissingSdk(nturn), `${l.bin} negative control must FAIL its first turn with a module error + stream error + done once ${l.own} is removed:\n${nturn}`);
     } finally {
       nb.kill();
       nstub?.close();
