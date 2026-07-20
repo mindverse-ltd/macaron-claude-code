@@ -153,3 +153,40 @@ test('base-URL-only launch (no creds/model) passes through to the default Claude
   assert.equal(env, null); // no relay, no injected CLAUDE_CONFIG_DIR/token
   assert.equal((await store.readPublicSettings()).activeProviderId, store.SYSTEM_PROVIDER_ID);
 });
+
+// ---- Interaction with main's seedProviderFromEnv() bootstrap ------------
+
+test('env-seeding a full provider clears the launch override so UI/routing route the relay', async () => {
+  // A pasted endpoint + token (the seed contract) + a boot launch override.
+  process.env.MACARON_PROVIDER_ENDPOINT = 'https://mint.macaron.im/v1';
+  process.env.MACARON_PROVIDER_TOKEN = 'sk-seed';
+  process.env.MACARON_PROVIDER_MODEL = 'macaron-v1-venti';
+  try {
+    await boot({ base: 'https://mint.macaron.im/v1', model: 'macaron-v1-venti' });
+    // Boot order mirrors index.ts: warmSettingsCache() then seedProviderFromEnv().
+    const res = await store.seedProviderFromEnv();
+    assert.ok(res.seeded && res.activated); // activated over the system default
+    // The seeded provider must win — the launch override is retired, so both
+    // surfaces route the relay instead of shadowing back to System.
+    const pub = await store.readPublicSettings();
+    assert.equal(pub.activeProviderId, res.seeded ? res.providerId : '');
+    const { env } = store.getActiveProviderEnv();
+    assert.ok(env);
+    assert.match(env!.ANTHROPIC_BASE_URL, /\/relay\/anthropic\//);
+  } finally {
+    delete process.env.MACARON_PROVIDER_ENDPOINT;
+    delete process.env.MACARON_PROVIDER_TOKEN;
+    delete process.env.MACARON_PROVIDER_MODEL;
+  }
+});
+
+test('a model-only launch seeds nothing and keeps the pass-through override', async () => {
+  await seedCustomActive();
+  await boot({ model: 'cli-model' }); // no endpoint/token → seed is a no-op
+  const res = await store.seedProviderFromEnv();
+  assert.equal(res.seeded, false); // missing-env
+  const { model, env } = store.getActiveProviderEnv();
+  assert.equal(model, 'cli-model'); // override still governs
+  assert.equal(env, null);
+  assert.equal((await store.readPublicSettings()).activeProviderId, store.SYSTEM_PROVIDER_ID);
+});

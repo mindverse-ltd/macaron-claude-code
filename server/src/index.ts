@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { AUTH_TOKEN, ALLOWED_ORIGINS, HOST, PORT, WEB_DIST } from './config.js';
 import { makeAuthHook, redactTokenInUrl, resolveToken, setArmedToken } from './lib/auth.js';
 import { makeCorsHook } from './lib/cors.js';
-import { warmSettingsCache } from './lib/settings-store.js';
+import { warmSettingsCache, seedProviderFromEnv } from './lib/settings-store.js';
 import { warmWorktreeCache } from './lib/worktree-store.js';
 import { warmPermissionRulesCache } from './lib/permission-rules.js';
 import { warmShareCache } from './lib/share-store.js';
@@ -202,6 +202,16 @@ if (existsSync(WEB_DIST)) {
 
 try {
   await warmSettingsCache();
+  // One-liner bootstrap: if MACARON_PROVIDER_* / ANTHROPIC_BASE_URL+AUTH_TOKEN
+  // are in env, upsert them as a saved provider (and auto-activate when the
+  // user is still on the built-in `system` default). Lets a relay's docs page
+  // ship a copy-paste snippet that opens Macaron Artifacts fully configured.
+  const seedResult = await seedProviderFromEnv();
+  if (seedResult.seeded) {
+    app.log.info(
+      `env-seeded provider ${seedResult.providerId}${seedResult.activated ? ' (activated)' : ' (kept your active choice)'}`,
+    );
+  }
   await warmWorktreeCache();
   await warmPermissionRulesCache();
   await warmCodexConfigCache();
