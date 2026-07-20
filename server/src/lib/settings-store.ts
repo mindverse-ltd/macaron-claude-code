@@ -9,7 +9,7 @@
 // hot-path request handlers can call it without awaiting disk I/O.
 
 import { promises as fs, mkdirSync, existsSync, symlinkSync, lstatSync, rmSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { HOME, HOST, PORT, MACARON_API_BASE, MACARON_API_KEY, MACARON_MODEL } from '../config.js';
@@ -295,6 +295,72 @@ export async function setActiveProvider(id: string): Promise<boolean> {
   s.activeProviderId = id;
   await persist();
   return true;
+}
+
+// One-liner bootstrap for users coming from a Macaron API relay's docs page:
+// they paste a shell snippet that sets a few env vars and runs `/macaron`, and
+// the WebUI opens with the relay's provider already selected — no manual
+// Settings → Add provider dance.
+//
+// Reads (MACARON_* wins; ANTHROPIC_* is the fallback so the same snippet an
+// operator ships for `claude` also works for `claude /macaron`):
+//   MACARON_PROVIDER_ENDPOINT  | ANTHROPIC_BASE_URL             (required)
+//   MACARON_PROVIDER_TOKEN     | ANTHROPIC_AUTH_TOKEN | ANTHROPIC_API_KEY  (required)
+//   MACARON_PROVIDER_MODEL     | ANTHROPIC_MODEL                (default: macaron-v1-venti)
+//   MACARON_PROVIDER_NAME                                       (default: derived from endpoint host)
+//
+// Escape hatch: set MACARON_DISABLE_ENV_PROVIDER_SEED=1 (or true/yes) to skip
+// entirely — for users whose shell has ANTHROPIC_BASE_URL pointing at some
+// unrelated relay they don't want Macaron to adopt.
+//
+// Semantics (all "A" per product call):
+// - Overwrite in place: env is the source of truth; a re-run with different
+//   creds refreshes the same provider row (matched by deterministic id).
+// - Auto-activate only when the current active provider is still the built-in
+//   `system` — never yanks a user who's manually picked another one.
+// - Idempotent: same env → same provider id (sha1 of endpoint+model prefix),
+//   so paste-and-run twice doesn't spawn dupes.
+export async function seedProviderFromEnv(): Promise<
+  { seeded: false; reason: 'disabled' | 'missing-env' } | { seeded: true; providerId: string; activated: boolean }
+> {
+  if (/^(1|true|yes)$/i.test(process.env.MACARON_DISABLE_ENV_PROVIDER_SEED || '')) {
+    return { seeded: false, reason: 'disabled' };
+  }
+  const endpoint = (process.env.MACARON_PROVIDER_ENDPOINT || process.env.ANTHROPIC_BASE_URL || '').trim();
+  const token = (process.env.MACARON_PROVIDER_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!endpoint || !token) return { seeded: false, reason: 'missing-env' };
+  const model = (process.env.MACARON_PROVIDER_MODEL || process.env.ANTHROPIC_MODEL || 'macaron-v1-venti').trim();
+  const name = (process.env.MACARON_PROVIDER_NAME || deriveProviderNameFromEndpoint(endpoint)).trim();
+
+  // Deterministic id: endpoint+model → same shell snippet always upserts the
+  // same row. Formatted UUID-shaped for consistency with existing random ids.
+  const hash = createHash('sha1').update(`env:${endpoint}\n${model}`).digest('hex');
+  const id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+
+  const s = await readSettings();
+  const idx = s.customProviders.findIndex((p) => p.id === id);
+  const next: CustomProvider = sanitizeProvider({ id, name, endpoint, model, apiKey: token });
+  if (idx >= 0) s.customProviders[idx] = next;
+  else s.customProviders.push(next);
+  const activated = s.activeProviderId === SYSTEM_PROVIDER_ID;
+  if (activated) s.activeProviderId = id;
+  await persist();
+  return { seeded: true, providerId: id, activated };
+}
+
+// "https://mint.macaron.im/v1" → "Mint (env)". Falls back to a generic
+// "Provider (env)" for weird / empty hosts. The `(env)` suffix flags the row
+// as env-seeded in the sidebar so a user glancing at Settings knows why it
+// showed up without them touching Add provider.
+function deriveProviderNameFromEndpoint(endpoint: string): string {
+  try {
+    const host = new URL(endpoint).hostname.replace(/\.$/, '');
+    const label = host.split('.').filter((s) => s && s !== 'www')[0] || host;
+    if (!label) return 'Provider (env)';
+    return `${label[0]!.toUpperCase()}${label.slice(1)} (env)`;
+  } catch {
+    return 'Provider (env)';
+  }
 }
 
 // ---------- Active provider → SDK env override -------------------------

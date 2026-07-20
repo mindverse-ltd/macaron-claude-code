@@ -312,6 +312,13 @@ export const api = {
     getJSON<DirListing>(`/api/fs/dirs?path=${encodeURIComponent(path ?? '')}`),
   workspace: (project: string) =>
     getJSON<WorkspaceDetailResponse>(`/api/workspaces/${encodeURIComponent(project)}`),
+  // Forget a workspace: remove every session jsonl + drop the cwd registry
+  // entry. Does NOT touch the actual project directory on disk.
+  deleteWorkspace: async (project: string): Promise<{ removedSessions: number; unregistered: boolean }> => {
+    const r = await authedFetch(`/api/workspaces/${encodeURIComponent(project)}`, { method: 'DELETE' });
+    if (!r.ok) throw new HttpError(r.status, await r.text());
+    return r.json();
+  },
   // Read-only hooks view. Pass an encoded project to include that workspace's
   // project + local settings.json; omit it for user-scope hooks only.
   hooks: (project?: string) =>

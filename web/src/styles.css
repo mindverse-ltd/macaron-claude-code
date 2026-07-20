@@ -782,8 +782,48 @@ textarea:focus, select:focus, input:focus {
   word-break: break-all;
   min-width: 0;
 }
+.ti-tool-input {
+  color: var(--text-2);
+}
+/* In a tool row, Shiki uses the exact same text column and metrics as plain output. */
+.ti-tool-input .chat-shiki-code {
+  min-width: 0;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.ti-tool-input .chat-shiki-code__viewport {
+  max-height: none;
+  overflow: visible;
+  padding: 0 28px 0 0;
+}
+.ti-tool-input.is-collapsed .chat-shiki-code__viewport {
+  /* 2 lines × 12px × 1.55, matching .ti-tool-body pre below. */
+  max-height: 37.2px;
+  overflow: hidden;
+}
+.ti-tool-input .chat-shiki-code .shiki,
+.ti-tool-input .chat-code-plain {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ti-tool-input .chat-shiki-code__copy {
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+}
+/* Standalone expand/collapse toggle (sits under both input and output). */
+.ti-tool-toggle {
+  padding-left: 0;
+}
+.ti-tool-toggle-row { margin-top: 0; }
+.ti-tool-toggle-row > .ti-rail { visibility: hidden; }
 .ti-tool-out {
   display: flex;
+  align-items: flex-start;
   gap: 6px;
   padding-left: 10px;
   margin-top: 2px;
