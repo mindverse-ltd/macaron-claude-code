@@ -383,7 +383,11 @@ export function getActiveProviderEnv(): {
   env: Record<string, string> | null;
 } {
   const s = cache ?? makeDefaults();
-  if (s.activeProviderId === SYSTEM_PROVIDER_ID) {
+  // Launch-time override: a pasted `ANTHROPIC_BASE_URL` (with `mcc` env block /
+  // `--model`) is an explicit "run against these params now" intent and must
+  // win over a stale persisted custom-provider selection. Fall through to the
+  // pass-through path so the SDK subprocess inherits the ambient env untouched.
+  if (s.activeProviderId === SYSTEM_PROVIDER_ID || process.env.ANTHROPIC_BASE_URL) {
     // Pass-through: inherit process.env unchanged (ANTHROPIC_BASE_URL /
     // ANTHROPIC_AUTH_TOKEN the user exported in their shell). Honor an
     // ambient ANTHROPIC_MODEL too so `mcc --model X` (which sets it) picks

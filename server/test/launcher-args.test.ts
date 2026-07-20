@@ -57,6 +57,18 @@ test('mcc rejects --model with no value', () => {
   assert.match(result.stderr, /--model requires a value/);
 });
 
+test('mcc rejects an empty inline --model value', () => {
+  const result = runLauncher(mcc, ['--model=']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--model requires a non-empty value/);
+});
+
+test('mcc rejects a whitespace-only --model value', () => {
+  const result = runLauncher(mcc, ['--model', '   ']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--model requires a non-empty value/);
+});
+
 test('mcc rejects --model swallowing the next flag as its value', () => {
   const result = runLauncher(mcc, ['--model', '--port']);
   assert.equal(result.status, 1);

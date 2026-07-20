@@ -77,7 +77,9 @@ try {
       continue;
     }
     if (flag === '--model') {
-      process.env.ANTHROPIC_MODEL = inline ?? readValue(i, flag);
+      const model = (inline ?? readValue(i, flag)).trim();
+      if (!model) throw new Error(`${flag} requires a non-empty value`);
+      process.env.ANTHROPIC_MODEL = model;
       if (inline === null) i++;
       continue;
     }
