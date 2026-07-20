@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { ScheduleInput, SessionKind } from '@macaron/shared';
+import type { ScheduleInput } from '@macaron/shared';
 import { ENGINE } from '../config.js';
 import {
   readSchedules,
@@ -22,17 +22,21 @@ async function assertRunnableCwd(cwd: string): Promise<void> {
   if (!st?.isDirectory()) throw new Error('cwd must be an existing directory');
 }
 
-function normalizeInput(b: Body): ScheduleInput | null {
+// Result of validating a create body: the normalized input, or a 400 reason.
+// `engine` is fixed to ENGINE — an omitted engine defaults to it, an explicit
+// foreign engine is rejected (its SDK isn't installed here, so it could never
+// run; silently coercing it would let a client request one engine and have its
+// prompt fire under another).
+type NormalizeResult = { input: ScheduleInput } | { error: string };
+
+function normalizeInput(b: Body): NormalizeResult {
   const name = String(b.name || '').trim();
   const prompt = String(b.prompt || '').trim();
   const cwd = String(b.cwd || '').trim();
   const pattern = String(b.pattern || '').trim();
-  // This launcher can only run its own engine's sessions — the other engines'
-  // SDKs aren't installed, so a foreign schedule would fail at fire time.
-  // Default to (and only accept) the boot engine.
-  const engine: SessionKind = ENGINE;
-  if (!name || !prompt || !cwd || !pattern) return null;
-  return { name, prompt, cwd, pattern, engine, oneShot: Boolean(b.oneShot) };
+  if (!name || !prompt || !cwd || !pattern) return { error: 'name, prompt, cwd and pattern are required' };
+  if (b.engine !== undefined && b.engine !== ENGINE) return { error: `engine must be ${ENGINE}` };
+  return { input: { name, prompt, cwd, pattern, engine: ENGINE, oneShot: Boolean(b.oneShot) } };
 }
 
 export async function registerScheduleRoutes(app: FastifyInstance): Promise<void> {
@@ -45,11 +49,11 @@ export async function registerScheduleRoutes(app: FastifyInstance): Promise<void
   });
 
   app.post<{ Body: Body }>('/api/schedules', async (req, reply) => {
-    const input = normalizeInput(req.body || {});
-    if (!input) return reply.status(400).send({ error: 'name, prompt, cwd and pattern are required' });
+    const norm = normalizeInput(req.body || {});
+    if ('error' in norm) return reply.status(400).send({ error: norm.error });
     try {
-      await assertRunnableCwd(input.cwd);
-      return await createSchedule(input);
+      await assertRunnableCwd(norm.input.cwd);
+      return await createSchedule(norm.input);
     } catch (e) {
       return reply.status(400).send({ error: (e as Error).message });
     }

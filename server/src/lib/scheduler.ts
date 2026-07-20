@@ -144,7 +144,9 @@ export async function fireSchedule(schedule: Schedule, advance = true): Promise<
   }
 }
 
-function tick(): void {
+// Exported for tests: run one scan synchronously instead of waiting for the
+// interval. Firing itself is still fire-and-forget.
+export function tick(): void {
   const now = Date.now();
   for (const s of listSchedules()) {
     if (s.status !== 'active' || s.nextRunAt === null || s.nextRunAt > now) continue;
