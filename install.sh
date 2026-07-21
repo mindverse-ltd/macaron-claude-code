@@ -34,7 +34,7 @@
 set -euo pipefail
 
 PLUGIN_HOME="${MACARON_ARTIFACTS_HOME:-$HOME/.macaron/artifacts-src}"
-REPO_URL="${MACARON_ARTIFACTS_REPO:-https://github.com/mindverse-ltd/macaron-artifacts.git}"
+REPO_URL="${MACARON_ARTIFACTS_REPO:-https://github.com/MindLab-Research/macaron-artifacts.git}"
 BRANCH="${MACARON_ARTIFACTS_BRANCH:-main}"
 PORT="${MACARON_PORT:-7878}"
 
