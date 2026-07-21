@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre, loadShikiStreamCodeBlock } from '../components/MarkdownCode';
-import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Circle, CircleDot, ClipboardList, GitBranch, GitFork, Info, Lock, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Square, Undo2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bot, Check, ChevronDown, ChevronRight, Circle, CircleDot, ClipboardList, Download, GitBranch, GitFork, Info, Lock, MessageCircle, MoreHorizontal, Paperclip, Plus, RefreshCw, Square, Undo2, X } from 'lucide-react';
 import { useReplay } from '../components/ReplayControls';
 import { sessionToMarkdown } from '@macaron/shared';
 import {
@@ -42,6 +42,7 @@ import {
   easeTowards,
 } from '../lib/thinkingVerbs';
 import { useToast } from '../components/Toast';
+import { authedFetch } from '../lib/auth';
 import { useConfirm } from '../components/Confirm';
 import { useFileMention } from '../components/MentionPopup';
 import { StatusBar, type PermissionMode } from '../components/StatusBar';
@@ -782,6 +783,8 @@ function GenuiItem({ it, superseded = false }: { it: Extract<Item, { kind: 'genu
   // the widget — keep showing the last good frame until fresh code compiles.
   const [lastGoodCode, setLastGoodCode] = useState('');
   const [hasRendered, setHasRendered] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const toast = useToast();
 
   const onRendered = useCallback((rendered: string) => {
     setLastGoodCode(rendered);
@@ -793,10 +796,38 @@ function GenuiItem({ it, superseded = false }: { it: Extract<Item, { kind: 'genu
   const onError = useCallback(() => { /* swallow */ }, []);
 
   const displayCode = code || lastGoodCode;
+  const onExport = useCallback(async () => {
+    if (exporting || !displayCode) return;
+    setExporting(true);
+    try {
+      const resp = await authedFetch('/api/genui/export-html', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: displayCode }),
+      });
+      if (!resp.ok) throw new Error(`export failed (${resp.status})`);
+      const html = await resp.text();
+      downloadTextFile('macaron-genui.html', html, 'text/html');
+    } catch (e) {
+      toast(`HTML export failed: ${(e as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [displayCode, exporting, toast]);
+
   if (!displayCode) return null;
 
   return (
     <div className="ti-genui" data-item-id={it.id}>
+      {hasRendered && !streaming && (
+        <div className="ti-genui-head">
+          <span className="ti-genui-prompt" />
+          <button className="ti-genui-codebtn" onClick={onExport} disabled={exporting} title="Export this UI as a standalone HTML file">
+            <Download size={12} aria-hidden="true" style={{ verticalAlign: '-1px', marginRight: 4 }} />
+            {exporting ? 'Exporting…' : 'Export HTML'}
+          </button>
+        </div>
+      )}
       <div
         data-genui-render-state={hasRendered ? 'ready' : 'pending'}
         aria-hidden={!hasRendered}
