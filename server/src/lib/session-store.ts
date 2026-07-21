@@ -488,7 +488,7 @@ export async function resolveSessionCwd(project: string, sid: string): Promise<s
   const target = `${sid}.jsonl`;
   try {
     const primary = await readSessionSummary(path.join(CLAUDE_PROJECTS, project, target));
-    if (primary?.cwd) return primary.cwd;
+    if (primary?.cwd && (await fs.stat(primary.cwd)).isDirectory()) return primary.cwd;
   } catch { /* fall through to cross-project scan */ }
   try {
     const projectDirs = await fs.readdir(CLAUDE_PROJECTS);
@@ -496,11 +496,15 @@ export async function resolveSessionCwd(project: string, sid: string): Promise<s
       if (dir === project) continue; // already tried
       try {
         const meta = await readSessionSummary(path.join(CLAUDE_PROJECTS, dir, target));
-        if (meta?.cwd) return meta.cwd;
+        if (meta?.cwd && (await fs.stat(meta.cwd)).isDirectory()) return meta.cwd;
       } catch { /* keep looking */ }
     }
   } catch { /* CLAUDE_PROJECTS unreadable — fall through */ }
-  return decodeClaudeProjectName(project) || HOME || '/tmp';
+  const projectCwd = await resolveProjectCwd(project);
+  try {
+    if (projectCwd && (await fs.stat(projectCwd)).isDirectory()) return projectCwd;
+  } catch { /* stale project cwd — use a guaranteed live directory */ }
+  return HOME || '/tmp';
 }
 
 // Resolve a claude project name to its working directory. Prefer the cwd

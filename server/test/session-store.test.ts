@@ -13,7 +13,7 @@ process.env.HOME = tmpHome;
 process.env.USERPROFILE = tmpHome;
 
 const { CLAUDE_PROJECTS } = await import('../src/config.js');
-const { readSessionMessages, resolveProjectCwd, searchProjectFiles } = await import('../src/lib/session-store.js');
+const { readSessionMessages, resolveProjectCwd, resolveSessionCwd, searchProjectFiles } = await import('../src/lib/session-store.js');
 
 const PROJECT = 'mcc-test';
 const projectDir = path.join(CLAUDE_PROJECTS, PROJECT);
@@ -98,6 +98,12 @@ test('project cwd resolution prefers a live session and otherwise uses the trust
   assert.equal(await resolveProjectCwd(cwdProject, registryCwd), liveCwd);
   await fs.rm(liveCwd, { recursive: true, force: true });
   assert.equal(await resolveProjectCwd(cwdProject, registryCwd), registryCwd);
+});
+
+test('session cwd resolution falls back when the recorded worktree was removed', async () => {
+  const staleCwd = path.join(tmpHome, 'removed-session-worktree');
+  await writeSession('stale-cwd', [{ type: 'user', cwd: staleCwd, message: { role: 'user', content: 'stale' } }]);
+  assert.equal(await resolveSessionCwd(PROJECT, 'stale-cwd'), tmpHome);
 });
 
 test('mention search skips a stale session cwd and uses the live project root', async () => {
