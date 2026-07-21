@@ -26,7 +26,6 @@ import { existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import { Readable, Writable } from 'node:stream';
 import path from 'node:path';
-import { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream } from '@agentclientprotocol/sdk';
 import type { Client, ReadTextFileRequest, ReadTextFileResponse, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, WriteTextFileRequest, ContentBlock, McpServerStdio } from '@agentclientprotocol/sdk';
 import { getActiveKimiProviderEnv } from './kimi-config.js';
 import { findKimiSessionDir } from './kimi-store.js';
@@ -247,20 +246,25 @@ export async function* runKimi(opts: KimiRunOptions): AsyncGenerator<RunnerEvent
       },
     };
 
-    const stream = ndJsonStream(
-      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
-    );
-    const conn = new ClientSideConnection(() => clientImpl, stream);
-
     let capturedSid = '';
-    const onAbort = () => {
-      if (capturedSid) void conn.cancel({ sessionId: capturedSid }).catch(() => {});
-      child.kill('SIGTERM');
-      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, 3000).unref();
-    };
-
     try {
+      // Lazy-import the ACP SDK so only the kimi (mkx) launcher pulls it in — the
+      // claude/codex launchers boot the shared bundle without it installed. Kept
+      // inside the try so a missing SDK surfaces as a stream `error` (like the
+      // claude/codex runners), not an unhandled rejection.
+      const { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream } = await import('@agentclientprotocol/sdk');
+      const stream = ndJsonStream(
+        Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+        Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      );
+      const conn = new ClientSideConnection(() => clientImpl, stream);
+
+      const onAbort = () => {
+        if (capturedSid) void conn.cancel({ sessionId: capturedSid }).catch(() => {});
+        child.kill('SIGTERM');
+        setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, 3000).unref();
+      };
+
       await conn.initialize({
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },

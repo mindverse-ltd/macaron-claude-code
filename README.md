@@ -77,6 +77,14 @@ npx mkx@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mkx@<sha>   # Kimi
 
 Replace `<sha>` with a commit on `main` (see the [pkg.pr.new builds](https://github.com/MindLab-Research/macaron-artifacts/commits/main)). All three accept `--host` / `--port`; run with `--help` for the full list.
 
+`mcc` also takes `--model <model>` to preset the Claude launch model (sets `ANTHROPIC_MODEL`), mirroring `claude --model X`. Paste your provider env and launch in one go:
+
+```bash
+export ANTHROPIC_BASE_URL='https://mint.macaron.im'
+export ANTHROPIC_AUTH_TOKEN='sk-...'
+bunx mcc@https://pkg.pr.new/MindLab-Research/macaron-artifacts/mcc@<sha> --model Macaron-V1-Venti
+```
+
 Verify:
 
 ```bash

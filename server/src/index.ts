@@ -149,13 +149,22 @@ await app.register(async (instance) => {
   await registerConfigFileRoutes(instance);
   await registerRelayRoutes(instance);
   await registerTunnelRoutes(instance);
-  await registerWorkspaceRoutes(instance);
   await registerProjectRoutes(instance);
   await registerFsRoutes(instance);
-  await registerSessionRoutes(instance);
   await registerWorktreeRoutes(instance);
-  await registerCodexRoutes(instance);
-  await registerKimiRoutes(instance);
+  // Engine-specific route groups. Each launcher sets MACARON_ENGINE and mounts
+  // only its own engine's runner routes, so a boot never touches another
+  // engine's runner module (and, with the runners' SDKs lazy-imported, never
+  // its SDK). The default (unset) engine is claude.
+  const engine = process.env.MACARON_ENGINE;
+  if (engine === 'codex') {
+    await registerCodexRoutes(instance);
+  } else if (engine === 'kimi') {
+    await registerKimiRoutes(instance);
+  } else {
+    await registerWorkspaceRoutes(instance);
+    await registerSessionRoutes(instance);
+  }
   await registerGitRoutes(instance);
   await registerShareRoutes(instance);
   await registerSearchRoutes(instance);

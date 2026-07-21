@@ -5036,6 +5036,7 @@ textarea:focus, select:focus, input:focus {
 @media (max-width: 768px) {
   /* Stack tree above editor: a fixed 280px tree would squeeze the editor to
      an unusable sliver on phones. */
+  .fx { height: 100dvh; } /* 100vh runs under mobile browser chrome */
   .fx-body { flex-direction: column; }
   .fx-tree {
     width: 100%;
@@ -5428,7 +5429,10 @@ textarea:focus, select:focus, input:focus {
   color: var(--muted);
   pointer-events: none;
 }
-.fp-input {
+/* Descendant selector on purpose: the bare `.fp-input` class loses specificity
+   to the generic `input[type="text"]` rule above, which collapses the left
+   padding and makes the search icon overlap the text. */
+.fp-search .fp-input {
   flex: 1;
   width: 100%;
   height: 36px;
