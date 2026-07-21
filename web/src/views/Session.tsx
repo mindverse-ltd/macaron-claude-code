@@ -763,58 +763,40 @@ function ensureReactImport(src: string): string {
 }
 
 function GenuiItem({ it, superseded = false }: { it: Extract<Item, { kind: 'genui' }>; superseded?: boolean }) {
-  // Superseded = this genui failed AND a later retry in the same transcript
-  // succeeded. Just hide it — no chip, no placeholder. The successful one
-  // below (or above, depending on scroll direction) is the answer.
-  if (superseded) return null;
+  // Three "don't render" cases collapse to one — the widget only ever shows
+  // when we have code that isn't broken:
+  //   - superseded (a later retry succeeded, so this one is stale by definition)
+  //   - status === 'error' (server rejected the code or tool_result was marked
+  //     isError; no point flashing a red card, esp. mid-stream when a retry
+  //     usually follows)
+  //   - no code yet (was "generating UI…" placeholder — removed per user
+  //     feedback: the empty gap during streaming is less noisy than the pending
+  //     text, and once code lands the renderer takes over)
+  if (superseded || it.status === 'error' || !it.code) return null;
 
-  const code = it.code ? ensureReactImport(it.code) : '';
+  const code = ensureReactImport(it.code);
   const streaming = it.status === 'pending' && Boolean(code);
 
-  // Remember the most recent code that actually rendered so a subsequent
-  // failure (streamed partial that briefly breaks, or a tool_result marked
-  // error) doesn't wipe the widget — we keep showing the last good frame
-  // and just tack an error banner on top.
+  // Remember the most recent code that actually rendered so a runtime
+  // failure (streamed partial that briefly breaks compile) doesn't wipe
+  // the widget — keep showing the last good frame until fresh code compiles.
   const [lastGoodCode, setLastGoodCode] = useState('');
-  const [runtimeError, setRuntimeError] = useState('');
   const [hasRendered, setHasRendered] = useState(false);
 
   const onRendered = useCallback((rendered: string) => {
     setLastGoodCode(rendered);
-    setRuntimeError('');
     setHasRendered(true);
   }, []);
-  const onError = useCallback((err: Error) => {
-    setRuntimeError(err.message || String(err));
-  }, []);
+  // onError is a no-op now — we don't surface runtime errors as banners
+  // anymore; StaticGenUIRenderer's own crossfade keeps the last good frame
+  // and a later retry (which we let through the filter above) is the fix.
+  const onError = useCallback(() => { /* swallow */ }, []);
 
   const displayCode = code || lastGoodCode;
-  const toolError = it.status === 'error' ? (it.error || 'unknown error') : '';
-  const banner = toolError || runtimeError;
-  const waitingForFirstFrame = !hasRendered && !banner;
+  if (!displayCode) return null;
 
-  if (!displayCode) {
-    if (toolError) {
-      return (
-        <div className="ti-genui" data-item-id={it.id}>
-          <div className="ti-genui-error">render_ui failed: {toolError}</div>
-        </div>
-      );
-    }
-    return (
-      <div className="ti-genui" data-item-id={it.id}>
-        <div className="ti-genui-pending">generating UI…</div>
-      </div>
-    );
-  }
   return (
     <div className="ti-genui" data-item-id={it.id}>
-      {banner && (
-        <div className="ti-genui-error stale" title={banner}>
-          Newer render failed — showing last good frame. {banner}
-        </div>
-      )}
-      {waitingForFirstFrame && <div className="ti-genui-pending">generating UI…</div>}
       <div
         data-genui-render-state={hasRendered ? 'ready' : 'pending'}
         aria-hidden={!hasRendered}
