@@ -59,6 +59,24 @@ export type PublicCodexSettings = {
   runtime: CodexRuntimeOptions;
 };
 
+export type CodexLoopStatus = 'idle' | 'armed' | 'running' | 'stopped';
+
+export type CodexLoopConfig = {
+  enabled: boolean;
+  prompt: string;
+  maxIterations: number;
+  timeoutMs: number;
+  sentinels: string[];
+};
+
+export type CodexLoopSnapshot = {
+  enabled: boolean;
+  status: CodexLoopStatus;
+  iterations: number;
+  config: CodexLoopConfig;
+  stopReason?: string;
+};
+
 async function getJSON<T>(url: string): Promise<T> {
   const r = await authedFetch(url);
   if (!r.ok) throw new Error(`http ${r.status}`);
@@ -137,5 +155,12 @@ export const codexApi = {
     if (!r.ok) throw new Error(`http ${r.status}`);
     return r.json();
   },
+  loop: (sid: string) => getJSON<CodexLoopSnapshot>(`/api/codex/threads/${encodeURIComponent(sid)}/loop`),
+  setLoop: (sid: string, patch: Partial<CodexLoopConfig>) =>
+    reqJSON<CodexLoopSnapshot>(`/api/codex/threads/${encodeURIComponent(sid)}/loop`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
   engine: () => getJSON<{ engine: 'claude' | 'codex' }>('/api/engine'),
 };

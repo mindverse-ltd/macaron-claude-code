@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paperclip, X, Square, ArrowUp } from 'lucide-react';
 import { CodexProviderPicker } from './CodexProviderPicker';
+import { CodexLoopControl } from './CodexLoopControl';
 import { CodexRuntimePicker } from './CodexRuntimePicker';
-import type { CodexRuntimeOverride } from './api';
+import type { CodexLoopSnapshot, CodexRuntimeOverride } from './api';
 import { useFileMention } from '../components/MentionPopup';
 import { SlashPalette } from '../components/SlashPalette';
 import { api, type SlashCommand } from '../lib/api';
@@ -21,6 +22,8 @@ export function CodexComposer({
   disabled,
   running,
   placeholder,
+  sid,
+  loop,
   project,
   onRuntime,
 }: {
@@ -33,6 +36,8 @@ export function CodexComposer({
   disabled?: boolean;
   running?: boolean;
   placeholder?: string;
+  sid?: string;
+  loop?: CodexLoopSnapshot | null;
   project: string;
   onRuntime: (ov: CodexRuntimeOverride) => void;
 }) {
@@ -225,6 +230,7 @@ export function CodexComposer({
         <div className="cx-composer-pickers">
           <CodexProviderPicker />
           <CodexRuntimePicker project={project} onChange={onRuntime} disabled={running} />
+          {sid && <CodexLoopControl sid={sid} snapshot={loop ?? null} />}
         </div>
         <span className="cx-composer-hint">Enter to send · Shift+Enter for newline</span>
       </div>

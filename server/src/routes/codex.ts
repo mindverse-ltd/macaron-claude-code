@@ -19,7 +19,7 @@ import {
 } from '../lib/codex-store.js';
 import { groupWorkspaces } from '../lib/session-store.js';
 import { runCodex } from '../lib/codex-runner.js';
-import { runCodexAppServer } from '../lib/codex-app-server.js';
+import { runCodexTurn } from '../lib/codex-transport.js';
 import { respondCodexApproval } from '../lib/active-approvals.js';
 import type { CodexDecision } from '@macaron/shared';
 import { maybeGenerateCodexTitle } from '../lib/codex-title.js';
@@ -37,7 +37,14 @@ import {
 } from '../lib/codex-config.js';
 import { startSSE, sseSend, sseDone } from '../lib/sse.js';
 import { liveStart, livePush, liveEnd, liveGet } from '../lib/live-registry.js';
-import { registerRun, abortRun, endRun } from '../lib/active-runs.js';
+import { registerRun, claimRun, abortRun, endRun } from '../lib/active-runs.js';
+import {
+  getLoopSnapshot,
+  setLoopConfig,
+  subscribeLoop,
+  noteCodexTurnComplete,
+  type CodexLoopConfig,
+} from '../lib/codex-loop.js';
 import { pushPermissionRequest, pushSessionDone } from '../lib/push-notify.js';
 import { setLabel } from '../lib/label-store.js';
 
@@ -77,13 +84,6 @@ function pickRuntimeOverride(b: { runtime?: CodexRuntimeOverride } | undefined):
 }
 
 export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
-  // Transport selector. The app-server JSON-RPC bridge (MAC-8129) is the
-  // default — it's the only one that can stream native plan updates and pause
-  // for interactive approvals. Set MACARON_CODEX_TRANSPORT=sdk to fall back to
-  // the one-shot `codex exec` SDK path (no plan/approval surface).
-  const useAppServer = process.env.MACARON_CODEX_TRANSPORT !== 'sdk';
-  const runCodexTurn: typeof runCodex = (opts) => (useAppServer ? runCodexAppServer(opts) : runCodex(opts));
-
   // --- Threads -----------------------------------------------------------
 
   app.get('/api/codex/threads', async () => {
@@ -156,6 +156,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
     reply: Parameters<typeof startSSE>[0],
     stream: ReturnType<typeof runCodex>,
     sid: string | null,
+    abortController: AbortController,
     live: { cwd: string; text: string; hasImages: boolean },
   ) => {
     let clientGone = false;
@@ -165,6 +166,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       try { sseSend(reply, payload); } catch { clientGone = true; }
     };
     let capturedSid = sid;
+    let agentText = '';
     // Mirror the Claude route: the primary client is written directly, while a
     // parallel copy of every event lands in the live registry so a browser
     // refresh mid-turn can reattach via the snapshot-then-live /live endpoint.
@@ -188,7 +190,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
           capturedSid = ev.sessionId;
           ensureLive();
           safeSend({ type: 'meta', cwd: live.cwd, sessionId: capturedSid });
-        } else if (ev.kind === 'delta') relay({ type: 'delta', text: ev.text });
+        } else if (ev.kind === 'delta') { agentText += ev.text; relay({ type: 'delta', text: ev.text }); }
         else if (ev.kind === 'reasoning') relay({ type: 'reasoning', text: ev.text });
         else if (ev.kind === 'tool_use') relay({ type: 'tool_use', id: ev.id, name: ev.name, input: ev.input });
         else if (ev.kind === 'tool_result') relay({ type: 'tool_result', tool_use_id: ev.tool_use_id, text: ev.text, isError: ev.isError });
@@ -209,24 +211,29 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
           safeSend({ type: 'done', exitCode: ev.exitCode });
           if (capturedSid) {
             liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
-            endRun(capturedSid);
+            endRun(capturedSid, abortController);
             // Ping the desktop / mobile push subscription that this thread's
             // turn just wrapped. Matches Claude sessions' 'finished a turn'
             // toast so users watching two tabs see identical UX.
             pushSessionDone(CODEX_PUSH_PROJECT, capturedSid);
+            // Name the thread from its opening exchange once the turn's rollout
+            // has landed. Fire-and-forget: no-op if already titled, never blocks
+            // the response, failures swallowed.
+            if (ev.exitCode === 0) void maybeGenerateCodexTitle(capturedSid).catch(() => {});
+            // A user turn finishing is what arms the autonomous loop (if enabled
+            // for this sid). No-op when the loop is off.
+            if (ev.exitCode === 0) noteCodexTurnComplete(capturedSid, live.cwd, agentText);
           }
-          // Name the thread from its opening exchange once the turn's rollout
-          // has landed. Fire-and-forget: no-op if already titled, never blocks
-          // the response, failures swallowed.
-          if (capturedSid && ev.exitCode === 0) void maybeGenerateCodexTitle(capturedSid).catch(() => {});
           if (!clientGone) sseDone(reply);
         }
       }
     })().catch((e: unknown) => {
       const msg = (e as Error).message;
-      if (capturedSid) { liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg }); endRun(capturedSid); }
+      if (capturedSid) liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
       safeSend({ type: 'error', error: msg });
       if (!clientGone) sseDone(reply);
+    }).finally(() => {
+      if (capturedSid) endRun(capturedSid, abortController);
     });
   };
 
@@ -255,7 +262,7 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
         yield ev;
       }
     })();
-    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null, { cwd, text, hasImages: images.length > 0 });
+    pipeCodexToSSE(reply, wrapped as ReturnType<typeof runCodex>, null, abortController, { cwd, text, hasImages: images.length > 0 });
   });
 
   app.post<{ Params: SidParams; Body: MessageBody }>(
@@ -267,24 +274,79 @@ export async function registerCodexRoutes(app: FastifyInstance): Promise<void> {
       if (!text && images.length === 0) {
         return reply.status(400).send({ error: 'text or images required' });
       }
+      const abortController = new AbortController();
+      // Claim before the await: otherwise a loop tick firing during
+      // readCodexSessionMessages would see isRunActive === false, start its own
+      // iteration, and both turns would runStreamed on one thread (only one
+      // abortable via /stop). Rejecting an occupied sid also closes the inverse
+      // race where this request arrives after the loop has started.
+      if (!claimRun(sid, abortController)) {
+        return reply.status(409).send({ error: 'thread already has an active run' });
+      }
       let cwd = process.env.HOME || '/tmp';
       try {
         const detail = await readCodexSessionMessages(sid);
         if (detail.cwd) cwd = detail.cwd;
       } catch (e) {
+        endRun(sid, abortController);
         return reply.status(404).send({ error: (e as Error).message });
       }
       startSSE(reply);
       sseSend(reply, { type: 'meta', sessionId: sid, cwd });
-      const abortController = new AbortController();
-      registerRun(sid, abortController);
-      pipeCodexToSSE(reply, runCodexTurn({ prompt: text, cwd, resume: sid, images, abortController, runtime: pickRuntimeOverride(req.body) }), sid, { cwd, text, hasImages: images.length > 0 });
+      pipeCodexToSSE(
+        reply,
+        runCodexTurn({
+          prompt: text,
+          cwd,
+          resume: sid,
+          images,
+          abortController,
+          runtime: pickRuntimeOverride(req.body),
+        }),
+        sid,
+        abortController,
+        { cwd, text, hasImages: images.length > 0 },
+      );
     },
   );
 
   app.post<{ Params: SidParams }>('/api/codex/threads/:sid/stop', async ({ params }, reply) => {
     const ok = abortRun(params.sid);
     return reply.send({ ok, running: ok });
+  });
+
+  // --- Autonomous loop ---------------------------------------------------
+
+  app.get<{ Params: SidParams }>('/api/codex/threads/:sid/loop', async ({ params }) => {
+    return getLoopSnapshot(params.sid);
+  });
+
+  // Toggle / edit the loop. Enabling arms it immediately when the session is
+  // idle; disabling aborts any in-flight iteration. cwd is resolved from the
+  // thread so each resumed iteration runs in the right directory.
+  app.put<{ Params: SidParams; Body: Partial<CodexLoopConfig> }>(
+    '/api/codex/threads/:sid/loop',
+    async (req, reply) => {
+      let cwd = '';
+      try {
+        const detail = await readCodexSessionMessages(req.params.sid);
+        cwd = detail.cwd || '';
+      } catch { /* thread may be brand-new / not on disk yet — cwd stays '' */ }
+      return reply.send(setLoopConfig(req.params.sid, req.body || {}, cwd));
+    },
+  );
+
+  // SSE: subscribe to a session's loop stream — lifecycle status + the
+  // runner events of each auto-driven iteration, so an open thread view
+  // watches the loop even though it's detached from any request.
+  app.get<{ Params: SidParams }>('/api/codex/threads/:sid/loop/live', async ({ params }, reply) => {
+    startSSE(reply);
+    let clientGone = false;
+    const unsub = subscribeLoop(params.sid, (ev) => {
+      if (clientGone) return;
+      try { sseSend(reply, ev); } catch { clientGone = true; unsub(); }
+    });
+    reply.raw.on('close', () => { clientGone = true; unsub(); });
   });
 
   // Answer a native app-server approval request (command / file / network).

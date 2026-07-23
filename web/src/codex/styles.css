@@ -1006,6 +1006,78 @@ body {
 }
 .cx-provider-chip.busy .cx-provider-chip-select { pointer-events: none; }
 
+/* --- Autonomous loop control in the composer footer --- */
+.cx-loop { position: relative; flex-shrink: 0; }
+.cx-loop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: 999px;
+  background: var(--cx-surface);
+  color: var(--cx-text-2, var(--cx-muted));
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms, color 100ms;
+}
+.cx-loop-chip:hover { background: var(--cx-active); color: var(--cx-text); border-color: var(--cx-text); }
+.cx-loop-chip.on { border-color: var(--cx-good); color: var(--cx-good); background: color-mix(in srgb, var(--cx-good) 8%, var(--cx-surface)); }
+.cx-loop-chip.running svg { animation: cx-loop-spin 2.2s linear infinite; }
+@keyframes cx-loop-spin { to { transform: rotate(360deg); } }
+.cx-loop-chip-label { white-space: nowrap; }
+
+.cx-loop-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 340px;
+  max-width: 82vw;
+  padding: 14px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: var(--cx-radius);
+  background: var(--cx-surface);
+  box-shadow: var(--cx-shadow-3);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cx-loop-pop-head { display: flex; align-items: center; justify-content: space-between; }
+.cx-loop-pop-title { font-size: 13px; font-weight: 600; color: var(--cx-text); }
+.cx-loop-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cx-muted); cursor: pointer; }
+.cx-loop-switch input { cursor: pointer; }
+.cx-loop-pop-sub { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--cx-muted); }
+.cx-loop-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--cx-muted); flex: 1; }
+.cx-loop-field > span { font-weight: 500; }
+.cx-loop-field textarea, .cx-loop-field input, .cx-loop-field select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--cx-text);
+  padding: 6px 8px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-bg);
+  resize: vertical;
+}
+.cx-loop-field textarea:focus, .cx-loop-field input:focus, .cx-loop-field select:focus { outline: none; border-color: var(--cx-text); }
+.cx-loop-row { display: flex; gap: 10px; }
+.cx-loop-err { font-size: 11px; color: var(--cx-bad); }
+.cx-loop-pop-foot { display: flex; justify-content: flex-end; }
+.cx-loop-save {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--cx-radius-sm);
+  background: var(--cx-code-strong);
+  color: #fff;
+  cursor: pointer;
+}
+.cx-loop-save:disabled { opacity: 0.5; cursor: progress; }
+
 /* --- Runtime override chips (effort / sandbox / approval / web-search) --- */
 .cx-composer-pickers {
   display: flex;

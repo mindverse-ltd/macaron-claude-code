@@ -332,7 +332,6 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
             safeSend({ type: 'done', exitCode: ev.exitCode });
             if (capturedSid) {
               liveEnd(capturedSid, { type: 'done', exitCode: ev.exitCode });
-              endRun(capturedSid);
               pushSessionDone(project, capturedSid);
             }
             // Same post-turn follow-up as the resume path: stream a throwaway,
@@ -362,9 +361,10 @@ export async function registerWorkspaceRoutes(app: FastifyInstance): Promise<voi
         if (pendingWt && !capturedSid) cleanupPendingWorktree(pendingWt).catch(() => {});
         if (capturedSid) {
           liveEnd(capturedSid, { type: 'done', exitCode: -1, error: msg });
-          endRun(capturedSid);
         }
         if (!clientGone) sseDone(reply);
+      }).finally(() => {
+        if (capturedSid) endRun(capturedSid, abortController);
       });
     },
   );

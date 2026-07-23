@@ -14,6 +14,7 @@ import { warmLabelsCache } from './lib/label-store.js';
 import { warmSchedulesCache } from './lib/schedule-store.js';
 import { startScheduler } from './lib/scheduler.js';
 import { warmCodexTitlesCache } from './lib/codex-titles.js';
+import { warmCodexLoopCache } from './lib/codex-loop.js';
 import { checkGenUI } from './lib/genui-check.js';
 import { startSessionWatcher } from './lib/session-watcher.js';
 
@@ -230,6 +231,7 @@ try {
   await warmLabelsCache();
   await warmSchedulesCache();
   await warmCodexTitlesCache();
+  await warmCodexLoopCache();
   await warmShareCache();
   await startSessionWatcher();
   await app.listen({ host: HOST, port: PORT });

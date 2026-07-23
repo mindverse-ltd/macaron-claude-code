@@ -26,7 +26,7 @@ type FireResult = { ok: boolean; sessionId: string | null; error?: string };
 // wiring from routes/workspaces.ts so an open Session tile streams the fired
 // run live and it lands where the WebUI reads sessions. Returns the sid plus
 // whether the runner actually completed cleanly.
-async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): Promise<FireResult> {
+async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>, abortController: AbortController): Promise<FireResult> {
   const isClaude = schedule.engine === 'claude';
   // Capture before starting the async iterator. A cold runner can take long
   // enough to emit its session id that Date.now() at liveStart would be newer
@@ -48,7 +48,6 @@ async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): P
         else if (ev.kind === 'done') {
           sawDone = true;
           if (ev.exitCode !== 0) ok = false;
-          if (sid) endRun(sid);
         }
         continue; // codex rollout file is picked up on refresh — no live wiring
       } else if (ev.kind === 'delta') {
@@ -71,13 +70,13 @@ async function drain(schedule: Schedule, stream: AsyncGenerator<RunnerEvent>): P
       } else if (ev.kind === 'done') {
         sawDone = true;
         if (ev.exitCode !== 0) ok = false;
-        if (sid) { liveEnd(sid, { type: 'done', exitCode: ev.exitCode }); endRun(sid); }
+        if (sid) liveEnd(sid, { type: 'done', exitCode: ev.exitCode });
       }
     }
   } finally {
-    if (sid && !sawDone) {
-      if (isClaude) liveEnd(sid, { type: 'done', exitCode: -1 });
-      endRun(sid);
+    if (sid) {
+      if (!sawDone && isClaude) liveEnd(sid, { type: 'done', exitCode: -1 });
+      endRun(sid, abortController);
     }
   }
   return { ok, sessionId: sid || null };
@@ -125,7 +124,7 @@ export async function fireSchedule(schedule: Schedule, advance = true): Promise<
         yield ev;
       }
     })();
-    const result = await drain(schedule, wrapped);
+    const result = await drain(schedule, wrapped, abortController);
     await recordRun(schedule.id, { sessionId: result.sessionId, ok: result.ok }, advance);
     return result;
   } catch (err) {

@@ -10,12 +10,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import type { SessionDetail, Message, Block, CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
-import { codexApi } from './api';
+import { codexApi, type CodexLoopSnapshot } from './api';
 import { basename, downloadTextFile } from '../lib/api';
 import { sessionToMarkdown } from '@macaron/shared';
 import { useToast } from '../components/Toast';
 import type { CodexRuntimeOverride } from './api';
-import { sendCodexMessage, startCodexThread, subscribeCodexLive, type CodexStreamEvent } from './stream';
+import { sendCodexMessage, startCodexThread, subscribeCodexLoop, subscribeCodexLive, type CodexStreamEvent } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
 import { notify } from '../lib/notify';
 import { useReplay } from '../components/ReplayControls';
@@ -411,6 +411,7 @@ export function CodexChat(props: CodexChatProps = {}) {
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [loop, setLoop] = useState<CodexLoopSnapshot | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Per-turn runtime override from the composer's picker; kept in a ref so
   // submit() reads the latest choice without re-subscribing. The setter is
@@ -425,6 +426,10 @@ export function CodexChat(props: CodexChatProps = {}) {
   // True only after the user kicks off a turn on THIS mount. A server-side
   // reattach also flips `sending`, but must not create a completion notification.
   const streamedRef = useRef(false);
+  // Latest `sending` for the loop subscription's stable callbacks — a manual
+  // turn owns the live timeline, so loop events defer to it while it's true.
+  const sendingRef = useRef(false);
+  useEffect(() => { sendingRef.current = sending; }, [sending]);
 
   useEffect(() => { onSendingChange?.(sending); }, [sending, onSendingChange]);
 
@@ -565,7 +570,7 @@ export function CodexChat(props: CodexChatProps = {}) {
     // user still typing something doesn't get their draft cleared.
     const programmatic = typeof opts?.text === 'string';
     const text = (programmatic ? opts!.text! : pending).trim();
-    if ((!text && images.length === 0) || sending) return;
+    if ((!text && images.length === 0) || sending || loop?.status === 'running') return;
     const sentImages = programmatic ? [] : images;
     const wire = sentImages.map((i) => ({ mimeType: i.mimeType, dataUrl: i.dataUrl }));
     if (!programmatic) {
@@ -614,7 +619,41 @@ export function CodexChat(props: CodexChatProps = {}) {
       setError((e as Error).message);
       setSending(false);
     }
-  }, [pending, images, sending, isNew, sid, navigate]);
+  }, [pending, images, sending, isNew, sid, navigate, loop?.status]);
+
+  // Subscribe to the server-side loop: lifecycle status + the runner events of
+  // each auto-driven iteration. The loop runs detached from any request, so
+  // this is a passive viewer — an iteration renders into the same live timeline
+  // a manual turn uses. When the user is mid-turn, their stream owns the
+  // timeline and we only track status. On each iteration's `done`, refetch the
+  // transcript so the auto-turn persists into history.
+  useEffect(() => {
+    if (!sid) { setLoop(null); return; }
+    codexApi.loop(sid).then(setLoop).catch(() => {});
+    let loopStreaming = false;
+    const unsub = subscribeCodexLoop(sid, {
+      onLoopStatus: (snap) => {
+        setLoop(snap);
+        if (snap.status === 'running' && !sendingRef.current) loopStreaming = true;
+      },
+      onDelta: (t) => { if (!sendingRef.current) appendAssistantDelta(t); },
+      onReasoning: (t) => { if (!sendingRef.current) appendReasoning(t); },
+      onToolUse: (ev) => { if (!sendingRef.current) appendTool(ev.id, ev.name, ev.input); },
+      onToolResult: (ev) => { if (!sendingRef.current) applyToolResult(ev.tool_use_id, ev.text, ev.isError); },
+      onCodexPlan: (ev) => { if (!sendingRef.current) applyPlan(ev); },
+      onCodexApproval: (ev) => { if (!sendingRef.current) applyApproval(ev); },
+      onCodexApprovalResolved: (ev) => { if (!sendingRef.current) applyApprovalResolved(ev); },
+      onError: (m) => { if (!sendingRef.current) setError(m); },
+      onDone: () => {
+        if (loopStreaming) {
+          loopStreaming = false;
+          codexApi.thread(sid).then(setDetail).catch(() => {}).finally(() => setLive([]));
+        }
+      },
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sid]);
 
   // Chat bridge for render_ui widgets. Mirrors Claude side (Session.tsx):
   // a sandboxed widget imports `sendUserMessage` from '$macaron/chat',
@@ -639,6 +678,11 @@ export function CodexChat(props: CodexChatProps = {}) {
   const title = isNew
     ? 'New thread'
     : detail?.title || basename(detail?.cwd || '') || sid.slice(0, 8);
+
+  // A loop iteration streaming counts as busy: the composer shows Stop (which
+  // aborts the iteration) so the user interjects instead of racing a second
+  // turn onto the same resumed thread.
+  const loopRunning = !sending && loop?.status === 'running';
 
   return (
     <div className={'cx-main' + (hideBar ? ' tile' : '')}>
@@ -722,9 +766,11 @@ export function CodexChat(props: CodexChatProps = {}) {
             onImagesChange={setImages}
             onSubmit={submit}
             onStop={stop}
-            disabled={sending}
-            running={sending && !isNew}
-            placeholder={sending ? 'Draft next message…' : undefined}
+            disabled={sending || loopRunning}
+            running={(sending || loopRunning) && !isNew}
+            placeholder={sending ? 'Draft next message…' : loopRunning ? 'Loop running — Stop to interject…' : undefined}
+            sid={isNew ? undefined : sid}
+            loop={loop}
             project={detail?.project ?? params.project ?? ''}
             onRuntime={setRuntime}
           />
