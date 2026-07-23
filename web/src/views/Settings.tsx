@@ -640,12 +640,12 @@ function ProviderForm({
           id="p-endpoint"
           className="settings-input"
           value={draft.endpoint}
-          placeholder="https://…/v1"
+          placeholder="https://api.example.com/v1"
           spellCheck={false}
           autoCapitalize="off"
           onChange={(e) => onChange({ endpoint: e.target.value })}
         />
-        <p className="settings-hint">Must expose <code>/v1/messages</code>. Claude Code SDK will POST to it.</p>
+        <p className="settings-hint">Requests are sent to <code>Endpoint/messages</code>.</p>
       </div>
       <div className="settings-field">
         <label htmlFor="p-model">Model</label>
