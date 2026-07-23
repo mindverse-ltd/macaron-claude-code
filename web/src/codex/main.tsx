@@ -26,6 +26,7 @@ import { Schedules } from '../views/Schedules';
 import { Analytics } from '../views/Analytics';
 import { Examples } from '../views/Examples';
 import { Hooks } from '../views/Hooks';
+import { FileExplorer } from '../views/FileExplorer';
 import './styles.css';
 import '../chat-code.css';
 
@@ -43,6 +44,7 @@ const router = createHashRouter([
       { path: 't/:sid', element: <CodexChat /> },
       { path: 'w/:project', element: <CodexWorkspace /> },
       { path: 'w/:project/t/:sid', element: <CodexWorkspace /> },
+      { path: 'w/:project/files', element: <FileExplorer /> },
       { path: 'settings', element: <CodexSettings /> },
       // Engine-agnostic management surfaces — same components + same server
       // routes as the Claude bundle. Codex users get skills/mcp/agents/…

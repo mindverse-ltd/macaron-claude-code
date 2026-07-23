@@ -1411,6 +1411,64 @@ body {
   gap: 12px;
   margin-bottom: 20px;
 }
+.cx-canvas-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cx-canvas-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--cx-surface);
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 100ms, color 100ms, border-color 100ms;
+}
+.cx-canvas-action:hover {
+  background: var(--cx-hover);
+  border-color: var(--cx-border-strong);
+  color: var(--cx-text);
+}
+.cx-canvas-action.active {
+  background: var(--cx-active);
+  border-color: var(--cx-border-strong);
+  color: var(--cx-text);
+}
+/* Files-panel side column: the workspace layout collapses to a single
+   canvas column normally; opening the Files toggle pushes the canvas
+   right and reveals a 260px file browser on the left. Same shape as the
+   Claude bundle's .ws-canvas-body.with-files. */
+.cx-canvas-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.cx-canvas-body.with-files {
+  flex-direction: row;
+  gap: 12px;
+}
+.cx-canvas-body.with-files .cx-canvas-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.cx-canvas-main {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+@media (max-width: 768px) {
+  .cx-canvas-body.with-files { flex-direction: column; }
+}
 /* Inner title wraps name + meta; without its own gap the two spans jam
    together ("linfan1 pinned · 12 in workspace"). */
 .cx-canvas-title {

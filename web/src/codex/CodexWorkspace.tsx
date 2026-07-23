@@ -19,7 +19,7 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Copy, RefreshCw, X } from 'lucide-react';
+import { Copy, FolderOpen, RefreshCw, X } from 'lucide-react';
 import { codexApi, type CodexThread, type CodexWorkspace as Wk } from './api';
 import { CodexChat } from './CodexChat';
 import {
@@ -33,6 +33,9 @@ import {
 } from '../lib/canvas';
 import { subscribeSystemEvents } from '../lib/systemEvents';
 import { sessionTitle } from '../lib/api';
+import { FilesPanel } from '../components/FilesPanel';
+import { FileTile } from '../components/FileTile';
+import { isFileSid, filePath } from '../lib/fileTile';
 
 const ROW_UNIT_PX = 48;
 
@@ -57,6 +60,7 @@ export function CodexWorkspace() {
   const [workspace, setWorkspace] = useState<Wk | null>(null);
   const [sessions, setSessions] = useState<CodexThread[] | null>(null);
   const [error, setError] = useState('');
+  const [filesOpen, setFilesOpen] = useState(false);
   const canvas = useCanvas(project);
   const gridRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -160,8 +164,32 @@ export function CodexWorkspace() {
             {canvas.tiles.length} pinned · {sessions.length} in workspace
           </span>
         </div>
+        <div className="cx-canvas-actions">
+          <button
+            type="button"
+            className={'cx-canvas-action' + (filesOpen ? ' active' : '')}
+            onClick={() => setFilesOpen((v) => !v)}
+            title={filesOpen ? 'Close files panel' : 'Browse files in this workspace'}
+          >
+            <FolderOpen size={14} aria-hidden="true" />
+            <span>Files</span>
+          </button>
+        </div>
       </header>
 
+      <div className={'cx-canvas-body' + (filesOpen ? ' with-files' : '')}>
+        {filesOpen && (
+          <FilesPanel
+            project={project}
+            onClose={() => setFilesOpen(false)}
+            focusedPath={canvas.focusedSid && isFileSid(canvas.focusedSid) ? filePath(canvas.focusedSid) : ''}
+            onOpen={(p) => {
+              canvas.addFile(p);
+              if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches) setFilesOpen(false);
+            }}
+          />
+        )}
+        <div className="cx-canvas-main">
       {canvas.tiles.length === 0 ? (
         <div className="cx-canvas-empty">
           <p>Canvas is empty.</p>
@@ -182,14 +210,20 @@ export function CodexWorkspace() {
               }}
             >
               {canvas.tiles.map((tile) => {
-                const meta = sessions.find((x) => x.sessionId === tile.sid);
+                const file = isFileSid(tile.sid);
+                const meta = file ? undefined : sessions.find((x) => x.sessionId === tile.sid);
                 const isFocused = canvas.focusedSid === tile.sid;
+                const label = file
+                  ? filePath(tile.sid).split('/').pop() || 'File'
+                  : meta ? sessionTitle(meta) : tile.sid.slice(0, 8);
                 return (
                   <SortableTile
                     key={tile.sid}
                     tile={tile}
-                    label={meta ? sessionTitle(meta) : tile.sid.slice(0, 8)}
+                    label={label}
                     isFocused={isFocused}
+                    project={project}
+                    isFile={file}
                     onFocus={() => canvas.focus(tile.sid)}
                     onRemove={() => canvas.remove(tile.sid)}
                     onResizeStart={(e) => startResize(tile.sid, e)}
@@ -200,6 +234,8 @@ export function CodexWorkspace() {
           </SortableContext>
         </DndContext>
       )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -208,6 +244,8 @@ function SortableTile({
   tile,
   label,
   isFocused,
+  project,
+  isFile,
   onFocus,
   onRemove,
   onResizeStart,
@@ -215,6 +253,8 @@ function SortableTile({
   tile: TileGeom;
   label: string;
   isFocused: boolean;
+  project: string;
+  isFile: boolean;
   onFocus: () => void;
   onRemove: () => void;
   onResizeStart: (e: React.PointerEvent) => void;
@@ -254,16 +294,18 @@ function SortableTile({
       <div className="cx-tile-grip" {...attributes} {...listeners} title="Drag to reorder">
         <span className="cx-tile-grip-dots">⋮⋮</span>
         <span className="cx-tile-grip-label">{label}</span>
-        <button
-          type="button"
-          className="cx-tile-action"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); copyResume(); }}
-          title="Copy `codex resume` command"
-          aria-label="Copy resume command"
-        >
-          <Copy size={14} strokeWidth={2} aria-hidden="true" />
-        </button>
+        {!isFile && (
+          <button
+            type="button"
+            className="cx-tile-action"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); copyResume(); }}
+            title="Copy `codex resume` command"
+            aria-label="Copy resume command"
+          >
+            <Copy size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+        )}
         <button
           type="button"
           className="cx-tile-action"
@@ -286,13 +328,22 @@ function SortableTile({
         </button>
       </div>
       <div className="cx-tile-body">
-        <CodexChat
-          sid={tile.sid}
-          focused={isFocused}
-          hideBar
-          refreshKey={refreshKey}
-          onSendingChange={setIsRunning}
-        />
+        {isFile ? (
+          <FileTile
+            project={project}
+            path={filePath(tile.sid)}
+            focused={isFocused}
+            refreshKey={refreshKey}
+          />
+        ) : (
+          <CodexChat
+            sid={tile.sid}
+            focused={isFocused}
+            hideBar
+            refreshKey={refreshKey}
+            onSendingChange={setIsRunning}
+          />
+        )}
       </div>
       <div
         className="cx-tile-resize"
