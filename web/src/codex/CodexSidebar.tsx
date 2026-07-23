@@ -13,6 +13,7 @@ import { subscribeSystemEvents } from '../lib/systemEvents';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { sessionTitle } from '../lib/api';
+import { NewProjectModal } from '../components/NewProjectModal';
 
 type WsData = CodexWorkspace & { sessions: CodexThread[] };
 
@@ -30,6 +31,7 @@ export function CodexSidebar({ onNavigate }: {
   const [status, setStatus] = useState<'connecting' | 'ok' | 'bad'>('connecting');
   const [providerLabel, setProviderLabel] = useState('');
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
+  const [showNewProject, setShowNewProject] = useState(false);
   const confirm = useConfirm();
   const toast = useToast();
   const navigate = useNavigate();
@@ -151,7 +153,26 @@ export function CodexSidebar({ onNavigate }: {
         <span>New thread</span>
       </button>
 
-      <div className="cx-sb-label"><span>WORKSPACES</span></div>
+      <Link
+        className={'cx-sb-nav-link' + (location.pathname === '/examples' ? ' active' : '')}
+        to="/examples"
+        onClick={onNavigate}
+      >
+        <span>Examples</span>
+      </Link>
+
+      <div className="cx-sb-label">
+        <span>WORKSPACES</span>
+        <button
+          type="button"
+          className="cx-sb-new-project"
+          onClick={() => { onNavigate?.(); setShowNewProject(true); }}
+          title="New project (create dir or clone a repo)"
+          aria-label="New project"
+        >
+          + new
+        </button>
+      </div>
 
       <div className="cx-sb-list">
         {workspaces.length === 0 && (
@@ -238,10 +259,48 @@ export function CodexSidebar({ onNavigate }: {
 
       <div className="cx-sb-grow" />
 
-      <Link className="cx-sb-settings" to="/settings" onClick={onNavigate}>
-        <span><Settings size={16} aria-hidden="true" /></span>
-        <span>Settings</span>
-      </Link>
+      <div className="cx-sb-tools">
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/skills' ? ' active' : '')} to="/skills" onClick={onNavigate}>
+          <span>Skills</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/agents' ? ' active' : '')} to="/agents" onClick={onNavigate}>
+          <span>Agents</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/mcp' ? ' active' : '')} to="/mcp" onClick={onNavigate}>
+          <span>MCP</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/hooks' ? ' active' : '')} to="/hooks" onClick={onNavigate}>
+          <span>Hooks</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/prompts' ? ' active' : '')} to="/prompts" onClick={onNavigate}>
+          <span>Prompts</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/schedules' ? ' active' : '')} to="/schedules" onClick={onNavigate}>
+          <span>Schedules</span>
+        </Link>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/usage' ? ' active' : '')} to="/usage" onClick={onNavigate}>
+          <span>Usage</span>
+        </Link>
+        <button
+          type="button"
+          className="cx-sb-tool-link cx-sb-shortcuts-btn"
+          onClick={() => {
+            onNavigate?.();
+            window.requestAnimationFrame(() => {
+              window.dispatchEvent(new CustomEvent('macaron:shortcuts'));
+            });
+          }}
+          title="Keyboard shortcuts"
+        >
+          <span>Shortcuts</span>
+          <span className="cx-sb-spacer" />
+          <kbd className="cx-sb-shortcuts-kbd" aria-hidden="true">?</kbd>
+        </button>
+        <Link className={'cx-sb-tool-link' + (location.pathname === '/settings' ? ' active' : '')} to="/settings" onClick={onNavigate}>
+          <span><Settings size={13} aria-hidden="true" /></span>
+          <span>Settings</span>
+        </Link>
+      </div>
 
       <footer className="cx-sb-foot">
         <div className={'cx-sb-status cx-sb-status-' + status}>
@@ -249,6 +308,18 @@ export function CodexSidebar({ onNavigate }: {
           {status === 'ok' ? providerLabel || 'online' : status === 'bad' ? 'config missing' : 'connecting…'}
         </div>
       </footer>
+
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onCreated={(project) => {
+            setShowNewProject(false);
+            void load();
+            navigate(`/w/${encodeURIComponent(project)}`);
+            onNavigate?.();
+          }}
+        />
+      )}
     </aside>
   );
 }

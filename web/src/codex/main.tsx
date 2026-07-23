@@ -14,6 +14,18 @@ import { ToastProvider } from '../components/Toast';
 import { ConfirmProvider } from '../components/Confirm';
 import { consumeHandoff } from '../lib/auth';
 import { registerServiceWorker } from '../lib/pwa';
+// Engine-agnostic pages (user-scope APIs) reused from the Claude bundle so
+// Codex users get the same management surface without a parallel rewrite.
+// Anything that touches ~/.claude/projects or Claude-only session shape
+// (Dashboard, ShareView, per-workspace Hooks) is skipped intentionally.
+import { Skills } from '../views/Skills';
+import { Mcp } from '../views/Mcp';
+import { Agents } from '../views/Agents';
+import { Prompts } from '../views/Prompts';
+import { Schedules } from '../views/Schedules';
+import { Analytics } from '../views/Analytics';
+import { Examples } from '../views/Examples';
+import { Hooks } from '../views/Hooks';
 import './styles.css';
 import '../chat-code.css';
 
@@ -32,6 +44,19 @@ const router = createHashRouter([
       { path: 'w/:project', element: <CodexWorkspace /> },
       { path: 'w/:project/t/:sid', element: <CodexWorkspace /> },
       { path: 'settings', element: <CodexSettings /> },
+      // Engine-agnostic management surfaces — same components + same server
+      // routes as the Claude bundle. Codex users get skills/mcp/agents/…
+      // parity without a parallel rewrite; the pages touch user-scope config
+      // (~/.claude/skills, ~/.claude/agents, plugin's own bookkeeping) that
+      // both engines share on the same machine.
+      { path: 'examples', element: <Examples /> },
+      { path: 'usage', element: <Analytics /> },
+      { path: 'prompts', element: <Prompts /> },
+      { path: 'agents', element: <Agents /> },
+      { path: 'skills', element: <Skills /> },
+      { path: 'mcp', element: <Mcp /> },
+      { path: 'hooks', element: <Hooks /> },
+      { path: 'schedules', element: <Schedules /> },
     ],
   },
 ]);
