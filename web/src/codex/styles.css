@@ -2230,3 +2230,163 @@ body {
   .confirm-backdrop,
   .confirm-dialog { animation: none; }
 }
+
+/* Preferences pane (Appearance / Notifications / Sound / Remote / Config).
+   The Sound / RemoteAccess / ConfigFilesSection components are imported
+   from the Claude Settings view — they render inside .settings-view chrome
+   assumptions. The .cx-settings-borrowed wrapper isolates that scope so
+   their .settings-section / .settings-input / .settings-hint styles don't
+   clash with the Codex right-pane's own tokens. */
+.cx-theme-seg {
+  display: inline-flex;
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-sm);
+  overflow: hidden;
+}
+.cx-theme-seg-btn {
+  padding: 6px 14px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--cx-border);
+  color: var(--cx-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 100ms;
+}
+.cx-theme-seg-btn:last-child { border-right: 0; }
+.cx-theme-seg-btn:hover { background: var(--cx-hover); }
+.cx-theme-seg-btn.active { background: var(--cx-active); color: var(--cx-text); font-weight: 500; }
+.cx-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.cx-toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cx-text);
+  cursor: pointer;
+}
+.cx-field-hint {
+  margin: 6px 0 0;
+  color: var(--cx-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cx-settings-borrowed {
+  padding: 0;
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius);
+  background: var(--cx-surface);
+  margin-top: 16px;
+}
+.cx-settings-borrowed .settings-section {
+  padding: 14px 16px;
+  border: 0;
+}
+.cx-settings-borrowed .sec-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cx-text);
+}
+.cx-settings-borrowed .settings-hint {
+  color: var(--cx-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cx-settings-borrowed input[type="text"],
+.cx-settings-borrowed input[type="password"],
+.cx-settings-borrowed input[type="url"],
+.cx-settings-borrowed textarea,
+.cx-settings-borrowed select {
+  background: var(--cx-bg);
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-sm);
+  padding: 6px 10px;
+  color: var(--cx-text);
+  font: inherit;
+  font-size: 13px;
+}
+.cx-settings-borrowed button {
+  cursor: pointer;
+}
+
+/* Top-of-sidebar "Search threads" button. Mirrors the Claude sidebar's
+   .sb-search block — big rounded input-shaped affordance that opens the
+   command palette (which now searches threads + workspaces + commands). */
+.cx-sb-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--cx-surface);
+  border: 1px solid var(--cx-border);
+  border-radius: var(--cx-radius-sm);
+  color: var(--cx-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms;
+}
+.cx-sb-search:hover {
+  background: var(--cx-hover);
+  border-color: var(--cx-border-strong);
+}
+.cx-sb-search-icon { color: var(--cx-muted); display: inline-flex; }
+.cx-sb-search-label { flex: 1; text-align: left; }
+.cx-sb-search-kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: 3px;
+  background: var(--cx-surface);
+  color: var(--cx-muted);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 10.5px;
+}
+
+/* Inline thread rename — swaps the .cx-sb-thread-main button for a text
+   input while renamingSid matches. Kept the same footprint so the row
+   doesn't jump; input inherits the row's height and thread-title font. */
+.cx-sb-thread-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--cx-border-strong);
+  border-radius: 4px;
+  background: var(--cx-surface);
+  color: var(--cx-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.cx-sb-thread-rename:focus { border-color: var(--cx-good, #4d8f5b); }
+
+/* Small icon-only action button that sits in the chat header (Download the
+   transcript, and any future single-shot toolbar action). Muted by default,
+   fills in on hover, disabled state greys out. */
+.cx-main-head-action {
+  margin-left: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--cx-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 100ms, color 100ms;
+}
+.cx-main-head-action:hover:not(:disabled) {
+  background: var(--cx-hover);
+  color: var(--cx-text);
+}
+.cx-main-head-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LayoutGrid, MessageSquare, Settings, Zap } from 'lucide-react';
 import { hasActiveModal } from '../lib/modal';
-import { codexApi, type CodexWorkspace } from './api';
+import { codexApi, type CodexWorkspace, type CodexThread } from './api';
+import { sessionTitle } from '../lib/api';
 
 // Codex-scoped command palette (Cmd+K / Ctrl+K). The Claude bundle's palette
 // searches ~/.claude/projects sessions AND indexed message bodies — that
@@ -33,24 +34,29 @@ function fuzzyScore(query: string, text: string): number {
 
 type Item =
   | { kind: 'command'; id: string; title: string; subtitle?: string; run: () => void }
-  | { kind: 'workspace'; project: string; title: string; subtitle: string };
+  | { kind: 'workspace'; project: string; title: string; subtitle: string }
+  | { kind: 'thread'; project: string; sid: string; title: string; subtitle: string };
 
 function itemLabel(it: Item): string {
   return it.kind === 'command' ? it.title : `${it.title} ${it.subtitle}`;
 }
 
+type WsWithThreads = CodexWorkspace & { sessions: CodexThread[] };
+
 export function CodexCommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  const [workspaces, setWorkspaces] = useState<CodexWorkspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WsWithThreads[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   // Global open shortcut (Cmd+K / Ctrl+K). Skip while a modal is up so we
   // don't stack over Confirm etc; skip while a text field is focused so K
-  // stays a literal character where the user is typing.
+  // stays a literal character where the user is typing. Also listens for
+  // 'macaron:open-search' so the sidebar's "Search threads" button opens
+  // the same palette (mirrors the Claude sidebar's search wiring).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !e.shiftKey && !e.altKey) {
@@ -61,15 +67,39 @@ export function CodexCommandPalette() {
         setOpen(false);
       }
     };
+    const onOpenEvent = () => setOpen((v) => v || !hasActiveModal());
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('macaron:open-search', onOpenEvent);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('macaron:open-search', onOpenEvent);
+    };
   }, [open]);
 
-  // Refetch workspaces each time the palette opens so a freshly created
-  // workspace is jumpable without a full page refresh. Cheap call.
+  // Refetch workspaces + threads each time the palette opens so a freshly
+  // created workspace / thread is jumpable without a full page refresh.
+  // Two-step: list workspaces, then hydrate each with its thread list in
+  // parallel. Cheap; both endpoints already back the sidebar every 15s.
   useEffect(() => {
     if (!open) return;
-    codexApi.workspaces().then((r) => setWorkspaces(r.workspaces)).catch(() => setWorkspaces([]));
+    (async () => {
+      try {
+        const d = await codexApi.workspaces();
+        const hydrated = await Promise.all(
+          d.workspaces.map(async (w) => {
+            try {
+              const detail = await codexApi.workspace(w.project);
+              return { ...w, sessions: detail.sessions } as WsWithThreads;
+            } catch {
+              return { ...w, sessions: [] } as WsWithThreads;
+            }
+          }),
+        );
+        setWorkspaces(hydrated);
+      } catch {
+        setWorkspaces([]);
+      }
+    })();
     setQuery('');
     setActive(0);
     queueMicrotask(() => inputRef.current?.focus());
@@ -95,7 +125,16 @@ export function CodexCommandPalette() {
       title: w.name || w.project,
       subtitle: w.cwd || w.project,
     }));
-    const all: Item[] = [...commands, ...wsItems];
+    const threadItems: Item[] = workspaces.flatMap((w) =>
+      w.sessions.map((s) => ({
+        kind: 'thread' as const,
+        project: w.project,
+        sid: s.sessionId,
+        title: sessionTitle(s),
+        subtitle: `${w.name || w.project} · ${s.sessionId.slice(0, 8)}`,
+      })),
+    );
+    const all: Item[] = [...commands, ...wsItems, ...threadItems];
     if (!query.trim()) return all;
     const scored = all
       .map((it) => ({ it, s: fuzzyScore(query.trim(), itemLabel(it)) }))
@@ -112,6 +151,7 @@ export function CodexCommandPalette() {
   const choose = useCallback((it: Item) => {
     setOpen(false);
     if (it.kind === 'command') it.run();
+    else if (it.kind === 'thread') navigate(`/w/${encodeURIComponent(it.project)}/t/${encodeURIComponent(it.sid)}`);
     else navigate(`/w/${encodeURIComponent(it.project)}`);
   }, [navigate]);
 
@@ -135,7 +175,7 @@ export function CodexCommandPalette() {
         <input
           ref={inputRef}
           className="cx-palette-input"
-          placeholder="Jump to a workspace or command…"
+          placeholder="Jump to a thread, workspace, or command…"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setActive(0); }}
           onKeyDown={(e) => {
@@ -152,10 +192,17 @@ export function CodexCommandPalette() {
             const activeCls = i === active ? ' active' : '';
             const Icon = it.kind === 'command'
               ? (it.id.startsWith('nav-settings') ? Settings : it.id.startsWith('nav-home') ? MessageSquare : Zap)
-              : LayoutGrid;
+              : it.kind === 'thread'
+                ? MessageSquare
+                : LayoutGrid;
+            const key = it.kind === 'command'
+              ? `c-${it.id}`
+              : it.kind === 'thread'
+                ? `t-${it.sid}`
+                : `w-${it.project}`;
             return (
               <button
-                key={it.kind === 'command' ? `c-${it.id}` : `w-${it.project}`}
+                key={key}
                 type="button"
                 className={'cx-palette-item' + activeCls}
                 role="option"
@@ -164,7 +211,7 @@ export function CodexCommandPalette() {
                 onClick={() => choose(it)}
               >
                 <Icon className="cx-palette-icon" size={14} aria-hidden="true" />
-                <span className="cx-palette-title">{it.kind === 'command' ? it.title : it.title}</span>
+                <span className="cx-palette-title">{it.title}</span>
                 <span className="cx-palette-sub">{it.kind === 'command' ? (it.subtitle || '') : it.subtitle}</span>
               </button>
             );

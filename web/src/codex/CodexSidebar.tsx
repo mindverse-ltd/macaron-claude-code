@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Check, Circle, Plus, X, Settings } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Check, Circle, Plus, Search, X, Settings } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { assetUrl } from '../lib/assetBase';
 import { codexApi, type CodexThread, type CodexWorkspace } from './api';
@@ -32,6 +32,12 @@ export function CodexSidebar({ onNavigate }: {
   const [providerLabel, setProviderLabel] = useState('');
   const [canvasBy, setCanvasBy] = useState<Record<string, string[]>>({});
   const [showNewProject, setShowNewProject] = useState(false);
+  // Inline rename state: sid whose title is currently in edit mode + draft
+  // value. Committing writes via codexApi.setThreadLabel (engine-agnostic
+  // label sidecar); Escape cancels without a request.
+  const [renamingSid, setRenamingSid] = useState('');
+  const [renameDraft, setRenameDraft] = useState('');
+  const renameDoneRef = useRef(false);
   const confirm = useConfirm();
   const toast = useToast();
   const navigate = useNavigate();
@@ -115,6 +121,28 @@ export function CodexSidebar({ onNavigate }: {
     return n;
   });
 
+  const startRename = (sid: string, current: string) => {
+    renameDoneRef.current = false;
+    setRenamingSid(sid);
+    setRenameDraft(current);
+  };
+  const commitRename = async (sid: string) => {
+    if (renameDoneRef.current) return;
+    renameDoneRef.current = true;
+    const name = renameDraft.trim();
+    setRenamingSid('');
+    try {
+      await codexApi.setThreadLabel(sid, name);
+      await load();
+    } catch (err) {
+      toast(`rename failed: ${(err as Error).message}`);
+    }
+  };
+  const cancelRename = () => {
+    renameDoneRef.current = true;
+    setRenamingSid('');
+  };
+
   const del = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
     const ok = await confirm({
@@ -151,6 +179,22 @@ export function CodexSidebar({ onNavigate }: {
       <button className="cx-sb-new" onClick={() => { navigate('/'); onNavigate?.(); }}>
         <Plus size={14} aria-hidden="true" />
         <span>New thread</span>
+      </button>
+
+      <button
+        type="button"
+        className="cx-sb-search"
+        onClick={() => {
+          onNavigate?.();
+          window.requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent('macaron:open-search'));
+          });
+        }}
+        title="Search threads (Cmd+K)"
+      >
+        <span className="cx-sb-search-icon"><Search size={14} aria-hidden="true" /></span>
+        <span className="cx-sb-search-label">Search threads</span>
+        <kbd className="cx-sb-search-kbd" aria-hidden="true">⌘K</kbd>
       </button>
 
       <Link
@@ -207,22 +251,39 @@ export function CodexSidebar({ onNavigate }: {
                         key={s.sessionId}
                         className={'cx-sb-thread' + (pinned ? ' pinned' : '')}
                       >
-                        <button
-                          type="button"
-                          className="cx-sb-thread-main"
-                          title={s.cwd}
-                          onClick={() => {
-                            // Click to add to canvas; re-click on pinned focuses it.
-                            if (!pinned) toggleCanvasSid(w.project, s.sessionId);
-                            else focusCanvasSid(w.project, s.sessionId);
-                            if (activeProject !== w.project) {
-                              navigate(`/w/${encodeURIComponent(w.project)}`);
-                            }
-                            onNavigate?.();
-                          }}
-                        >
-                          <span className="cx-sb-thread-title">{label}</span>
-                        </button>
+                        {renamingSid === s.sessionId ? (
+                          <input
+                            type="text"
+                            className="cx-sb-thread-rename"
+                            value={renameDraft}
+                            autoFocus
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            onBlur={() => { void commitRename(s.sessionId); }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); void commitRename(s.sessionId); }
+                              else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="cx-sb-thread-main"
+                            title={s.cwd}
+                            onClick={() => {
+                              // Click to add to canvas; re-click on pinned focuses it.
+                              if (!pinned) toggleCanvasSid(w.project, s.sessionId);
+                              else focusCanvasSid(w.project, s.sessionId);
+                              if (activeProject !== w.project) {
+                                navigate(`/w/${encodeURIComponent(w.project)}`);
+                              }
+                              onNavigate?.();
+                            }}
+                            onDoubleClick={(e) => { e.stopPropagation(); startRename(s.sessionId, label); }}
+                          >
+                            <span className="cx-sb-thread-title">{label}</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           className={'cx-sb-thread-pin' + (pinned ? ' pinned' : '')}

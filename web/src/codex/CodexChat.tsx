@@ -4,14 +4,16 @@
 // blocks — is tuned to match the claude WebUI's palette (see styles.css).
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Terminal, Pencil, Search, Hexagon, ListTodo, Settings, ChevronDown, ChevronRight, Sparkles, Diamond, CheckSquare, CircleDot, Square, Flag, GitBranch, AlertTriangle } from 'lucide-react';
+import { Terminal, Pencil, Search, Hexagon, ListTodo, Settings, ChevronDown, ChevronRight, Sparkles, Diamond, CheckSquare, CircleDot, Square, Flag, GitBranch, AlertTriangle, Download } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownCode, MarkdownCodeStreamingProvider, MarkdownPre } from '../components/MarkdownCode';
 import type { SessionDetail, Message, Block, CodexPlanStatus, CodexApprovalKind, CodexDecision } from '@macaron/shared';
 import { codexApi, type CodexLoopSnapshot } from './api';
-import { basename } from '../lib/api';
+import { basename, downloadTextFile } from '../lib/api';
+import { sessionToMarkdown } from '@macaron/shared';
+import { useToast } from '../components/Toast';
 import type { CodexRuntimeOverride } from './api';
 import { sendCodexMessage, startCodexThread, subscribeCodexLoop, subscribeCodexLive, type CodexStreamEvent } from './stream';
 import { CodexComposer, type ComposerImage } from './CodexComposer';
@@ -503,8 +505,20 @@ export function CodexChat(props: CodexChatProps = {}) {
     };
   }, [sid, isNew, refreshKey]);
 
+  const toast = useToast();
   const replay = useReplay(detail?.replayMessages ?? detail?.messages ?? [], isNew || sending);
   const diskHistory = useMemo(() => detail ? historyToItems({ ...detail, messages: replay.messages }) : [], [detail, replay.messages]);
+
+  // Export the current thread as Markdown. sessionToMarkdown lives in
+  // @macaron/shared and takes a SessionDetail — engine-agnostic (both Claude
+  // and Codex populate the same shape). The filename mirrors the Claude side.
+  const exportMarkdown = useCallback(() => {
+    if (!detail) return;
+    const md = sessionToMarkdown(detail);
+    const name = `${basename(detail.cwd) || 'thread'}-${sid.slice(0, 8)}.md`;
+    downloadTextFile(name, md);
+    toast(`Exported ${name}`);
+  }, [detail, sid, toast]);
   const history = useMemo(
     () => reconcileHistoryWithLive(diskHistory, live),
     [diskHistory, live],
@@ -686,6 +700,16 @@ export function CodexChat(props: CodexChatProps = {}) {
                   <span className="cx-main-head-branch"><GitBranch size={13} aria-hidden="true" /> {detail.gitBranch}</span>
                 </>
               )}
+              <button
+                type="button"
+                className="cx-main-head-action"
+                onClick={exportMarkdown}
+                title="Download this thread as Markdown"
+                aria-label="Download this thread as Markdown"
+                disabled={!detail}
+              >
+                <Download size={13} aria-hidden="true" />
+              </button>
             </>
           )}
         </div>

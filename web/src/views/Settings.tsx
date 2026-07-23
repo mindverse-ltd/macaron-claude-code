@@ -491,7 +491,7 @@ const PROVIDER_LABELS: Record<TunnelProvider, string> = {
 
 // Zero-config remote access: pick a tunnel CLI, start it, and share the public
 // URL (with a QR code) so a phone or second machine can reach this session.
-function RemoteAccess() {
+export function RemoteAccess() {
   const [state, setState] = useState<TunnelState | null>(null);
   const [provider, setProvider] = useState<TunnelProvider>('cloudflared');
   const [busy, setBusy] = useState(false);
@@ -697,7 +697,7 @@ function ProviderForm({
 // the JSON file is checked client-side for parse errors so Save stays
 // disabled on obviously-broken input, and the server re-validates as the
 // source of truth before any write touches disk.
-function ConfigFilesSection() {
+export function ConfigFilesSection() {
   const [files, setFiles] = useState<ConfigFileMeta[] | null>(null);
   const [activeId, setActiveId] = useState<ConfigFileMeta['id'] | null>(null);
   const [original, setOriginal] = useState('');
@@ -820,7 +820,7 @@ function ConfigFilesSection() {
 // Audio cue preferences (localStorage-backed, see lib/sound.ts). Independent
 // of the server-side PublicSettings above — nothing here round-trips to the
 // backend, so it renders straight from the useSoundPrefs store.
-function SoundSettings() {
+export function SoundSettings() {
   const prefs = useSoundPrefs();
   return (
     <div className="settings-section">

@@ -422,6 +422,19 @@ export const api = {
         body: JSON.stringify(input),
       },
     ),
+  // Project-scoped variants for callers (e.g. Codex Workspace) that want
+  // PR context / creation from a workspace cwd without needing a Claude sid.
+  prContextForProject: (project: string) =>
+    req<PrContext>(`/api/git/${encodeURIComponent(project)}/pr-context`, { method: 'GET' }),
+  createPrForProject: (project: string, input: CreatePrRequest) =>
+    req<CreatePrResult>(
+      `/api/git/${encodeURIComponent(project)}/pr`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    ),
   createShare: (project: string, sid: string) =>
     req<CreateShareResponse>('/api/share', {
       method: 'POST',

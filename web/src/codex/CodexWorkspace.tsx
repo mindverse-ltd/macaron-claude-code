@@ -19,7 +19,7 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Copy, FolderOpen, GitBranch, Plus, RefreshCw, SquareTerminal, X } from 'lucide-react';
+import { Copy, FolderOpen, GitBranch, GitPullRequest, Plus, RefreshCw, SquareTerminal, X } from 'lucide-react';
 import { codexApi, type CodexThread, type CodexWorkspace as Wk } from './api';
 import { CodexChat } from './CodexChat';
 import {
@@ -39,6 +39,9 @@ import { isFileSid, filePath } from '../lib/fileTile';
 import { GitPanel } from '../components/GitPanel';
 import { Terminal } from '../components/Terminal';
 import { isTerminalSid, killTerminal } from '../lib/terminal';
+import { CreatePrDialog } from '../components/CreatePrDialog';
+import { api, type PrContext } from '../lib/api';
+import { useToast } from '../components/Toast';
 
 const ROW_UNIT_PX = 48;
 
@@ -65,6 +68,8 @@ export function CodexWorkspace() {
   const [error, setError] = useState('');
   const [filesOpen, setFilesOpen] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
+  const [prDialog, setPrDialog] = useState<{ ctx: PrContext; title: string; body: string; busy: boolean } | null>(null);
+  const toast = useToast();
   const canvas = useCanvas(project);
   const gridRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -181,6 +186,22 @@ export function CodexWorkspace() {
           <button
             type="button"
             className="cx-canvas-action"
+            onClick={async () => {
+              try {
+                const ctx = await api.prContextForProject(project);
+                setPrDialog({ ctx, title: '', body: '', busy: false });
+              } catch (e) {
+                toast(`PR context failed: ${(e as Error).message}`);
+              }
+            }}
+            title="Open a pull request from this workspace"
+          >
+            <GitPullRequest size={14} aria-hidden="true" />
+            <span>PR</span>
+          </button>
+          <button
+            type="button"
+            className="cx-canvas-action"
             onClick={() => canvas.addTerminal()}
             title="Pin a terminal to the canvas"
           >
@@ -209,6 +230,28 @@ export function CodexWorkspace() {
       </header>
 
       {gitOpen && <GitPanel project={project} onClose={() => setGitOpen(false)} />}
+
+      {prDialog && (
+        <CreatePrDialog
+          ctx={prDialog.ctx}
+          initialTitle={prDialog.title}
+          initialBody={prDialog.body}
+          busy={prDialog.busy}
+          onCancel={() => setPrDialog(null)}
+          onSubmit={async (input) => {
+            setPrDialog((cur) => (cur ? { ...cur, busy: true } : cur));
+            try {
+              const r = await api.createPrForProject(project, input);
+              toast(r.created ? 'Pull request opened' : 'PR already exists — opening it');
+              window.open(r.url, '_blank', 'noopener,noreferrer');
+              setPrDialog(null);
+            } catch (e) {
+              toast(`PR failed: ${(e as Error).message}`);
+              setPrDialog((cur) => (cur ? { ...cur, busy: false } : cur));
+            }
+          }}
+        />
+      )}
 
       <div className={'cx-canvas-body' + (filesOpen ? ' with-files' : '')}>
         {filesOpen && (
