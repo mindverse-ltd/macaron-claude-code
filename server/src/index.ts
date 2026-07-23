@@ -43,6 +43,7 @@ import { registerSearchRoutes } from './routes/search.js';
 import { isSearchEnabled, syncAll } from './lib/search-index.js';
 import { registerAgentRoutes } from './routes/agents.js';
 import { registerPushRoutes } from './routes/push.js';
+import { registerVoiceRoutes } from './routes/voice.js';
 import { registerTunnelRoutes } from './routes/tunnel.js';
 import { shutdownTunnel } from './lib/tunnel-manager.js';
 import { registerUsageRoutes } from './routes/usage.js';
@@ -168,6 +169,7 @@ await app.register(async (instance) => {
   }
   await registerGitRoutes(instance);
   await registerShareRoutes(instance);
+  await registerVoiceRoutes(instance);
   await registerGenuiExportRoutes(instance);
   await registerSearchRoutes(instance);
   await registerAgentRoutes(instance);

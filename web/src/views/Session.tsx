@@ -50,6 +50,7 @@ import { DiffCard, isDiffTool, extractDiff } from '../components/DiffCard';
 import { toolHeader, bashCommand, isToolExpandable } from '../lib/toolHeader';
 import { loadHistory, pushHistory } from '../lib/history';
 import { ensureNotificationPermission, notify } from '../lib/notify';
+import { useVoiceInput } from '../lib/useVoiceInput';
 import { playSound } from '../lib/sound';
 import StaticGenUIRenderer from '../macaron-vendor/StaticGenUIRenderer';
 import { CreatePrDialog } from '../components/CreatePrDialog';
@@ -1499,6 +1500,14 @@ export function Session(props: SessionProps = {}) {
   // Messages the user lined up while the current turn was still streaming.
   // Auto-sent one at a time as each turn completes (see the dequeue effect).
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
+
+  // Voice input: append the transcript to whatever's already in the composer
+  // (space-joined) rather than replacing it, so dictation can extend a draft.
+  const appendTranscript = useCallback((text: string) => {
+    setInput((cur) => (cur ? `${cur.replace(/\s+$/, '')} ${text}` : text));
+    if (historyIdx !== null) setHistoryIdx(null);
+  }, [historyIdx]);
+  const voice = useVoiceInput(appendTranscript, (msg) => toast(msg));
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const accepted: AttachedImage[] = [];
@@ -2964,6 +2973,30 @@ export function Session(props: SessionProps = {}) {
           >
             <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
           </button>
+          {voice.available && (
+            <button
+              type="button"
+              className={`icon-btn mic-btn${voice.state === 'recording' ? ' recording' : ''}`}
+              title={voice.state === 'recording' ? 'Stop recording' : voice.state === 'transcribing' ? 'Transcribing…' : 'Voice input'}
+              aria-label="Voice input"
+              // Keep the button live while recording even if a send starts —
+              // it's the only way to stop the recorder, else the mic stays hot.
+              disabled={voice.state === 'transcribing' || (sending && voice.state !== 'recording')}
+              onClick={() => voice.toggle()}
+            >
+              {voice.state === 'transcribing' ? (
+                <svg className="mic-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="2" width="6" height="12" rx="3" />
+                  <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                  <line x1="12" y1="18" x2="12" y2="22" />
+                </svg>
+              )}
+            </button>
+          )}
           <SessionActionsMenu
             disabled={isNew || sending}
             busyCompact={busyCompact}

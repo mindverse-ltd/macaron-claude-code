@@ -384,6 +384,10 @@ export type AuthStatusResponse = { required: boolean };
 // SessionDetail (sid, project, absolute cwd) to whoever holds the link.
 export type CreateShareResponse = { token: string };
 export type SharedSessionResponse = { sessionId: string; createdAt: number; detail: SessionDetail };
+// Voice input (speech-to-text). `configured` gates the mic button — false
+// means no STT backend key is set, so the UI hides voice entirely.
+export type VoiceHealthResponse = { configured: boolean };
+export type TranscribeResponse = { text: string };
 
 // One full-text search hit — a single matched message inside a session. The
 // snippet wraps matched terms in U+0002/U+0003 control chars (SEARCH_HL_OPEN /

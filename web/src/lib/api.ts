@@ -70,6 +70,8 @@ import type {
   DirListing,
   CreateShareResponse,
   SharedSessionResponse,
+  VoiceHealthResponse,
+  TranscribeResponse,
   TunnelProvider,
   TunnelState,
   WorktreeInfo,
@@ -199,6 +201,16 @@ export const api = {
     getJSON<AnalyticsResponse>(`/api/analytics?window=${encodeURIComponent(window)}`),
   settings: () => getJSON<PublicSettings>('/api/settings'),
   usage: () => getJSON<UsageResponse>('/api/usage'),
+
+  // Voice input. voiceHealth().configured gates the mic button; transcribe
+  // posts base64 audio and gets back the recognised text.
+  voiceHealth: () => getJSON<VoiceHealthResponse>('/api/voice/health'),
+  transcribe: (audio: string, mimeType: string) =>
+    req<TranscribeResponse>('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio, mimeType }),
+    }),
 
   addProvider: (input: ProviderInput) =>
     req<{ id: string; settings: PublicSettings }>('/api/settings/providers', {
